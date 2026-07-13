@@ -9,7 +9,7 @@
   min-height: 100vh;
   display: grid;
   place-items: center;
-  padding: 24px;
-  background: #f3f4f6;
+  padding: 40px 24px;
+  background: #ffffff;
 }
 </style>
