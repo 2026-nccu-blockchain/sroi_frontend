@@ -25,10 +25,10 @@ const handleLogout = async (): Promise<void> => {
             <span aria-hidden="true">01</span>
           </RouterLink>
 
-          <button v-if="isAuthenticated" class="sidebar__link" type="button">
+          <RouterLink v-if="isAuthenticated" class="sidebar__link" to="/forms/new">
             <span>Add project</span>
             <span aria-hidden="true">＋</span>
-          </button>
+          </RouterLink>
         </nav>
       </div>
 
