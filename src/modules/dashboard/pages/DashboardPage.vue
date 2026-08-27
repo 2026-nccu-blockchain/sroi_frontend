@@ -33,9 +33,9 @@ const deleteProject = (project: Project): void => {
         <h1>Projects</h1>
       </div>
 
-      <button v-if="isAuthenticated" class="button button--primary" type="button">
+      <RouterLink v-if="isAuthenticated" class="button button--primary" to="/forms/new">
         <span>＋</span> Add project
-      </button>
+      </RouterLink>
       <RouterLink v-else class="button button--primary" to="/login?redirect=/">
         Sign in to manage
       </RouterLink>
