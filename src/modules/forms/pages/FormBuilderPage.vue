@@ -1,24 +1,59 @@
 <script setup lang="ts">
-import { computed, nextTick, ref } from "vue";
+import { nextTick, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
+
+import { useAuth } from "@/modules/auth/composables/useAuth";
+import {
+  createForm,
+  createQuestion as createQuestionApi,
+  deleteQuestion as deleteQuestionApi,
+  getForm,
+  saveFormStructure,
+  updateForm,
+  updateQuestion
+} from "@/modules/forms/api/forms.api";
+import type {
+  ApiQuestionType,
+  FormResponse,
+  QuestionPayload,
+  QuestionResponse
+} from "@/modules/forms/types/form.types";
+import { HttpError } from "@/shared/api/http";
 
 type QuestionType = "description" | "text" | "scale" | "date" | "choice";
 
+interface QuestionOption {
+  id?: string;
+  label: string;
+}
+
 interface Question {
-  id: number;
+  id: string;
   title: string;
   type: QuestionType;
   required: boolean;
-  options: string[];
+  options: QuestionOption[];
+  scaleBegin: number;
+  scaleEnd: number;
+  isTemp: boolean;
 }
 
+const FORM_SESSION_KEY = "sroi.form-builder.form-id";
 const router = useRouter();
+const { isAuthenticated } = useAuth();
+const formId = ref("");
+const pageId = ref("");
 const formTitle = ref("社會影響力評估問卷");
 const formDescription = ref("感謝您撥空填寫這份問卷。您的回答將協助我們更了解計畫所帶來的改變。");
-const activeQuestionId = ref(1);
-const saved = ref(true);
+const activeQuestionId = ref("");
+const saved = ref(false);
+const saving = ref(false);
+const initializing = ref(true);
+const saveError = ref("");
 const showToast = ref(false);
-let nextId = 3;
+let saveTimer: number | undefined;
+let activeSave: Promise<void> | null = null;
+let pendingSave = false;
 
 const questionTypes: { value: QuestionType; label: string; icon: string }[] = [
   { value: "description", label: "題目敘述", icon: "T" },
@@ -28,71 +63,242 @@ const questionTypes: { value: QuestionType; label: string; icon: string }[] = [
   { value: "choice", label: "選擇題", icon: "◉" }
 ];
 
-const questions = ref<Question[]>([
-  {
-    id: 1,
+const questions = ref<Question[]>([]);
+
+const typeToApi: Record<QuestionType, ApiQuestionType> = {
+  description: "DS",
+  text: "OQ",
+  scale: "SC",
+  date: "DT",
+  choice: "CQ"
+};
+
+const apiToType: Record<ApiQuestionType, QuestionType> = {
+  DS: "description",
+  OQ: "text",
+  SC: "scale",
+  DT: "date",
+  CQ: "choice"
+};
+
+const toPayload = (question: Question, position: number): QuestionPayload => ({
+  question_type: typeToApi[question.type],
+  title: question.type === "description" ? null : question.title,
+  content: question.type === "description" ? question.title : "",
+  is_required: question.type === "description" ? false : question.required,
+  position,
+  scale_begin: question.type === "scale" ? question.scaleBegin : null,
+  scale_end: question.type === "scale" ? question.scaleEnd : null,
+  is_multiple: false,
+  options: question.type === "choice"
+    ? question.options.map((option, index) => ({ option_id: option.id, label: option.label, value: option.label, position: index }))
+    : []
+});
+
+const fromResponse = (question: QuestionResponse): Question => ({
+  id: question.question_id,
+  title: question.question_type === "DS" ? question.content : question.title ?? "",
+  type: apiToType[question.question_type],
+  required: question.is_required,
+  options: question.options.map((option) => ({ id: option.option_id, label: option.label })),
+  scaleBegin: question.scale_begin ?? 1,
+  scaleEnd: question.scale_end ?? 5,
+  isTemp: question.is_temp
+});
+
+const hydrate = (form: FormResponse): void => {
+  formId.value = form.form_id;
+  formTitle.value = form.title ?? "未命名表單";
+  formDescription.value = form.content ?? "";
+  const firstPage = form.pages[0];
+  pageId.value = firstPage?.page_id ?? "";
+  questions.value = firstPage?.questions.map(fromResponse) ?? [];
+  activeQuestionId.value = questions.value[0]?.id ?? "";
+  window.sessionStorage.setItem(FORM_SESSION_KEY, form.form_id);
+};
+
+const initialPayloads = (): QuestionPayload[] => [
+  toPayload({
+    id: "initial-choice",
     title: "您與本計畫的關係是？",
     type: "choice",
     required: true,
-    options: ["計畫參與者", "工作人員或志工", "合作夥伴", "其他"]
-  },
-  {
-    id: 2,
+    options: ["計畫參與者", "工作人員或志工", "合作夥伴", "其他"].map((label) => ({ label })),
+    scaleBegin: 1,
+    scaleEnd: 5,
+    isTemp: false
+  }, 0),
+  toPayload({
+    id: "initial-text",
     title: "參與計畫後，您感受到最大的改變是什麼？",
     type: "text",
     required: false,
-    options: []
-  }
-]);
+    options: [],
+    scaleBegin: 1,
+    scaleEnd: 5,
+    isTemp: false
+  }, 1)
+];
 
-const activeIndex = computed(() => questions.value.findIndex((question) => question.id === activeQuestionId.value));
+const initializeForm = async (): Promise<void> => {
+  if (!isAuthenticated.value) {
+    await router.replace("/login?redirect=/forms/new");
+    return;
+  }
+
+  try {
+    const storedId = window.sessionStorage.getItem(FORM_SESSION_KEY);
+    if (storedId) {
+      try {
+        hydrate(await getForm(storedId));
+        saved.value = true;
+        return;
+      } catch (error) {
+        if (!(error instanceof HttpError) || error.status !== 404) throw error;
+        window.sessionStorage.removeItem(FORM_SESSION_KEY);
+      }
+    }
+
+    const created = await createForm({
+      title: formTitle.value,
+      content: formDescription.value,
+      status: "draft",
+      pages: [{ title: "第一區", content: "", position: 0, questions: initialPayloads() }]
+    });
+    hydrate(created);
+    saved.value = true;
+  } catch (error) {
+    saveError.value = error instanceof Error ? error.message : "無法連接後端";
+    if (error instanceof HttpError && error.status === 401) {
+      window.localStorage.removeItem("sroi.auth.user");
+      await router.replace("/login?redirect=/forms/new");
+    }
+  } finally {
+    initializing.value = false;
+  }
+};
+
+const persistDraft = (): Promise<void> => {
+  if (!formId.value) return Promise.resolve();
+  if (activeSave) {
+    pendingSave = true;
+    return activeSave.then(() => pendingSave ? persistDraft() : undefined);
+  }
+
+  pendingSave = false;
+  saving.value = true;
+  saveError.value = "";
+  activeSave = (async () => {
+    try {
+      await updateForm(formId.value, { title: formTitle.value, content: formDescription.value });
+      await Promise.all(questions.value.map((question, index) =>
+        updateQuestion(question.id, toPayload(question, index))
+      ));
+      saved.value = true;
+    } catch (error) {
+      saveError.value = error instanceof Error ? error.message : "儲存失敗";
+      saved.value = false;
+    } finally {
+      saving.value = false;
+      activeSave = null;
+    }
+  })();
+  return activeSave;
+};
 
 const touch = (): void => {
   saved.value = false;
-  window.setTimeout(() => (saved.value = true), 550);
+  pendingSave = true;
+  saveError.value = "";
+  window.clearTimeout(saveTimer);
+  saveTimer = window.setTimeout(() => void persistDraft(), 700);
 };
 
 const addQuestion = async (): Promise<void> => {
-  const id = nextId++;
-  questions.value.push({ id, title: "未命名問題", type: "text", required: false, options: [] });
-  activeQuestionId.value = id;
-  touch();
-  await nextTick();
-  document.getElementById(`question-${id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  if (!formId.value || !pageId.value) return;
+  try {
+    const position = questions.value.length;
+    const response = await createQuestionApi(formId.value, pageId.value, {
+      question_type: "OQ",
+      title: "未命名問題",
+      content: "",
+      is_required: false,
+      position,
+      scale_begin: null,
+      scale_end: null,
+      is_multiple: false,
+      options: []
+    });
+    const question = fromResponse(response);
+    questions.value.push(question);
+    activeQuestionId.value = question.id;
+    saved.value = true;
+    await nextTick();
+    document.getElementById(`question-${question.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  } catch (error) {
+    saveError.value = error instanceof Error ? error.message : "新增題目失敗";
+  }
 };
 
-const removeQuestion = (id: number): void => {
+const removeQuestion = async (id: string): Promise<void> => {
   if (questions.value.length === 1) return;
   const index = questions.value.findIndex((question) => question.id === id);
-  questions.value.splice(index, 1);
-  activeQuestionId.value = questions.value[Math.max(0, index - 1)].id;
-  touch();
+  try {
+    await deleteQuestionApi(id);
+    questions.value.splice(index, 1);
+    activeQuestionId.value = questions.value[Math.max(0, index - 1)].id;
+    touch();
+  } catch (error) {
+    saveError.value = error instanceof Error ? error.message : "刪除題目失敗";
+  }
 };
 
-const duplicateQuestion = (question: Question): void => {
+const duplicateQuestion = async (question: Question): Promise<void> => {
+  if (!formId.value || !pageId.value) return;
   const index = questions.value.findIndex((item) => item.id === question.id);
-  const copy = { ...question, id: nextId++, options: [...question.options] };
-  questions.value.splice(index + 1, 0, copy);
-  activeQuestionId.value = copy.id;
-  touch();
+  try {
+    const response = await createQuestionApi(formId.value, pageId.value, toPayload(question, index + 1));
+    const copy = fromResponse(response);
+    questions.value.splice(index + 1, 0, copy);
+    activeQuestionId.value = copy.id;
+    touch();
+  } catch (error) {
+    saveError.value = error instanceof Error ? error.message : "複製題目失敗";
+  }
 };
 
 const changeType = (question: Question): void => {
-  const needsOptions = question.type === "choice";
-  if (needsOptions && question.options.length === 0) question.options = ["選項 1", "選項 2"];
-  if (!needsOptions) question.options = [];
+  if (question.type === "choice" && question.options.length === 0) {
+    question.options = [{ label: "選項 1" }, { label: "選項 2" }];
+  }
+  if (question.type !== "choice") question.options = [];
   touch();
 };
 
 const addOption = (question: Question): void => {
-  question.options.push(`選項 ${question.options.length + 1}`);
+  question.options.push({ label: `選項 ${question.options.length + 1}` });
   touch();
 };
 
-const publish = (): void => {
-  showToast.value = true;
-  window.setTimeout(() => (showToast.value = false), 2400);
+const publish = async (): Promise<void> => {
+  window.clearTimeout(saveTimer);
+  await persistDraft();
+  if (!formId.value || saveError.value) return;
+  try {
+    const structured = await saveFormStructure(formId.value, [{
+      page_id: pageId.value,
+      question_ids: questions.value.map((question) => question.id)
+    }]);
+    await updateForm(formId.value, { status: "published" });
+    hydrate(structured);
+    showToast.value = true;
+    window.setTimeout(() => (showToast.value = false), 2400);
+  } catch (error) {
+    saveError.value = error instanceof Error ? error.message : "發布失敗";
+  }
 };
+
+onMounted(() => void initializeForm());
 </script>
 
 <template>
@@ -105,9 +311,9 @@ const publish = (): void => {
         <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
         <div class="document-meta">
           <input v-model="formTitle" class="document-meta__title" aria-label="表單名稱" @input="touch" />
-          <span class="document-meta__status">
+          <span class="document-meta__status" :class="{ 'document-meta__status--error': saveError }">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 18a4.6 4.6 0 0 1-.4-9.2A6 6 0 0 1 18.1 8a4 4 0 0 1-.1 8H7Z" /><path d="m9.5 13 1.7 1.7 3.5-4" /></svg>
-            {{ saved ? "已儲存" : "儲存中…" }}
+            {{ saveError || (initializing ? "載入中…" : saving ? "儲存中…" : saved ? "已儲存" : "尚未儲存") }}
           </span>
         </div>
       </div>
@@ -119,7 +325,7 @@ const publish = (): void => {
         <button class="icon-button hide-mobile" type="button" aria-label="預覽" title="預覽">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" /><circle cx="12" cy="12" r="2.7" /></svg>
         </button>
-        <button class="publish-button" type="button" @click="publish">
+        <button class="publish-button" type="button" :disabled="initializing || saving" @click="publish">
           發布 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 14-7-4 14-3-6-7-1Z" /></svg>
         </button>
         <button class="avatar-button" type="button" aria-label="帳號選單">J</button>
@@ -134,6 +340,7 @@ const publish = (): void => {
 
     <main class="workspace">
       <div class="form-canvas">
+        <p v-if="saveError" class="connection-error" role="alert">{{ saveError }}</p>
         <section class="form-heading">
           <div class="form-heading__accent"></div>
           <label>
@@ -189,9 +396,9 @@ const publish = (): void => {
               <span>年 / 月 / 日</span><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="2" /><path d="M8 3v4m8-4v4M4 10h16" /></svg>
             </div>
             <template v-else>
-              <div v-for="(_, optionIndex) in question.options" :key="optionIndex" class="option-row">
+              <div v-for="(option, optionIndex) in question.options" :key="option.id ?? optionIndex" class="option-row">
                 <span class="option-circle"></span>
-                <input v-model="question.options[optionIndex]" :aria-label="`選項 ${optionIndex + 1}`" @input="touch" />
+                <input v-model="option.label" :aria-label="`選項 ${optionIndex + 1}`" @input="touch" />
                 <button v-if="question.options.length > 1" class="remove-option" type="button" aria-label="刪除選項" @click.stop="question.options.splice(optionIndex, 1); touch()">×</button>
               </div>
               <button class="add-option" type="button" @click.stop="addOption(question)">＋ 新增選項</button>
@@ -308,6 +515,7 @@ svg { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: 
 .document-meta__title { width: min(320px, 28vw); border: 0; border-bottom: 1px solid transparent; outline: 0; color: #292631; font-size: 15px; font-weight: 650; }
 .document-meta__title:focus { border-color: #72508c; }
 .document-meta__status { display: flex; align-items: center; gap: 5px; color: #8b8690; font-size: 11px; }
+.document-meta__status--error { color: #a43f55; }
 .document-meta__status svg { width: 15px; height: 15px; }
 
 .publish-button {
@@ -327,6 +535,7 @@ svg { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: 
 }
 
 .publish-button:hover { background: #593674; transform: translateY(-1px); }
+.publish-button:disabled { cursor: wait; opacity: .55; transform: none; }
 .publish-button svg { width: 17px; height: 17px; }
 .avatar-button { width: 38px; height: 38px; margin-left: 5px; border: 0; border-radius: 50%; background: #e8d9ef; color: #62407b; font-weight: 700; }
 
@@ -349,6 +558,7 @@ svg { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: 
 
 .workspace { position: relative; width: min(820px, calc(100% - 48px)); margin: 0 auto; padding: 30px 58px 70px 0; }
 .form-canvas { display: grid; gap: 14px; }
+.connection-error { margin: 0; padding: 12px 16px; border: 1px solid #e4b8c2; border-radius: 9px; background: #fff4f6; color: #91374a; font-size: 12px; }
 .form-heading,
 .question-card { position: relative; border: 1px solid #e8e3eb; border-radius: 12px; background: #fff; box-shadow: 0 2px 7px rgba(42, 27, 50, 0.035); }
 

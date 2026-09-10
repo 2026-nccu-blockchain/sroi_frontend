@@ -1,10 +1,25 @@
 import type { AuthUser, LoginPayload } from "@/modules/auth/types/auth.types";
+import { httpClient } from "@/shared/api/http";
+
+interface LoginResponse {
+  token: string;
+}
+
+const getTokenUserId = (token: string): string => {
+  try {
+    const payload = token.split(".")[1];
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    return String((JSON.parse(window.atob(normalized)) as { id?: string }).id ?? "");
+  } catch {
+    return "";
+  }
+};
 
 export const login = async (payload: LoginPayload): Promise<AuthUser> => {
-  await Promise.resolve();
+  const response = await httpClient.post<LoginResponse>("/auth/user/login", payload);
   return {
-    id: "demo-user-id",
-    email: payload.email
+    id: getTokenUserId(response.token),
+    email: payload.email,
+    token: response.token
   };
 };
-  

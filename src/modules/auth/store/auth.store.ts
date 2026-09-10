@@ -15,7 +15,12 @@ const loadStoredUser = (): AuthUser | null => {
   if (!storedUser) return null;
 
   try {
-    return JSON.parse(storedUser) as AuthUser;
+    const user = JSON.parse(storedUser) as AuthUser;
+    if (!user.token) {
+      window.localStorage.removeItem(AUTH_STORAGE_KEY);
+      return null;
+    }
+    return user;
   } catch {
     window.localStorage.removeItem(AUTH_STORAGE_KEY);
     return null;
