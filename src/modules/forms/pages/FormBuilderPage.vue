@@ -51,6 +51,8 @@ const saving = ref(false);
 const initializing = ref(true);
 const saveError = ref("");
 const showToast = ref(false);
+const draggedQuestionId = ref<string | null>(null);
+const dragOverQuestionId = ref<string | null>(null);
 let saveTimer: number | undefined;
 let activeSave: Promise<void> | null = null;
 let pendingSave = false;
@@ -280,6 +282,46 @@ const addOption = (question: Question): void => {
   touch();
 };
 
+const moveQuestion = (questionId: string, offset: -1 | 1): void => {
+  const fromIndex = questions.value.findIndex((question) => question.id === questionId);
+  const toIndex = fromIndex + offset;
+  if (fromIndex < 0 || toIndex < 0 || toIndex >= questions.value.length) return;
+  const [question] = questions.value.splice(fromIndex, 1);
+  questions.value.splice(toIndex, 0, question);
+  activeQuestionId.value = questionId;
+  touch();
+};
+
+const startQuestionDrag = (event: DragEvent, questionId: string): void => {
+  draggedQuestionId.value = questionId;
+  event.dataTransfer?.setData("text/plain", questionId);
+  if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+};
+
+const dropQuestion = (targetQuestionId: string): void => {
+  const sourceQuestionId = draggedQuestionId.value;
+  if (!sourceQuestionId || sourceQuestionId === targetQuestionId) {
+    dragOverQuestionId.value = null;
+    return;
+  }
+
+  const fromIndex = questions.value.findIndex((question) => question.id === sourceQuestionId);
+  const targetIndex = questions.value.findIndex((question) => question.id === targetQuestionId);
+  if (fromIndex < 0 || targetIndex < 0) return;
+  const [question] = questions.value.splice(fromIndex, 1);
+  const insertIndex = fromIndex < targetIndex ? targetIndex : targetIndex;
+  questions.value.splice(insertIndex, 0, question);
+  activeQuestionId.value = sourceQuestionId;
+  draggedQuestionId.value = null;
+  dragOverQuestionId.value = null;
+  touch();
+};
+
+const endQuestionDrag = (): void => {
+  draggedQuestionId.value = null;
+  dragOverQuestionId.value = null;
+};
+
 const publish = async (): Promise<void> => {
   window.clearTimeout(saveTimer);
   await persistDraft();
@@ -358,10 +400,25 @@ onMounted(() => void initializeForm());
           :id="`question-${question.id}`"
           :key="question.id"
           class="question-card"
-          :class="{ 'question-card--active': activeQuestionId === question.id }"
+          :class="{
+            'question-card--active': activeQuestionId === question.id,
+            'question-card--dragging': draggedQuestionId === question.id,
+            'question-card--drag-over': dragOverQuestionId === question.id && draggedQuestionId !== question.id
+          }"
+          @dragover.prevent="dragOverQuestionId = question.id"
+          @dragleave="dragOverQuestionId === question.id && (dragOverQuestionId = null)"
+          @drop.prevent="dropQuestion(question.id)"
           @click="activeQuestionId = question.id"
         >
-          <div class="drag-handle" aria-hidden="true">⠿</div>
+          <button
+            class="drag-handle"
+            type="button"
+            draggable="true"
+            aria-label="拖曳以調整題目順序"
+            title="拖曳以排序"
+            @dragstart.stop="startQuestionDrag($event, question.id)"
+            @dragend="endQuestionDrag"
+          >⠿</button>
 
           <div class="question-card__top">
             <div class="question-title-wrap">
@@ -406,6 +463,8 @@ onMounted(() => void initializeForm());
           </div>
 
           <footer v-if="activeQuestionId === question.id" class="question-card__footer">
+            <button class="footer-icon" type="button" aria-label="上移問題" title="上移" :disabled="index === 0" @click.stop="moveQuestion(question.id, -1)">↑</button>
+            <button class="footer-icon" type="button" aria-label="下移問題" title="下移" :disabled="index === questions.length - 1" @click.stop="moveQuestion(question.id, 1)">↓</button>
             <button class="footer-icon" type="button" aria-label="複製問題" title="複製" @click.stop="duplicateQuestion(question)">
               <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="12" rx="1.5" /><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h3" /></svg>
             </button>
@@ -572,8 +631,11 @@ svg { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: 
 
 .question-card { padding: 31px 30px 0; transition: box-shadow 160ms ease, border-color 160ms ease; }
 .question-card--active { border-color: #d8cbe1; box-shadow: 0 5px 22px rgba(57, 35, 67, 0.08); }
+.question-card--dragging { opacity: .48; }
+.question-card--drag-over { border-color: #765292; box-shadow: 0 0 0 2px rgba(118, 82, 146, .16); }
 .question-card--active::before { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 5px; border-radius: 12px 0 0 12px; background: #765292; }
-.drag-handle { position: absolute; top: 5px; left: 50%; transform: translateX(-50%) rotate(90deg); color: #bbb4bf; font-size: 19px; line-height: 1; cursor: grab; }
+.drag-handle { position: absolute; top: 3px; left: 50%; width: 34px; height: 22px; transform: translateX(-50%) rotate(90deg); border: 0; background: transparent; color: #bbb4bf; font-size: 19px; line-height: 1; cursor: grab; }
+.drag-handle:active { cursor: grabbing; }
 .question-card__top { display: grid; grid-template-columns: minmax(0, 1fr) 180px; align-items: start; gap: 22px; }
 .question-title-wrap { display: flex; align-items: baseline; border-bottom: 1px solid transparent; }
 .question-card--active .question-title-wrap { border-bottom-color: #e1dce4; }
