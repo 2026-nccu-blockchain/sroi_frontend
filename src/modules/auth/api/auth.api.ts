@@ -7,3 +7,4 @@ export const login = async (payload: LoginPayload): Promise<AuthUser> => {
     email: payload.email
   };
 };
+  

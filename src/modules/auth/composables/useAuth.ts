@@ -6,6 +6,7 @@ import type { AuthUser, LoginPayload } from "@/modules/auth/types/auth.types";
 
 interface UseAuthResult {
   user: ComputedRef<AuthUser | null>;
+  isAuthenticated: ComputedRef<boolean>;
   login: (payload: LoginPayload) => Promise<void>;
   logout: () => void;
 }
@@ -16,6 +17,7 @@ export const useAuth = (): UseAuthResult => {
 
   return {
     user: computed(() => user.value),
+    isAuthenticated: computed(() => user.value !== null),
     login: authStore.login,
     logout: authStore.logout
   };
