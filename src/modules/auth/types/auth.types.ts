@@ -9,6 +9,16 @@ export interface LoginResponse extends ApiEnvelope {
   token: string;
 }
 
+export interface ProfileResponse extends ApiEnvelope {
+  user_id: string;
+  campus_id: string;
+  email: string;
+  name: string;
+}
+
 export interface AuthUser {
   user_id: string;
+  campus_id?: string;
+  email?: string;
+  name?: string;
 }

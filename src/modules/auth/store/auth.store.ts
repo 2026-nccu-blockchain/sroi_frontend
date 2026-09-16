@@ -1,13 +1,13 @@
 import { defineStore } from "pinia";
 
-import { login as loginRequest } from "@/modules/auth/api/auth.api";
+import { login as loginRequest, getProfile } from "@/modules/auth/api/auth.api";
 import type { AuthUser, LoginPayload } from "@/modules/auth/types/auth.types";
 import { AUTH_TOKEN_COOKIE_NAME } from "@/shared/constants";
 import { getCookie, removeCookie, setCookie } from "@/shared/utils/cookie";
 import { decodeJwt, isJwtExpired, type JwtPayload } from "@/shared/utils/jwt";
 
 interface AuthJwtPayload extends JwtPayload {
-  id: string;
+  user_id: string;
 }
 
 interface AuthState {
@@ -24,7 +24,7 @@ const loadUserFromToken = (): AuthUser | null => {
     return null;
   }
 
-  return { id: payload.id };
+  return { user_id: payload.user_id };
 };
 
 export const useAuthStore = defineStore("auth", {
@@ -37,7 +37,13 @@ export const useAuthStore = defineStore("auth", {
       setCookie(AUTH_TOKEN_COOKIE_NAME, token);
 
       const decoded = decodeJwt<AuthJwtPayload>(token);
-      this.user = decoded ? { id: decoded.id } : null;
+      this.user = decoded ? { user_id: decoded.user_id } : null;
+    },
+    async fetchProfile(): Promise<void> {
+      if (!this.user) return;
+
+      const { user_id, campus_id, email, name } = await getProfile();
+      this.user = { user_id, campus_id, email, name };
     },
     logout(): void {
       this.user = null;

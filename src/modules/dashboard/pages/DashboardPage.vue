@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { onMounted, ref } from "vue";
 
 import { useAuth } from "@/modules/auth/composables/useAuth";
 
@@ -11,13 +11,22 @@ interface Project {
   status: "Draft" | "Published";
 }
 
-const { isAuthenticated } = useAuth();
+const { isAuthenticated, fetchProfile } = useAuth();
 const projects = ref<Project[]>([
   { id: 1, name: "Community Care Program", organization: "North District", year: 2025, status: "Published" },
   { id: 2, name: "Youth Employment Initiative", organization: "Social Impact Lab", year: 2025, status: "Draft" },
   { id: 3, name: "Senior Digital Inclusion", organization: "City Foundation", year: 2024, status: "Published" }
 ]);
 const selectedProject = ref<number | null>(null);
+
+onMounted(() => {
+  if (isAuthenticated.value) {
+    fetchProfile().catch(() => {
+      // 401 已經由 http.ts 的 unauthorizedHandler 處理登出+導頁；
+      // 其他失敗就讓畫面保持只顯示 id，不影響頁面其他功能。
+    });
+  }
+});
 
 const deleteProject = (project: Project): void => {
   if (!window.confirm(`Delete “${project.name}”? This action cannot be undone.`)) return;

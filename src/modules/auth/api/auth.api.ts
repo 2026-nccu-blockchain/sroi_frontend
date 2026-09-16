@@ -1,5 +1,8 @@
 import { httpClient } from "@/shared/api/http";
-import type { LoginPayload, LoginResponse } from "@/modules/auth/types/auth.types";
+import type { LoginPayload, LoginResponse, ProfileResponse } from "@/modules/auth/types/auth.types";
 
 export const login = (payload: LoginPayload): Promise<LoginResponse> =>
   httpClient.post<LoginResponse>("/api/v1/auth/user/login", payload);
+
+export const getProfile = (): Promise<ProfileResponse> =>
+  httpClient.get<ProfileResponse>("/api/v1/user/profile");

@@ -25,13 +25,13 @@ const onSubmit = (): void => {
 <template>
   <form class="login-form" @submit.prevent="onSubmit">
     <div class="login-form__heading">
-      <span class="login-form__eyebrow">SROI / ADMIN</span>
+      <span class="login-form__eyebrow">SROI</span>
       <h1>Sign in</h1>
       <p>Sign in to add, edit, or delete projects.</p>
     </div>
 
     <label>
-      Email
+      電子郵件
       <input
         v-model="form.email"
         type="email"
@@ -42,7 +42,7 @@ const onSubmit = (): void => {
     </label>
 
     <label>
-      Password
+      密碼
       <input
         v-model="form.password"
         type="password"
