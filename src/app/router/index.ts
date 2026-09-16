@@ -11,7 +11,8 @@ const routes: RouteRecordRaw[] = [
   {
     path: "/forms/new",
     name: "form-builder",
-    component: FormBuilderPage
+    component: FormBuilderPage,
+    meta: { requiresAuth: true }
   },
   {
     path: "/login",

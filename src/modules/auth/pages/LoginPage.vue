@@ -5,6 +5,7 @@ import { useRoute, useRouter } from "vue-router";
 import LoginForm from "@/modules/auth/components/LoginForm.vue";
 import { useAuth } from "@/modules/auth/composables/useAuth";
 import type { LoginPayload } from "@/modules/auth/types/auth.types";
+import { toErrorMessage } from "@/shared/api/error-handler";
 
 const router = useRouter();
 const route = useRoute();
@@ -23,8 +24,8 @@ const handleSubmit = async (payload: LoginPayload): Promise<void> => {
       ? requestedRedirect
       : "/";
     await router.push(redirect);
-  } catch {
-    error.value = "Unable to sign in. Please check your details and try again.";
+  } catch (err) {
+    error.value = toErrorMessage(err);
   } finally {
     loading.value = false;
   }

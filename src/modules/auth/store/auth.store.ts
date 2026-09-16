@@ -1,39 +1,47 @@
 import { defineStore } from "pinia";
 
-import { login } from "@/modules/auth/api/auth.api";
+import { login as loginRequest } from "@/modules/auth/api/auth.api";
 import type { AuthUser, LoginPayload } from "@/modules/auth/types/auth.types";
+import { AUTH_TOKEN_COOKIE_NAME } from "@/shared/constants";
+import { getCookie, removeCookie, setCookie } from "@/shared/utils/cookie";
+import { decodeJwt, isJwtExpired, type JwtPayload } from "@/shared/utils/jwt";
+
+interface AuthJwtPayload extends JwtPayload {
+  id: string;
+}
 
 interface AuthState {
   user: AuthUser | null;
 }
 
-const AUTH_STORAGE_KEY = "sroi.auth.user";
+const loadUserFromToken = (): AuthUser | null => {
+  const token = getCookie(AUTH_TOKEN_COOKIE_NAME);
+  if (!token) return null;
 
-const loadStoredUser = (): AuthUser | null => {
-  const storedUser = window.localStorage.getItem(AUTH_STORAGE_KEY);
-
-  if (!storedUser) return null;
-
-  try {
-    return JSON.parse(storedUser) as AuthUser;
-  } catch {
-    window.localStorage.removeItem(AUTH_STORAGE_KEY);
+  const payload = decodeJwt<AuthJwtPayload>(token);
+  if (!payload || isJwtExpired(payload)) {
+    removeCookie(AUTH_TOKEN_COOKIE_NAME);
     return null;
   }
+
+  return { id: payload.id };
 };
 
 export const useAuthStore = defineStore("auth", {
   state: (): AuthState => ({
-    user: loadStoredUser()
+    user: loadUserFromToken()
   }),
   actions: {
     async login(payload: LoginPayload): Promise<void> {
-      this.user = await login(payload);
-      window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(this.user));
+      const { token } = await loginRequest(payload);
+      setCookie(AUTH_TOKEN_COOKIE_NAME, token);
+
+      const decoded = decodeJwt<AuthJwtPayload>(token);
+      this.user = decoded ? { id: decoded.id } : null;
     },
     logout(): void {
       this.user = null;
-      window.localStorage.removeItem(AUTH_STORAGE_KEY);
+      removeCookie(AUTH_TOKEN_COOKIE_NAME);
     }
   }
 });

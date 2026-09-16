@@ -51,7 +51,7 @@ const handleLogout = async (): Promise<void> => {
       <div class="sidebar__account">
         <template v-if="isAuthenticated">
           <p class="sidebar__label">Signed in as</p>
-          <span class="sidebar__email">{{ user?.email }}</span>
+          <span class="sidebar__email">{{ user?.user_id }}</span>
           <button class="sidebar__auth-action" type="button" @click="handleLogout">Log out</button>
         </template>
         <template v-else>
