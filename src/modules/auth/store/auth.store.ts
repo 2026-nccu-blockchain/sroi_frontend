@@ -38,6 +38,8 @@ export const useAuthStore = defineStore("auth", {
 
       const decoded = decodeJwt<AuthJwtPayload>(token);
       this.user = decoded ? { user_id: decoded.user_id } : null;
+
+      await this.fetchProfile();
     },
     async fetchProfile(): Promise<void> {
       if (!this.user) return;
