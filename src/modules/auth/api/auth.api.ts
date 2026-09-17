@@ -9,7 +9,7 @@ const getTokenUserId = (token: string): string => {
   try {
     const payload = token.split(".")[1];
     const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
-    return String((JSON.parse(window.atob(normalized)) as { id?: string }).id ?? "");
+    return String((JSON.parse(window.atob(normalized)) as { user_id?: string }).user_id ?? "");
   } catch {
     return "";
   }
@@ -18,7 +18,7 @@ const getTokenUserId = (token: string): string => {
 export const login = async (payload: LoginPayload): Promise<AuthUser> => {
   const response = await httpClient.post<LoginResponse>("/auth/user/login", payload);
   return {
-    id: getTokenUserId(response.token),
+    user_id: getTokenUserId(response.token),
     email: payload.email,
     token: response.token
   };

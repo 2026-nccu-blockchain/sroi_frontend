@@ -4,7 +4,7 @@ export interface LoginPayload {
 }
 
 export interface AuthUser {
-  id: string;
+  user_id: string;
   email: string;
   token: string;
 }

@@ -340,6 +340,14 @@ const publish = async (): Promise<void> => {
   }
 };
 
+const openResponses = async (): Promise<void> => {
+  if (!formId.value) return;
+  window.clearTimeout(saveTimer);
+  if (!saved.value) await persistDraft();
+  if (saveError.value) return;
+  await router.push({ name: "form-responses", params: { formId: formId.value }, query: { from: "/" } });
+};
+
 onMounted(() => void initializeForm());
 </script>
 
@@ -376,7 +384,7 @@ onMounted(() => void initializeForm());
 
     <nav class="tabs" aria-label="表單功能">
       <button class="tabs__item tabs__item--active" type="button">問題</button>
-      <button class="tabs__item" type="button">回覆 <span>0</span></button>
+      <button class="tabs__item" type="button" :disabled="initializing || !formId" @click="openResponses">回覆</button>
       <button class="tabs__item" type="button">設定</button>
     </nav>
 

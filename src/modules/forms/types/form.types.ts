@@ -47,11 +47,46 @@ export interface PageResponse {
 
 export interface FormResponse {
   form_id: string;
+  public_token: string | null;
   author_id: string;
   title: string | null;
   content: string | null;
   status: FormStatus;
   pages: PageResponse[];
+}
+
+export interface PublicFormResponse {
+  public_token: string;
+  title: string | null;
+  content: string | null;
+  pages: PageResponse[];
+}
+
+export interface AnswerPayload {
+  question_id: string;
+  text_value?: string;
+  number_value?: number;
+  date_value?: string;
+  option_ids?: string[];
+}
+
+export interface SubmittedAnswer {
+  answer_id: string;
+  question_id: string;
+  content: string | null;
+  number_value: number | null;
+  date_value: string | null;
+  option_ids: string[];
+}
+
+export interface FormSubmission {
+  response_id: string;
+  form_id: string;
+  respondent_email: string | null;
+  status: "draft" | "submitted";
+  started_at: string;
+  submitted_at: string | null;
+  answers: SubmittedAnswer[];
 }
 
 export interface CreateFormPayload {

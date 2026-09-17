@@ -2,7 +2,10 @@ import { httpClient } from "@/shared/api/http";
 import type {
   CreateFormPayload,
   FormResponse,
+  FormSubmission,
   FormStatus,
+  PublicFormResponse,
+  AnswerPayload,
   QuestionPayload,
   QuestionResponse
 } from "@/modules/forms/types/form.types";
@@ -12,6 +15,9 @@ export const createForm = (payload: CreateFormPayload): Promise<FormResponse> =>
 
 export const getForm = (formId: string): Promise<FormResponse> =>
   httpClient.get<FormResponse>(`/form/${formId}`);
+
+export const getFormSubmissions = (formId: string): Promise<FormSubmission[]> =>
+  httpClient.get<FormSubmission[]>(`/form/${formId}/responses`);
 
 export const updateForm = (
   formId: string,
@@ -38,3 +44,15 @@ export const saveFormStructure = (
   formId: string,
   pages: Array<{ page_id: string; question_ids: string[] }>
 ): Promise<FormResponse> => httpClient.put<FormResponse>(`/form/${formId}/structure`, { pages });
+
+export const getPublicForm = (publicToken: string): Promise<PublicFormResponse> =>
+  httpClient.get<PublicFormResponse>(`/form/public/${publicToken}`);
+
+export const submitPublicForm = (
+  publicToken: string,
+  respondentEmail: string,
+  answers: AnswerPayload[]
+): Promise<unknown> => httpClient.post(`/form/public/${publicToken}/responses`, {
+  respondent_email: respondentEmail || null,
+  answers
+});

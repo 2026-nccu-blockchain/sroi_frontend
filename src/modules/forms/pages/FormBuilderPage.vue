@@ -51,6 +51,7 @@ const saving = ref(false);
 const initializing = ref(true);
 const saveError = ref("");
 const showToast = ref(false);
+const publishedLink = ref("");
 const draggedQuestionId = ref<string | null>(null);
 const dragOverQuestionId = ref<string | null>(null);
 let saveTimer: number | undefined;
@@ -116,6 +117,9 @@ const hydrate = (form: FormResponse): void => {
   pageId.value = firstPage?.page_id ?? "";
   questions.value = firstPage?.questions.map(fromResponse) ?? [];
   activeQuestionId.value = questions.value[0]?.id ?? "";
+  publishedLink.value = form.status === "published" && form.public_token
+    ? `${window.location.origin}/forms/${form.public_token}`
+    : "";
   window.sessionStorage.setItem(FORM_SESSION_KEY, form.form_id);
 };
 
@@ -331,13 +335,31 @@ const publish = async (): Promise<void> => {
       page_id: pageId.value,
       question_ids: questions.value.map((question) => question.id)
     }]);
-    await updateForm(formId.value, { status: "published" });
-    hydrate(structured);
+    const published = await updateForm(formId.value, { status: "published" });
+    hydrate({ ...structured, status: published.status, public_token: published.public_token });
+    await copyPublishedLink();
     showToast.value = true;
     window.setTimeout(() => (showToast.value = false), 2400);
   } catch (error) {
     saveError.value = error instanceof Error ? error.message : "發布失敗";
   }
+};
+
+const copyPublishedLink = async (): Promise<void> => {
+  if (!publishedLink.value) return;
+  try {
+    await navigator.clipboard.writeText(publishedLink.value);
+  } catch {
+    // The link remains visible when clipboard permission is unavailable.
+  }
+};
+
+const openResponses = async (): Promise<void> => {
+  if (!formId.value) return;
+  window.clearTimeout(saveTimer);
+  if (!saved.value) await persistDraft();
+  if (saveError.value) return;
+  await router.push({ name: "form-responses", params: { formId: formId.value }, query: { from: "/forms/new" } });
 };
 
 onMounted(() => void initializeForm());
@@ -376,13 +398,20 @@ onMounted(() => void initializeForm());
 
     <nav class="tabs" aria-label="表單功能">
       <button class="tabs__item tabs__item--active" type="button">問題</button>
-      <button class="tabs__item" type="button">回覆 <span>0</span></button>
+      <button class="tabs__item" type="button" :disabled="initializing || !formId" @click="openResponses">回覆</button>
       <button class="tabs__item" type="button">設定</button>
     </nav>
 
     <main class="workspace">
       <div class="form-canvas">
         <p v-if="saveError" class="connection-error" role="alert">{{ saveError }}</p>
+        <section v-if="publishedLink" class="share-link">
+          <div>
+            <strong>公開填答連結</strong>
+            <a :href="publishedLink" target="_blank" rel="noopener">{{ publishedLink }}</a>
+          </div>
+          <button type="button" @click="copyPublishedLink">複製連結</button>
+        </section>
         <section class="form-heading">
           <div class="form-heading__accent"></div>
           <label>
@@ -618,6 +647,11 @@ svg { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: 
 .workspace { position: relative; width: min(820px, calc(100% - 48px)); margin: 0 auto; padding: 30px 58px 70px 0; }
 .form-canvas { display: grid; gap: 14px; }
 .connection-error { margin: 0; padding: 12px 16px; border: 1px solid #e4b8c2; border-radius: 9px; background: #fff4f6; color: #91374a; font-size: 12px; }
+.share-link { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 15px 18px; border: 1px solid #d8c9e1; border-radius: 10px; background: #fdfaff; }
+.share-link div { display: grid; min-width: 0; gap: 4px; }
+.share-link strong { color: #55475f; font-size: 11px; }
+.share-link a { overflow: hidden; color: #765292; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.share-link button { flex: 0 0 auto; min-height: 34px; padding: 0 13px; border: 0; border-radius: 7px; background: #765292; color: #fff; font-size: 11px; font-weight: 650; }
 .form-heading,
 .question-card { position: relative; border: 1px solid #e8e3eb; border-radius: 12px; background: #fff; box-shadow: 0 2px 7px rgba(42, 27, 50, 0.035); }
 
