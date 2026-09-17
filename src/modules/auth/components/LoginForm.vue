@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive } from "vue";
+import { reactive, ref } from "vue";
 
 import type { LoginPayload } from "@/modules/auth/types/auth.types";
 
@@ -16,6 +16,8 @@ const form = reactive<LoginPayload>({
   email: "",
   password: ""
 });
+
+const showPassword = ref(false);
 
 const onSubmit = (): void => {
   emit("submit", { ...form });
@@ -42,13 +44,23 @@ const onSubmit = (): void => {
 
     <label>
       密碼
-      <input
-        v-model="form.password"
-        type="password"
-        placeholder="輸入密碼"
-        autocomplete="current-password"
-        required
-      />
+      <div class="login-form__password">
+        <input
+          v-model="form.password"
+          :type="showPassword ? 'text' : 'password'"
+          placeholder="輸入密碼"
+          autocomplete="current-password"
+          required
+        />
+        <button
+          type="button"
+          class="login-form__password-toggle"
+          :aria-label="showPassword ? '隱藏密碼' : '顯示密碼'"
+          @click="showPassword = !showPassword"
+        >
+          {{ showPassword ? "隱藏" : "顯示" }}
+        </button>
+      </div>
     </label>
 
     <p v-if="error" class="login-form__error" role="alert">{{ error }}</p>
@@ -116,6 +128,38 @@ input {
 
 input:focus {
   border-bottom-width: 2px;
+}
+
+.login-form__password {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid #000;
+}
+
+.login-form__password:focus-within {
+  border-bottom-width: 2px;
+}
+
+.login-form__password input {
+  border-bottom: 0;
+  flex: 1;
+}
+
+.login-form__password-toggle {
+  border: 0;
+  padding: 0 0 0 12px;
+  background: transparent;
+  color: #000;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.login-form__password-toggle:hover {
+  text-decoration: underline;
+  text-underline-offset: 4px;
 }
 
 button {

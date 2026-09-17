@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive } from "vue";
+import { computed, reactive, ref } from "vue";
 
 import type { RegisterPayload } from "@/modules/auth/types/auth.types";
 
@@ -18,7 +18,16 @@ const form = reactive<RegisterPayload>({
   name: ""
 });
 
+const confirmPassword = ref("");
+const showPassword = ref(false);
+const showConfirmPassword = ref(false);
+
+const passwordMismatch = computed(
+  () => confirmPassword.value.length > 0 && confirmPassword.value !== form.password
+);
+
 const onSubmit = (): void => {
+  if (passwordMismatch.value) return;
   emit("submit", { ...form });
 };
 </script>
@@ -54,18 +63,50 @@ const onSubmit = (): void => {
 
     <label>
       密碼 (長度至少8碼、需要有大小寫字母及數字)
-      <input
-        v-model="form.password"
-        type="password"
-        placeholder="輸入密碼"
-        autocomplete="current-password"
-        required
-      />
+      <div class="register-form__password">
+        <input
+          v-model="form.password"
+          :type="showPassword ? 'text' : 'password'"
+          placeholder="輸入密碼"
+          autocomplete="new-password"
+          required
+        />
+        <button
+          type="button"
+          class="register-form__password-toggle"
+          :aria-label="showPassword ? '隱藏密碼' : '顯示密碼'"
+          @click="showPassword = !showPassword"
+        >
+          {{ showPassword ? "隱藏" : "顯示" }}
+        </button>
+      </div>
+    </label>
+
+    <label>
+      確認密碼
+      <div class="register-form__password">
+        <input
+          v-model="confirmPassword"
+          :type="showConfirmPassword ? 'text' : 'password'"
+          placeholder="再次輸入密碼"
+          autocomplete="new-password"
+          required
+        />
+        <button
+          type="button"
+          class="register-form__password-toggle"
+          :aria-label="showConfirmPassword ? '隱藏密碼' : '顯示密碼'"
+          @click="showConfirmPassword = !showConfirmPassword"
+        >
+          {{ showConfirmPassword ? "隱藏" : "顯示" }}
+        </button>
+      </div>
+      <p v-if="passwordMismatch" class="register-form__field-error">密碼與確認密碼不一致</p>
     </label>
 
     <p v-if="error" class="register-form__error" role="alert">{{ error }}</p>
 
-    <button type="submit" :disabled="loading">
+    <button type="submit" :disabled="loading || passwordMismatch">
       {{ loading ? "註冊中..." : "註冊" }}
     </button>
 
@@ -128,6 +169,45 @@ input {
 
 input:focus {
   border-bottom-width: 2px;
+}
+
+.register-form__password {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid #000;
+}
+
+.register-form__password:focus-within {
+  border-bottom-width: 2px;
+}
+
+.register-form__password input {
+  border-bottom: 0;
+  flex: 1;
+}
+
+.register-form__password-toggle {
+  border: 0;
+  padding: 0 0 0 12px;
+  background: transparent;
+  color: #000;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.register-form__password-toggle:hover {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+.register-form__field-error {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 400;
+  color: #ff0000;
 }
 
 button {
