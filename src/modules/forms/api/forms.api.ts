@@ -2,6 +2,7 @@ import { httpClient } from "@/shared/api/http";
 import type {
   CreateFormPayload,
   FormResponse,
+  FormSubmission,
   FormStatus,
   QuestionPayload,
   QuestionResponse
@@ -12,6 +13,9 @@ export const createForm = (payload: CreateFormPayload): Promise<FormResponse> =>
 
 export const getForm = (formId: string): Promise<FormResponse> =>
   httpClient.get<FormResponse>(`/form/${formId}`);
+
+export const getFormSubmissions = (formId: string): Promise<FormSubmission[]> =>
+  httpClient.get<FormSubmission[]>(`/form/${formId}/responses`);
 
 export const updateForm = (
   formId: string,

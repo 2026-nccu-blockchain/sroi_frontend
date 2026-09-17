@@ -54,6 +54,25 @@ export interface FormResponse {
   pages: PageResponse[];
 }
 
+export interface SubmittedAnswer {
+  answer_id: string;
+  question_id: string;
+  content: string | null;
+  number_value: number | null;
+  date_value: string | null;
+  option_ids: string[];
+}
+
+export interface FormSubmission {
+  response_id: string;
+  form_id: string;
+  respondent_email: string | null;
+  status: "draft" | "submitted";
+  started_at: string;
+  submitted_at: string | null;
+  answers: SubmittedAnswer[];
+}
+
 export interface CreateFormPayload {
   title: string;
   content: string;

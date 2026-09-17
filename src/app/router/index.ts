@@ -5,6 +5,7 @@ import MainLayout from "@/layouts/MainLayout.vue";
 import LoginPage from "@/modules/auth/pages/LoginPage.vue";
 import DashboardPage from "@/modules/dashboard/pages/DashboardPage.vue";
 import FormBuilderPage from "@/modules/forms/pages/FormBuilderPage.vue";
+import FormResponsesPage from "@/modules/forms/pages/FormResponsesPage.vue";
 import { registerRouterGuards } from "@/app/router/guards";
 
 const routes: RouteRecordRaw[] = [
@@ -12,6 +13,12 @@ const routes: RouteRecordRaw[] = [
     path: "/forms/new",
     name: "form-builder",
     component: FormBuilderPage
+  },
+  {
+    path: "/forms/:formId/responses",
+    name: "form-responses",
+    component: FormResponsesPage,
+    meta: { requiresAuth: true }
   },
   {
     path: "/login",
