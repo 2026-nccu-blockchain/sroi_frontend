@@ -52,13 +52,13 @@ const handleLogout = async (): Promise<void> => {
         <template v-if="isAuthenticated">
           <p class="sidebar__label">Signed in as</p>
           <span class="sidebar__user">{{ user?.campus_id }} {{ user?.name }}</span>
-          <button class="sidebar__auth-action" type="button" @click="handleLogout">Log out</button>
+          <button class="sidebar__auth-action" type="button" @click="handleLogout">登出</button>
         </template>
         <template v-else>
-          <p class="sidebar__guest">Sign in to add, edit, or delete projects.</p>
+          <p class="sidebar__guest">訪客模式</p>
           <div class="sidebar__auth">
-            <RouterLink class="sidebar__auth-action" to="/login">登入 →</RouterLink>
-            <RouterLink class="sidebar__auth-action" to="/login">註冊 →</RouterLink>
+            <RouterLink class="sidebar__auth-action" to="/auth/login">登入 →</RouterLink>
+            <RouterLink class="sidebar__auth-action" to="/auth/register">註冊 →</RouterLink>
           </div>
           
         </template>

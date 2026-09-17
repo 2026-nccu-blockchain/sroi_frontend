@@ -3,6 +3,7 @@ import { createRouter, createWebHistory, type RouteRecordRaw } from "vue-router"
 import AuthLayout from "@/layouts/AuthLayout.vue";
 import MainLayout from "@/layouts/MainLayout.vue";
 import LoginPage from "@/modules/auth/pages/LoginPage.vue";
+import RegisterPage from "@/modules/auth/pages/RegisterPage.vue";
 import DashboardPage from "@/modules/dashboard/pages/DashboardPage.vue";
 import FormBuilderPage from "@/modules/forms/pages/FormBuilderPage.vue";
 import { registerRouterGuards } from "@/app/router/guards";
@@ -15,13 +16,18 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true }
   },
   {
-    path: "/login",
+    path: "/auth",
     component: AuthLayout,
     children: [
       {
-        path: "",
+        path: "login",
         name: "login",
         component: LoginPage
+      },
+      {
+        path: "register",
+        name: "register",
+        component: RegisterPage
       }
     ]
   },
@@ -35,7 +41,7 @@ const routes: RouteRecordRaw[] = [
         component: DashboardPage
       }
     ]
-  }
+  },
 ];
 
 export const router = createRouter({

@@ -5,6 +5,12 @@ export interface LoginPayload {
   password: string;
 }
 
+export interface RegisterPayload {
+  email: string;
+  password: string;
+  name: string;
+}
+
 export interface LoginResponse extends ApiEnvelope {
   token: string;
 }
