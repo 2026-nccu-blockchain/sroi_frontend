@@ -50,7 +50,7 @@ const handleLogout = async (): Promise<void> => {
 
       <div class="sidebar__account">
         <template v-if="isAuthenticated">
-          <p class="sidebar__label">Signed in as</p>
+          <p class="sidebar__label">角色權限：{{ user?.role }}</p>
           <span class="sidebar__user">{{ user?.campus_id }} {{ user?.name }}</span>
           <button class="sidebar__auth-action" type="button" @click="handleLogout">登出</button>
         </template>
@@ -153,9 +153,10 @@ const handleLogout = async (): Promise<void> => {
 .sidebar__user {
   margin: 0 0 16px;
   overflow-wrap: anywhere;
-  color: #555;
-  font-size: 14px;
+  color: #000000;
+  font-size: 16px;
   line-height: 1.5;
+  letter-spacing: 0.08em;
 }
 
 .sidebar__auth-action {

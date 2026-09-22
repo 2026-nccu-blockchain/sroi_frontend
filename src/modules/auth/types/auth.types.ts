@@ -20,6 +20,7 @@ export interface ProfileResponse extends ApiEnvelope {
   campus_id: string;
   email: string;
   name: string;
+  role: string;
 }
 
 export interface AuthUser {
@@ -27,4 +28,5 @@ export interface AuthUser {
   campus_id?: string;
   email?: string;
   name?: string;
+  role?: string;
 }
