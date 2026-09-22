@@ -1,15 +1,36 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { onMounted, ref } from "vue";
 
+import { getGroups } from "@/modules/workspace/api/workspace.api";
 import GroupList from "@/modules/workspace/components/GroupList.vue";
-import type { WorkspaceGroup } from "@/modules/workspace/types/workspace.types";
+import type { GroupBuckets } from "@/modules/workspace/types/workspace.types";
+import { toErrorMessage } from "@/shared/api/error-handler";
 
-const groups = ref<WorkspaceGroup[]>([
-  { id: 1, name: "北區志工小組", memberCount: 8, role: "擁有者" },
-  { id: 2, name: "SROI 評估小組", memberCount: 5, role: "成員" }
-]);
+const groups = ref<GroupBuckets>({ verified: [], inProgress: [], unverified: [] });
+const loading = ref(false);
+const error = ref("");
+
+onMounted(async () => {
+  loading.value = true;
+  error.value = "";
+
+  try {
+    const res = await getGroups();
+    groups.value = {
+      verified: res.verified_groups,
+      inProgress: res.in_progress_groups,
+      unverified: res.unverified_groups
+    };
+  } catch (err) {
+    error.value = toErrorMessage(err);
+  } finally {
+    loading.value = false;
+  }
+});
 </script>
 
 <template>
-  <GroupList :groups="groups" />
+  <p v-if="loading">載入中...</p>
+  <p v-else-if="error">{{ error }}</p>
+  <GroupList v-else :groups="groups" />
 </template>
