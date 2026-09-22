@@ -41,10 +41,6 @@ const deleteProject = (project: Project): void => {
         <p class="projects__eyebrow">專案總覽</p>
         <h1>專案列表</h1>
       </div>
-
-      <RouterLink v-if="isAuthenticated" class="button button--primary" to="/forms/new">
-        <span>＋</span> 新增專案
-      </RouterLink>
     </div>
 
     <p v-if="!isAuthenticated" class="projects__notice">
@@ -57,7 +53,6 @@ const deleteProject = (project: Project): void => {
         <span>所屬單位</span>
         <span>年度</span>
         <span>狀態</span>
-        <span v-if="isAuthenticated">操作</span>
       </div>
 
       <article
@@ -76,12 +71,7 @@ const deleteProject = (project: Project): void => {
         </button>
         <span data-label="所屬單位">{{ project.organization }}</span>
         <span data-label="年度">{{ project.year }}</span>
-        <span data-label="狀態">{{ project.status }}</span>
-        <div v-if="isAuthenticated" class="project-row__actions">
-          <button type="button">編輯</button>
-          <button type="button" @click="deleteProject(project)">刪除</button>
-        </div>
-
+        <span data-label="狀態" class=project-row__status>{{ project.status }}</span>
         <div v-if="selectedProject === project.id" class="project-row__detail">
           <span>專案編號 — {{ String(project.id).padStart(4, "0") }}</span>
           <p>SROI 專案概覽，詳細專案資訊將顯示於此。</p>
@@ -120,32 +110,6 @@ h1 {
   font-weight: 500;
   line-height: 1;
   letter-spacing: -0.04em;
-}
-
-.button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  min-height: 46px;
-  padding: 10px 18px;
-  border: 1px solid #000;
-  color: #000;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 700;
-  text-decoration: none;
-  cursor: pointer;
-}
-
-.button--primary {
-  background: #000;
-  color: #fff;
-}
-
-.button--primary:hover {
-  background: #fff;
-  color: #000;
 }
 
 .projects__notice {
@@ -213,6 +177,7 @@ h1 {
 .project-row__status {
   font-size: 11px;
   text-transform: uppercase;
+  text-align: right;
 }
 
 .project-row__actions {

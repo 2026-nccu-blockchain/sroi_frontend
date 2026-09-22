@@ -21,10 +21,10 @@ const handleLogout = async (): Promise<void> => {
         <nav class="sidebar__nav" aria-label="Main navigation">
           <template v-if="isAuthenticated">
             <p class="sidebar__label">工作區</p>
-            <RouterLink class="sidebar__link" to="/">
+            <RouterLink class="sidebar__link" to="/workspace/projects">
               <span>我的專案</span>
             </RouterLink>
-            <RouterLink class="sidebar__link" to="/">
+            <RouterLink class="sidebar__link" to="/workspace/groups">
               <span>我的群組</span>
             </RouterLink>
             <p> </p> <!--排版空白-->
@@ -32,7 +32,7 @@ const handleLogout = async (): Promise<void> => {
             <RouterLink class="sidebar__link" to="/">
               <span>專案</span>
             </RouterLink>
-            <RouterLink class="sidebar__link" to="/">
+            <RouterLink class="sidebar__link" to="/proxy-variables">
               <span>財務代理變數</span>
             </RouterLink>
           </template>
@@ -41,7 +41,7 @@ const handleLogout = async (): Promise<void> => {
             <RouterLink class="sidebar__link" to="/">
               <span>專案</span>
             </RouterLink>
-            <RouterLink class="sidebar__link" to="/">
+            <RouterLink class="sidebar__link" to="/proxy-variables">
               <span>財務代理變數</span>
             </RouterLink>
           </template>

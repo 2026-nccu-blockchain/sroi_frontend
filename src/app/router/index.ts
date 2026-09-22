@@ -6,6 +6,9 @@ import LoginPage from "@/modules/auth/pages/LoginPage.vue";
 import RegisterPage from "@/modules/auth/pages/RegisterPage.vue";
 import DashboardPage from "@/modules/dashboard/pages/DashboardPage.vue";
 import FormBuilderPage from "@/modules/forms/pages/FormBuilderPage.vue";
+import ProxyVariablesPage from "@/modules/proxy-variables/pages/ProxyVariablesPage.vue";
+import MyGroupsPage from "@/modules/workspace/pages/MyGroupsPage.vue";
+import MyProjectsPage from "@/modules/workspace/pages/MyProjectsPage.vue";
 import { registerRouterGuards } from "@/app/router/guards";
 
 const routes: RouteRecordRaw[] = [
@@ -39,6 +42,23 @@ const routes: RouteRecordRaw[] = [
         path: "",
         name: "dashboard",
         component: DashboardPage
+      },
+      {
+        path: "workspace/projects",
+        name: "my-projects",
+        component: MyProjectsPage,
+        meta: { requiresAuth: true }
+      },
+      {
+        path: "workspace/groups",
+        name: "my-groups",
+        component: MyGroupsPage,
+        meta: { requiresAuth: true }
+      },
+      {
+        path: "proxy-variables",
+        name: "proxy-variables",
+        component: ProxyVariablesPage
       }
     ]
   },

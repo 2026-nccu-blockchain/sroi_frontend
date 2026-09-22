@@ -20,7 +20,7 @@ export const registerRouterGuards = (router: Router): void => {
     }
 
     if (to.name === "login" && authStore.user) {
-      return { name: "dashboard" };
+      return { name: "my-projects" };
     }
 
     return true;
