@@ -1,10 +1,18 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import { useRouter } from "vue-router";
 
 import { useAuth } from "@/modules/auth/composables/useAuth";
+import { ADMIN_ROLES, WORKSPACE_ROLES } from "@/modules/auth/constants";
+import { ROLE_LABELS } from "@/modules/profile/constants";
 
 const router = useRouter();
 const { user, isAuthenticated, logout } = useAuth();
+
+// 未驗證、驗證中的帳號導覽列跟訪客一樣
+const canUseWorkspace = computed(() => WORKSPACE_ROLES.includes(user.value?.role ?? ""));
+const isAdmin = computed(() => ADMIN_ROLES.includes(user.value?.role ?? ""));
+const roleLabel = computed(() => ROLE_LABELS[user.value?.role ?? ""] ?? user.value?.role);
 
 const handleLogout = async (): Promise<void> => {
   logout();
@@ -19,7 +27,7 @@ const handleLogout = async (): Promise<void> => {
         <RouterLink class="sidebar__brand" to="/">SROI</RouterLink>
 
         <nav class="sidebar__nav" aria-label="Main navigation">
-          <template v-if="isAuthenticated">
+          <template v-if="canUseWorkspace">
             <p class="sidebar__label">工作區</p>
             <RouterLink class="sidebar__link" to="/workspace/projects">
               <span>我的專案</span>
@@ -27,22 +35,25 @@ const handleLogout = async (): Promise<void> => {
             <RouterLink class="sidebar__link" to="/workspace/groups" active-class="sidebar__link--active">
               <span>我的群組</span>
             </RouterLink>
-            <p> </p> <!--排版空白-->
-            <p class="sidebar__label">共用資料庫</p>
-            <RouterLink class="sidebar__link" to="/">
-              <span>專案</span>
-            </RouterLink>
-            <RouterLink class="sidebar__link" to="/proxy-variables">
-              <span>財務代理變數</span>
-            </RouterLink>
+            <p> </p>
           </template>
-          <template v-else>
-            <p class="sidebar__label">共用資料庫</p>
-            <RouterLink class="sidebar__link" to="/">
-              <span>專案</span>
+
+          <p class="sidebar__label">共用資料庫</p>
+          <RouterLink class="sidebar__link" to="/">
+            <span>專案</span>
+          </RouterLink>
+          <RouterLink class="sidebar__link" to="/proxy-variables">
+            <span>財務代理變數</span>
+          </RouterLink>
+
+          <template v-if="isAdmin">
+            <p> </p>
+            <p class="sidebar__label">管理</p>
+            <RouterLink class="sidebar__link" to="/admin/users" active-class="sidebar__link--active">
+              <span>所有使用者</span>
             </RouterLink>
-            <RouterLink class="sidebar__link" to="/proxy-variables">
-              <span>財務代理變數</span>
+            <RouterLink class="sidebar__link" to="/admin/groups" active-class="sidebar__link--active">
+              <span>所有群組</span>
             </RouterLink>
           </template>
         </nav>
@@ -50,7 +61,7 @@ const handleLogout = async (): Promise<void> => {
 
       <div class="sidebar__account">
         <template v-if="isAuthenticated">
-          <p class="sidebar__label">角色權限：{{ user?.role }}</p>
+          <p class="sidebar__label">角色權限：{{ roleLabel }}</p>
           <RouterLink class="sidebar__user" to="/profile">{{ user?.campus_id }} {{ user?.name }}</RouterLink>
           <button class="sidebar__auth-action" type="button" @click="handleLogout">登出</button>
         </template>
@@ -93,7 +104,7 @@ const handleLogout = async (): Promise<void> => {
 
 .sidebar__brand {
   display: inline-block;
-  margin-bottom: 64px;
+  margin-bottom: 35px;
   color: inherit;
   font-size: 25px;
   font-weight: 800;

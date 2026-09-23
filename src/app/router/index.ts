@@ -14,6 +14,7 @@ import GroupDetailPage from "@/modules/workspace/pages/GroupDetailPage.vue";
 import GroupSettingsPage from "@/modules/workspace/pages/GroupSettingsPage.vue";
 import MyProjectsPage from "@/modules/workspace/pages/MyProjectsPage.vue";
 import { registerRouterGuards } from "@/app/router/guards";
+import { WORKSPACE_ROLES } from "@/modules/auth/constants";
 
 const routes: RouteRecordRaw[] = [
   {
@@ -51,33 +52,33 @@ const routes: RouteRecordRaw[] = [
         path: "workspace/projects",
         name: "my-projects",
         component: MyProjectsPage,
-        meta: { requiresAuth: true }
+        meta: { requiresAuth: true, roles: WORKSPACE_ROLES }
       },
       {
         path: "workspace/groups",
         name: "my-groups",
         component: MyGroupsPage,
-        meta: { requiresAuth: true }
+        meta: { requiresAuth: true, roles: WORKSPACE_ROLES }
       },
       {
         path: "workspace/groups/new",
         name: "new-group",
         component: NewGroupPage,
-        meta: { requiresAuth: true }
+        meta: { requiresAuth: true, roles: WORKSPACE_ROLES }
       },
       {
         path: "workspace/groups/:groupId",
         name: "group-detail",
         component: GroupDetailPage,
         props: true,
-        meta: { requiresAuth: true }
+        meta: { requiresAuth: true, roles: WORKSPACE_ROLES }
       },
       {
         path: "workspace/groups/:groupId/settings",
         name: "group-settings",
         component: GroupSettingsPage,
         props: true,
-        meta: { requiresAuth: true }
+        meta: { requiresAuth: true, roles: WORKSPACE_ROLES }
       },
       {
         path: "profile",
