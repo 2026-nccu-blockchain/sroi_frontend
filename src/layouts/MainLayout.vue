@@ -24,7 +24,7 @@ const handleLogout = async (): Promise<void> => {
             <RouterLink class="sidebar__link" to="/workspace/projects">
               <span>我的專案</span>
             </RouterLink>
-            <RouterLink class="sidebar__link" to="/workspace/groups">
+            <RouterLink class="sidebar__link" to="/workspace/groups" active-class="sidebar__link--active">
               <span>我的群組</span>
             </RouterLink>
             <p> </p> <!--排版空白-->
@@ -138,7 +138,8 @@ const handleLogout = async (): Promise<void> => {
   border-bottom: 1px solid #000;
 }
 
-.sidebar__link.router-link-exact-active span:first-child::before {
+.sidebar__link.router-link-exact-active span:first-child::before,
+.sidebar__link--active span:first-child::before {
   content: "●";
   margin-right: 8px;
   font-size: 7px;

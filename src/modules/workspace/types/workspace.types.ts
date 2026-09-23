@@ -29,3 +29,10 @@ export interface GroupListResponse extends ApiEnvelope {
   in_progress_groups: Group[];
   unverified_groups: Group[];
 }
+
+export interface GroupPayload {
+  title: string;
+  desc: string;
+  begin: string; // "YYYY-MM-DDT00:00:00"
+  end: string;
+}

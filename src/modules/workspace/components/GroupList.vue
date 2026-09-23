@@ -41,6 +41,9 @@ const formatDate = (iso: string): string => new Date(iso).toLocaleDateString("zh
         <p class="groups__eyebrow">工作區</p>
         <h1>我的群組</h1>
       </div>
+      <RouterLink class="button button--primary" to="/workspace/groups/new">
+        <span>＋</span> 新增群組
+      </RouterLink>
     </div>
 
     <div class="tab-bar" role="tablist">
@@ -65,6 +68,7 @@ const formatDate = (iso: string): string => new Date(iso).toLocaleDateString("zh
     <div class="group-list">
       <div class="group-list__header" aria-hidden="true">
         <span>群組名稱</span>
+        <span>群組描述</span>
         <span>期間</span>
       </div>
 
@@ -82,6 +86,7 @@ const formatDate = (iso: string): string => new Date(iso).toLocaleDateString("zh
         >
           {{ group.title }}
         </button>
+        <span data-label="群組描述" class="desc">{{ group.desc}}</span>
         <span data-label="期間">{{ formatDate(group.begin) }} — {{ formatDate(group.end) }}</span>
 
         <div v-if="selectedGroup === group.group_id" class="group-row__detail">
@@ -101,6 +106,13 @@ const formatDate = (iso: string): string => new Date(iso).toLocaleDateString("zh
   margin-top: -16px;
 }
 
+.groups__intro {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 24px;
+}
+
 .groups__eyebrow {
   margin: 0 0 8px;
   font-size: 12px;
@@ -114,6 +126,32 @@ h1 {
   font-weight: 500;
   line-height: 1;
   letter-spacing: -0.04em;
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 46px;
+  padding: 10px 18px;
+  border: 1px solid #000;
+  color: #000;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.button--primary {
+  background: #000;
+  color: #fff;
+}
+
+.button--primary:hover {
+  background: #fff;
+  color: #000;
 }
 
 .tab-bar {
@@ -151,6 +189,13 @@ h1 {
   outline: none;
 }
 
+.desc {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
 .group-list {
   border-top: 2px solid #000;
 }
@@ -158,7 +203,7 @@ h1 {
 .group-list__header,
 .group-row {
   display: grid;
-  grid-template-columns: minmax(240px, 2fr) minmax(160px, 1fr);
+  grid-template-columns: minmax(160px, 1fr) minmax(160px, 1fr) minmax(160px, 1fr);
   gap: 20px;
   align-items: center;
 }
