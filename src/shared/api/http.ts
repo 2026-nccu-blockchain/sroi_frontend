@@ -53,5 +53,6 @@ const request = async <T extends ApiEnvelope>(path: string, options: RequestOpti
 export const httpClient = {
   get: <T extends ApiEnvelope>(path: string): Promise<T> => request<T>(path, { method: "GET" }),
   post: <T extends ApiEnvelope>(path: string, body?: unknown): Promise<T> =>
-    request<T>(path, { method: "POST", body })
+    request<T>(path, { method: "POST", body }),
+  delete: <T extends ApiEnvelope>(path: string): Promise<T> => request<T>(path, { method: "DELETE" })
 };

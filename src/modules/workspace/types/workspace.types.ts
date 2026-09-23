@@ -36,3 +36,39 @@ export interface GroupPayload {
   begin: string; // "YYYY-MM-DDT00:00:00"
   end: string;
 }
+
+export interface GroupUser {
+  user_id: string;
+  campus_id: string;
+  name: string;
+}
+
+export interface GroupInfo extends Group {
+  group_leaders: GroupUser[];
+  group_members: GroupUser[];
+}
+
+export interface GroupInfoResponse extends ApiEnvelope, GroupInfo {}
+
+export type GroupRole = "leader" | "member";
+
+export interface GroupRoleResponse extends ApiEnvelope {
+  group_role: GroupRole;
+}
+
+export interface GroupMember extends GroupUser {
+  role: GroupRole;
+}
+
+export interface GroupUserSearchResponse extends ApiEnvelope {
+  users: GroupUser[];
+}
+
+export interface InviteMemberPayload {
+  user_id: string;
+}
+
+export interface ChangeRolePayload {
+  user_id: string;
+  is_leader: boolean;
+}

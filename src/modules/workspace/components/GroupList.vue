@@ -13,7 +13,6 @@ const TABS: { key: GroupStatus; label: string }[] = [
 
 const activeTab = ref<GroupStatus>("已驗證");
 const search = ref("");
-const selectedGroup = ref<string | null>(null);
 
 const activeGroups = computed<Group[]>(() => {
   if (activeTab.value === "已驗證") return props.groups.verified;
@@ -55,7 +54,7 @@ const formatDate = (iso: string): string => new Date(iso).toLocaleDateString("zh
         :class="{ 'tab-bar__item--active': activeTab === tab.key }"
         role="tab"
         :aria-selected="activeTab === tab.key"
-        @click="activeTab = tab.key; selectedGroup = null"
+        @click="activeTab = tab.key"
       >
         {{ tab.label }}
       </button>
@@ -72,26 +71,17 @@ const formatDate = (iso: string): string => new Date(iso).toLocaleDateString("zh
         <span>期間</span>
       </div>
 
-      <article
-        v-for="group in filteredGroups"
-        :key="group.group_id"
-        class="group-row"
-        :class="{ 'group-row--open': selectedGroup === group.group_id }"
-      >
-        <button
+      <article v-for="group in filteredGroups" :key="group.group_id" class="group-row">
+        <RouterLink
+          v-if="activeTab === '已驗證'"
           class="group-row__title"
-          type="button"
-          :aria-expanded="selectedGroup === group.group_id"
-          @click="selectedGroup = selectedGroup === group.group_id ? null : group.group_id"
+          :to="`/workspace/groups/${group.group_id}`"
         >
           {{ group.title }}
-        </button>
-        <span data-label="群組描述" class="desc">{{ group.desc}}</span>
+        </RouterLink>
+        <span v-else class="group-row__title group-row__title--static">{{ group.title }}</span>
+        <span data-label="群組描述" class="desc">{{ group.desc }}</span>
         <span data-label="期間">{{ formatDate(group.begin) }} — {{ formatDate(group.end) }}</span>
-
-        <div v-if="selectedGroup === group.group_id" class="group-row__detail">
-          <p>{{ group.desc || "尚無說明。" }}</p>
-        </div>
       </article>
 
       <p v-if="filteredGroups.length === 0" class="group-list__empty">找不到符合的群組。</p>
@@ -236,6 +226,7 @@ h1 {
   font-size: 17px;
   font-weight: 650;
   text-align: left;
+  text-decoration: none;
   cursor: pointer;
 }
 
@@ -244,23 +235,18 @@ h1 {
   text-underline-offset: 4px;
 }
 
+.group-row__title--static,
+.group-row__title--static:hover {
+  text-decoration: none;
+  cursor: default;
+}
+
 .group-row > span:last-child {
   text-align: right;
 }
 
-.group-row__detail {
-  grid-column: 1 / -1;
-  padding: 4px 0 24px;
-  color: #555;
-  font-size: 12px;
-}
-
-.group-row__detail p,
 .group-list__empty {
   margin: 0;
-}
-
-.group-list__empty {
   padding: 40px 0;
   border-bottom: 1px solid #000;
   color: #555;
