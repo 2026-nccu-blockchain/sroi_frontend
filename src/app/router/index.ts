@@ -6,6 +6,7 @@ import LoginPage from "@/modules/auth/pages/LoginPage.vue";
 import RegisterPage from "@/modules/auth/pages/RegisterPage.vue";
 import DashboardPage from "@/modules/dashboard/pages/DashboardPage.vue";
 import FormBuilderPage from "@/modules/forms/pages/FormBuilderPage.vue";
+import ProfilePage from "@/modules/profile/pages/ProfilePage.vue";
 import ProxyVariablesPage from "@/modules/proxy-variables/pages/ProxyVariablesPage.vue";
 import MyGroupsPage from "@/modules/workspace/pages/MyGroupsPage.vue";
 import NewGroupPage from "@/modules/workspace/pages/NewGroupPage.vue";
@@ -76,6 +77,12 @@ const routes: RouteRecordRaw[] = [
         name: "group-settings",
         component: GroupSettingsPage,
         props: true,
+        meta: { requiresAuth: true }
+      },
+      {
+        path: "profile",
+        name: "profile",
+        component: ProfilePage,
         meta: { requiresAuth: true }
       },
       {

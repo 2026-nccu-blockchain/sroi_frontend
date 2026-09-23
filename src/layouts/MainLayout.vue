@@ -51,7 +51,7 @@ const handleLogout = async (): Promise<void> => {
       <div class="sidebar__account">
         <template v-if="isAuthenticated">
           <p class="sidebar__label">角色權限：{{ user?.role }}</p>
-          <span class="sidebar__user">{{ user?.campus_id }} {{ user?.name }}</span>
+          <RouterLink class="sidebar__user" to="/profile">{{ user?.campus_id }} {{ user?.name }}</RouterLink>
           <button class="sidebar__auth-action" type="button" @click="handleLogout">登出</button>
         </template>
         <template v-else>
@@ -158,6 +158,15 @@ const handleLogout = async (): Promise<void> => {
   font-size: 16px;
   line-height: 1.5;
   letter-spacing: 0.08em;
+}
+
+.sidebar__user {
+  text-decoration: none;
+}
+
+.sidebar__user:hover {
+  text-decoration: underline;
+  text-underline-offset: 4px;
 }
 
 .sidebar__auth-action {
