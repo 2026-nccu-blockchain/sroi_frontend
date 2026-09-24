@@ -99,7 +99,7 @@ const publish = (): void => {
   <div class="builder-shell">
     <header class="topbar">
       <div class="topbar__left">
-        <button class="icon-button icon-button--back" type="button" aria-label="返回" @click="router.push('/')">
+        <button class="icon-button icon-button--back" type="button" aria-label="返回" @click="router.push('/workspace/projects')">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
         </button>
         <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>

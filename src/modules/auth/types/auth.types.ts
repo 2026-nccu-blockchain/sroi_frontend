@@ -17,9 +17,10 @@ export interface LoginResponse extends ApiEnvelope {
 
 export interface ProfileResponse extends ApiEnvelope {
   user_id: string;
-  campus_id: string;
+  campus_id?: string; // 未驗證帳號沒有學號，後端不會回傳
   email: string;
   name: string;
+  role: string;
 }
 
 export interface AuthUser {
@@ -27,4 +28,5 @@ export interface AuthUser {
   campus_id?: string;
   email?: string;
   name?: string;
+  role?: string;
 }

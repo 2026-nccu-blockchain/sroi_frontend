@@ -8,14 +8,14 @@ interface Project {
   name: string;
   organization: string;
   year: number;
-  status: "Draft" | "Published";
+  status: "草稿" | "已發布";
 }
 
 const { isAuthenticated, fetchProfile } = useAuth();
 const projects = ref<Project[]>([
-  { id: 1, name: "Community Care Program", organization: "North District", year: 2025, status: "Published" },
-  { id: 2, name: "Youth Employment Initiative", organization: "Social Impact Lab", year: 2025, status: "Draft" },
-  { id: 3, name: "Senior Digital Inclusion", organization: "City Foundation", year: 2024, status: "Published" }
+  { id: 1, name: "社區關懷計畫", organization: "北區辦公室", year: 2025, status: "已發布" },
+  { id: 2, name: "青年就業推動計畫", organization: "社會影響實驗室", year: 2025, status: "草稿" },
+  { id: 3, name: "高齡數位共融計畫", organization: "城市基金會", year: 2024, status: "已發布" }
 ]);
 const selectedProject = ref<number | null>(null);
 
@@ -29,7 +29,7 @@ onMounted(() => {
 });
 
 const deleteProject = (project: Project): void => {
-  if (!window.confirm(`Delete “${project.name}”? This action cannot be undone.`)) return;
+  if (!window.confirm(`確定要刪除「${project.name}」嗎？此操作無法復原。`)) return;
   projects.value = projects.value.filter(({ id }) => id !== project.id);
 };
 </script>
@@ -38,26 +38,21 @@ const deleteProject = (project: Project): void => {
   <section class="projects">
     <div class="projects__intro">
       <div>
-        <p class="projects__eyebrow">PROJECT INDEX</p>
-        <h1>Projects</h1>
+        <p class="projects__eyebrow">專案總覽</p>
+        <h1>專案列表</h1>
       </div>
-
-      <RouterLink v-if="isAuthenticated" class="button button--primary" to="/forms/new">
-        <span>＋</span> Add project
-      </RouterLink>
     </div>
 
     <p v-if="!isAuthenticated" class="projects__notice">
-      Projects are public to view. Sign in to add, edit, or delete them.
+      專案公開瀏覽，登入後可新增、編輯或刪除。
     </p>
 
     <div class="project-list">
       <div class="project-list__header" aria-hidden="true">
-        <span>Project</span>
-        <span>Organization</span>
-        <span>Year</span>
-        <span>Status</span>
-        <span v-if="isAuthenticated">Actions</span>
+        <span>專案名稱</span>
+        <span>所屬單位</span>
+        <span>年度</span>
+        <span>狀態</span>
       </div>
 
       <article
@@ -74,21 +69,16 @@ const deleteProject = (project: Project): void => {
         >
           {{ project.name }}
         </button>
-        <span data-label="Organization">{{ project.organization }}</span>
-        <span data-label="Year">{{ project.year }}</span>
-        <span data-label="Status" class="project-row__status">{{ project.status }}</span>
-        <div v-if="isAuthenticated" class="project-row__actions">
-          <button type="button">Edit</button>
-          <button type="button" @click="deleteProject(project)">Delete</button>
-        </div>
-
+        <span data-label="所屬單位">{{ project.organization }}</span>
+        <span data-label="年度">{{ project.year }}</span>
+        <span data-label="狀態" class=project-row__status>{{ project.status }}</span>
         <div v-if="selectedProject === project.id" class="project-row__detail">
-          <span>Project ID — {{ String(project.id).padStart(4, "0") }}</span>
-          <p>SROI project overview. Detailed project information will appear here.</p>
+          <span>專案編號 — {{ String(project.id).padStart(4, "0") }}</span>
+          <p>SROI 專案概覽，詳細專案資訊將顯示於此。</p>
         </div>
       </article>
 
-      <p v-if="projects.length === 0" class="project-list__empty">No projects found.</p>
+      <p v-if="projects.length === 0" class="project-list__empty">目前沒有專案。</p>
     </div>
   </section>
 </template>
@@ -96,7 +86,8 @@ const deleteProject = (project: Project): void => {
 <style scoped>
 .projects {
   display: grid;
-  gap: 36px;
+  gap: 22px;
+  margin-top: -16px;
 }
 
 .projects__intro {
@@ -107,44 +98,18 @@ const deleteProject = (project: Project): void => {
 }
 
 .projects__eyebrow {
-  margin: 0 0 12px;
-  font-size: 11px;
+  margin: 0 0 8px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.15em;
 }
 
 h1 {
   margin: 0;
-  font-size: clamp(52px, 9vw, 104px);
+  font-size: 26px;
   font-weight: 500;
-  line-height: 0.9;
-  letter-spacing: -0.06em;
-}
-
-.button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  min-height: 46px;
-  padding: 10px 18px;
-  border: 1px solid #000;
-  color: #000;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 700;
-  text-decoration: none;
-  cursor: pointer;
-}
-
-.button--primary {
-  background: #000;
-  color: #fff;
-}
-
-.button--primary:hover {
-  background: #fff;
-  color: #000;
+  line-height: 1;
+  letter-spacing: -0.04em;
 }
 
 .projects__notice {
@@ -212,6 +177,7 @@ h1 {
 .project-row__status {
   font-size: 11px;
   text-transform: uppercase;
+  text-align: right;
 }
 
 .project-row__actions {
