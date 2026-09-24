@@ -1,9 +1,27 @@
-<<<<<<< HEAD
-=======
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
+import { useRouter } from "vue-router";
 
 import { useAuth } from "@/modules/auth/composables/useAuth";
+import { deleteForm, getForms } from "@/modules/forms/api/forms.api";
+import type { FormResponse, FormStatus } from "@/modules/forms/types/form.types";
+
+type StatusFilter = "all" | FormStatus;
+
+const router = useRouter();
+const { isAuthenticated, user } = useAuth();
+const forms = ref<FormResponse[]>([]);
+const loading = ref(false);
+const error = ref("");
+const deletingId = ref("");
+const search = ref("");
+const statusFilter = ref<StatusFilter>("all");
+
+const statusLabel: Record<FormStatus, string> = {
+  draft: "草稿",
+  published: "已發布",
+  closed: "已關閉"
+};
 
 interface Project {
   id: number;
@@ -21,20 +39,23 @@ const projects = ref<Project[]>([
 ]);
 const selectedProject = ref<number | null>(null);
 
-onMounted(() => {
-  if (isAuthenticated.value) {
-    fetchProfile().catch(() => {
-      // 401 已經由 http.ts 的 unauthorizedHandler 處理登出+導頁；
-      // 其他失敗就讓畫面保持只顯示 id，不影響頁面其他功能。
-    });
+const loadForms = async (): Promise<void> => {
+  if (!isAuthenticated.value) return;
+  loading.value = true;
+  error.value = "";
+  try {
+    forms.value = await getForms();
+  } catch (caught) {
+    error.value = caught instanceof Error ? caught.message : "無法載入表單";
+  } finally {
+    loading.value = false;
   }
-});
+};
 
 const deleteProject = (project: Project): void => {
   if (!window.confirm(`確定要刪除「${project.name}」嗎？此操作無法復原。`)) return;
   projects.value = projects.value.filter(({ id }) => id !== project.id);
 };
-</script>
 
 <template>
   <section class="projects">
@@ -57,19 +78,16 @@ const deleteProject = (project: Project): void => {
         <span>狀態</span>
       </div>
 
-      <article
-        v-for="project in projects"
-        :key="project.id"
-        class="project-row"
-        :class="{ 'project-row--open': selectedProject === project.id }"
-      >
-        <button
-          class="project-row__title"
-          type="button"
-          :aria-expanded="selectedProject === project.id"
-          @click="selectedProject = selectedProject === project.id ? null : project.id"
-        >
-          {{ project.name }}
+<template>
+  <section class="dashboard">
+    <header class="welcome-card">
+      <div class="welcome-card__copy">
+        <p class="eyebrow">SROI FORM WORKSPACE</p>
+        <h1>我的表單</h1>
+        <p v-if="isAuthenticated">整理關鍵精神、設計題目，並在同一個地方查看每份表單的回覆。</p>
+        <p v-else>登入後即可建立、發布並管理你的 SROI 評估表單。</p>
+        <button v-if="isAuthenticated" class="primary-button" type="button" @click="createNewForm">
+          <span>＋</span> 建立新表單
         </button>
         <span data-label="所屬單位">{{ project.organization }}</span>
         <span data-label="年度">{{ project.year }}</span>
@@ -78,7 +96,6 @@ const deleteProject = (project: Project): void => {
           <span>專案編號 — {{ String(project.id).padStart(4, "0") }}</span>
           <p>SROI 專案概覽，詳細專案資訊將顯示於此。</p>
         </div>
-      </article>
 
       <p v-if="projects.length === 0" class="project-list__empty">目前沒有專案。</p>
     </div>
@@ -261,4 +278,3 @@ h1 {
   }
 }
 </style>
->>>>>>> origin/reconstruct

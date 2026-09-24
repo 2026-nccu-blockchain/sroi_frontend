@@ -59,11 +59,23 @@ const routes: RouteRecordRaw[] = [
     ]
   },
   {
+    path: "/forms/:formId/responses",
+    name: "form-responses",
+    component: FormResponsesPage,
+    meta: { requiresAuth: true }
+  },
+  {
+    path: "/forms/:publicToken",
+    name: "public-form",
+    component: PublicFormPage
+  },
+  {
     path: "/auth",
     component: AuthLayout,
     children: [
       {
         path: "login",
+        alias: "/login",
         name: "login",
         component: LoginPage
       },
@@ -75,7 +87,7 @@ const routes: RouteRecordRaw[] = [
     ]
   },
   {
-    path: "/",
+    path: "/forms",
     component: MainLayout,
     children: [
       {
@@ -147,7 +159,7 @@ const routes: RouteRecordRaw[] = [
         component: ProxyVariablesPage
       }
     ]
-  },
+  }
 ];
 
 export const router = createRouter({

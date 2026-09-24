@@ -2,8 +2,7 @@ import { ApiError } from "@/shared/api/error-handler";
 import { AUTH_TOKEN_COOKIE_NAME } from "@/shared/constants";
 import { getCookie } from "@/shared/utils/cookie";
 
-const configuredBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
-const API_BASE_URL = `${configuredBaseUrl.replace(/\/$/, "")}/api/v1`;
+const API_BASE_URL = `${(import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000").replace(/\/$/, "").replace(/\/api\/v1$/, "")}/api/v1`;
 const SUCCESS_STATUS_CODE = "00000";
 
 export interface ApiEnvelope {
@@ -80,14 +79,13 @@ const request = async <T>(path: string, options: RequestOptions = {}): Promise<T
   if (isApiEnvelope(payload) && payload.status_code !== SUCCESS_STATUS_CODE) {
     throw new ApiError(payload.message ?? "Request failed", payload.status_code);
   }
-
   return payload as T;
 };
 
 export const httpClient = {
   get: <T>(path: string): Promise<T> => request<T>(path, { method: "GET" }),
   post: <T>(path: string, body?: unknown): Promise<T> => request<T>(path, { method: "POST", body }),
-  put: <T>(path: string, body?: unknown): Promise<T> => request<T>(path, { method: "PUT", body }),
-  patch: <T>(path: string, body?: unknown): Promise<T> => request<T>(path, { method: "PATCH", body }),
-  delete: <T = void>(path: string): Promise<T> => request<T>(path, { method: "DELETE" })
+  put: <T>(path: string, body: unknown): Promise<T> => request<T>(path, { method: "PUT", body }),
+  patch: <T>(path: string, body: unknown): Promise<T> => request<T>(path, { method: "PATCH", body }),
+  delete: (path: string): Promise<void> => request<void>(path, { method: "DELETE" })
 };

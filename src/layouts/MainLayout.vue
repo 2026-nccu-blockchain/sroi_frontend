@@ -1,5 +1,3 @@
-<<<<<<< HEAD
-=======
 <script setup lang="ts">
 import { computed } from "vue";
 import { useRouter } from "vue-router";
@@ -72,12 +70,9 @@ const handleLogout = async (): Promise<void> => {
           <button class="sidebar__auth-action" type="button" @click="handleLogout">登出</button>
         </template>
         <template v-else>
-          <p class="sidebar__guest">訪客模式</p>
-          <div class="sidebar__auth">
-            <RouterLink class="sidebar__auth-action" to="/auth/login">登入 →</RouterLink>
-            <RouterLink class="sidebar__auth-action" to="/auth/register">註冊 →</RouterLink>
-          </div>
-          
+          <p>登入後即可建立及管理表單。</p>
+          <RouterLink to="/auth/login">登入 →</RouterLink>
+          <RouterLink to="/auth/register">註冊 →</RouterLink>
         </template>
       </div>
     </aside>
@@ -254,4 +249,3 @@ const handleLogout = async (): Promise<void> => {
   }
 }
 </style>
->>>>>>> origin/reconstruct
