@@ -104,7 +104,7 @@ onMounted(() => void loadForms());
         <button v-if="isAuthenticated" class="primary-button" type="button" @click="createNewForm">
           <span>＋</span> 建立新表單
         </button>
-        <RouterLink v-else class="primary-button" to="/login">登入開始使用</RouterLink>
+        <RouterLink v-else class="primary-button" to="/auth/login">登入開始使用</RouterLink>
       </div>
       <div class="welcome-card__visual" aria-hidden="true">
         <div class="visual-card visual-card--back"><i></i><i></i><i></i></div>

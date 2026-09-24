@@ -42,13 +42,14 @@ const handleLogout = async (): Promise<void> => {
           <div class="account-avatar">{{ userInitial }}</div>
           <div class="account-copy">
             <strong>目前帳號</strong>
-            <span>{{ user?.email }}</span>
+            <span>{{ user?.name || user?.email || user?.user_id }}</span>
           </div>
           <button type="button" title="登出" aria-label="登出" @click="handleLogout">↪</button>
         </template>
         <template v-else>
           <p>登入後即可建立及管理表單。</p>
-          <RouterLink to="/login">登入 →</RouterLink>
+          <RouterLink to="/auth/login">登入 →</RouterLink>
+          <RouterLink to="/auth/register">註冊 →</RouterLink>
         </template>
       </div>
     </aside>
