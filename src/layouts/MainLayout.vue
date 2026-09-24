@@ -1,0 +1,257 @@
+<<<<<<< HEAD
+=======
+<script setup lang="ts">
+import { computed } from "vue";
+import { useRouter } from "vue-router";
+
+import { useAuth } from "@/modules/auth/composables/useAuth";
+import { ADMIN_ROLES, WORKSPACE_ROLES } from "@/modules/auth/constants";
+import { ROLE_LABELS } from "@/modules/profile/constants";
+
+const router = useRouter();
+const { user, isAuthenticated, logout } = useAuth();
+const userInitial = computed(() => user.value?.email?.charAt(0).toUpperCase() ?? "U");
+
+// 未驗證、驗證中的帳號導覽列跟訪客一樣
+const canUseWorkspace = computed(() => WORKSPACE_ROLES.includes(user.value?.role ?? ""));
+const isAdmin = computed(() => ADMIN_ROLES.includes(user.value?.role ?? ""));
+const roleLabel = computed(() => ROLE_LABELS[user.value?.role ?? ""] ?? user.value?.role);
+
+const handleLogout = async (): Promise<void> => {
+  logout();
+  await router.push("/forms");
+};
+</script>
+
+<template>
+  <div class="layout">
+    <aside class="sidebar">
+      <div>
+        <RouterLink class="sidebar__brand" to="/forms">
+          <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span>SROI <small>Forms</small></span>
+        </RouterLink>
+
+        <nav class="sidebar__nav" aria-label="Main navigation">
+          <template v-if="canUseWorkspace">
+            <p class="sidebar__label">工作區</p>
+            <RouterLink class="sidebar__link" to="/workspace/projects">
+              <span>我的專案</span>
+            </RouterLink>
+            <RouterLink class="sidebar__link" to="/workspace/groups" active-class="sidebar__link--active">
+              <span>我的群組</span>
+            </RouterLink>
+            <p> </p>
+          </template>
+
+          <p class="sidebar__label">共用資料庫</p>
+          <RouterLink class="sidebar__link" to="/">
+            <span>專案</span>
+          </RouterLink>
+          <RouterLink class="sidebar__link" to="/proxy-variables">
+            <span>財務代理變數</span>
+          </RouterLink>
+
+          <template v-if="isAdmin">
+            <p> </p>
+            <p class="sidebar__label">管理</p>
+            <RouterLink class="sidebar__link" to="/admin/users" active-class="sidebar__link--active">
+              <span>所有使用者</span>
+            </RouterLink>
+            <RouterLink class="sidebar__link" to="/admin/groups" active-class="sidebar__link--active">
+              <span>所有群組</span>
+            </RouterLink>
+          </template>
+        </nav>
+      </div>
+
+      <div class="sidebar__account">
+        <template v-if="isAuthenticated">
+          <p class="sidebar__label">角色權限：{{ roleLabel }}</p>
+          <RouterLink class="sidebar__user" to="/profile">{{ user?.campus_id }} {{ user?.name }}</RouterLink>
+          <button class="sidebar__auth-action" type="button" @click="handleLogout">登出</button>
+        </template>
+        <template v-else>
+          <p class="sidebar__guest">訪客模式</p>
+          <div class="sidebar__auth">
+            <RouterLink class="sidebar__auth-action" to="/auth/login">登入 →</RouterLink>
+            <RouterLink class="sidebar__auth-action" to="/auth/register">註冊 →</RouterLink>
+          </div>
+          
+        </template>
+      </div>
+    </aside>
+
+    <main class="layout__content">
+      <RouterView />
+    </main>
+  </div>
+</template>
+
+<style scoped>
+.layout {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+}
+
+.sidebar {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 100vh;
+  padding: 30px 24px;
+  border-right: 1px solid #000;
+  background: #fff;
+  color: #000;
+}
+
+.sidebar__brand {
+  display: inline-block;
+  margin-bottom: 35px;
+  color: inherit;
+  font-size: 25px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-decoration: none;
+}
+
+.sidebar__nav,
+.sidebar__account {
+  display: grid;
+  gap: 0;
+}
+
+.sidebar__label {
+  margin: 0 0 15px;
+  color: #777;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.sidebar__link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 44px;
+  border: 0;
+  border-top: 1px solid #000;
+  padding: 0;
+  background: transparent;
+  color: #000;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.sidebar__link:last-child {
+  border-bottom: 1px solid #000;
+}
+
+.sidebar__link.router-link-exact-active span:first-child::before,
+.sidebar__link--active span:first-child::before {
+  content: "●";
+  margin-right: 8px;
+  font-size: 7px;
+  vertical-align: 2px;
+}
+
+.sidebar__auth {
+  display: flex;
+}
+
+.sidebar__guest,
+.sidebar__user {
+  margin: 0 0 16px;
+  overflow-wrap: anywhere;
+  color: #000000;
+  font-size: 16px;
+  line-height: 1.5;
+  letter-spacing: 0.08em;
+}
+
+.sidebar__user {
+  text-decoration: none;
+}
+
+.sidebar__user:hover {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+.sidebar__auth-action {
+  justify-self: start;
+  margin: 0 40px 0 0;
+  border: 0;
+  border-bottom: 1px solid #000;
+  padding: 3px 0;
+  background: transparent;
+  color: #000;
+  font: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.layout__content {
+  width: 100%;
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: clamp(40px, 7vw, 88px) clamp(20px, 5vw, 72px);
+}
+
+@media (max-width: 720px) {
+  .layout {
+    display: block;
+  }
+
+  .sidebar {
+    position: static;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: center;
+    gap: 24px;
+    height: auto;
+    padding: 20px;
+    border-right: 0;
+    border-bottom: 1px solid #000;
+  }
+
+  .sidebar > div:first-child {
+    display: contents;
+  }
+
+  .sidebar__brand {
+    margin: 0;
+  }
+
+  .sidebar__nav {
+    display: flex;
+    justify-content: flex-end;
+    gap: 18px;
+  }
+
+  .sidebar__label,
+  .sidebar__account,
+  .sidebar__link span:last-child {
+    display: none;
+  }
+
+  .sidebar__link {
+    width: auto;
+    min-height: auto;
+    border: 0;
+  }
+
+  .sidebar__link:last-child {
+    border-bottom: 0;
+  }
+}
+</style>
+>>>>>>> origin/reconstruct

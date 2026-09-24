@@ -5,6 +5,7 @@ import MainLayout from "@/layouts/MainLayout.vue";
 import LoginPage from "@/modules/auth/pages/LoginPage.vue";
 import RegisterPage from "@/modules/auth/pages/RegisterPage.vue";
 import DashboardPage from "@/modules/dashboard/pages/DashboardPage.vue";
+import FormLayout from "@/layouts/FormLayout.vue";
 import FormDashboardPage from "@/modules/formdashboard/pages/FormDashboardPage.vue";
 import FormBuilderPage from "@/modules/forms/pages/FormBuilderPage.vue";
 import FormResponsesPage from "@/modules/forms/pages/FormResponsesPage.vue";
@@ -24,27 +25,38 @@ import { VERIFY_ROLES } from "@/modules/profile/constants";
 
 const routes: RouteRecordRaw[] = [
   {
-    path: "/forms/new",
-    name: "form-builder-new",
-    component: FormBuilderPage,
-    meta: { requiresAuth: true }
-  },
-  {
-    path: "/forms/:formId/edit",
-    name: "form-builder-edit",
-    component: FormBuilderPage,
-    meta: { requiresAuth: true }
-  },
-  {
-    path: "/forms/:formId/responses",
-    name: "form-responses",
-    component: FormResponsesPage,
-    meta: { requiresAuth: true }
-  },
-  {
-    path: "/forms/:publicToken",
-    name: "public-form",
-    component: PublicFormPage
+    path: "/forms",
+    component: FormLayout,
+    children: [
+      {
+        path: "",
+        name: "form-dashboard",
+        component: FormDashboardPage
+      },
+      {
+        path: "new",
+        name: "form-builder-new",
+        component: FormBuilderPage,
+        meta: { requiresAuth: true }
+      },
+      {
+        path: ":formId/edit",
+        name: "form-builder-edit",
+        component: FormBuilderPage,
+        meta: { requiresAuth: true }
+      },
+      {
+        path: ":formId/responses",
+        name: "form-responses",
+        component: FormResponsesPage,
+        meta: { requiresAuth: true }
+      },
+      {
+        path: ":publicToken",
+        name: "public-form",
+        component: PublicFormPage
+      },
+    ]
   },
   {
     path: "/auth",
@@ -70,11 +82,6 @@ const routes: RouteRecordRaw[] = [
         path: "",
         name: "dashboard",
         component: DashboardPage
-      },
-      {
-        path: "forms",
-        name: "form-dashboard",
-        component: FormDashboardPage
       },
       {
         path: "workspace/projects",
