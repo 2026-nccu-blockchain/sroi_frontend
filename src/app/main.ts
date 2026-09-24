@@ -21,4 +21,4 @@ setUnauthorizedHandler(() => {
   router.push({ name: "login", query: { redirect: router.currentRoute.value.fullPath } });
 });
 
-app.mount("#app"); 
+app.mount("#app");
