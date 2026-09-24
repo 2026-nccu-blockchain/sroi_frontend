@@ -21,4 +21,5 @@ setUnauthorizedHandler(() => {
   router.push({ name: "login", query: { redirect: router.currentRoute.value.fullPath } });
 });
 
-app.mount("#app");
+// 等第一次導覽（含守衛裡的 fetchProfile）完成再掛載，側邊欄一開始就拿得到角色
+router.isReady().then(() => app.mount("#app"));

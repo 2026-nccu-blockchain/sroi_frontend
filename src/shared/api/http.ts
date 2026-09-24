@@ -12,47 +12,72 @@ export interface ApiEnvelope {
 }
 
 interface ApiErrorBody {
+  status_code?: string;
   message?: string;
   detail?: string;
-  status_code?: string;
 }
 
+type RequestOptions = Omit<RequestInit, "body"> & { body?: unknown };
+type UnauthorizedHandler = () => void;
+
+let unauthorizedHandler: UnauthorizedHandler | null = null;
+
 export class HttpError extends ApiError {
-  constructor(message: string, public readonly status: number, statusCode?: string) {
+  constructor(
+    message: string,
+    public readonly status: number,
+    statusCode?: string
+  ) {
     super(message, statusCode);
     this.name = "HttpError";
   }
 }
 
-type RequestOptions = Omit<RequestInit, "body"> & { body?: unknown };
-let unauthorizedHandler: (() => void) | null = null;
-
-export const setUnauthorizedHandler = (handler: () => void): void => {
+export const setUnauthorizedHandler = (handler: UnauthorizedHandler): void => {
   unauthorizedHandler = handler;
 };
 
+const isApiEnvelope = (payload: unknown): payload is ApiEnvelope =>
+  typeof payload === "object"
+  && payload !== null
+  && "status_code" in payload
+  && "message" in payload;
+
 const request = async <T>(path: string, options: RequestOptions = {}): Promise<T> => {
   const token = getCookie(AUTH_TOKEN_COOKIE_NAME);
-  const headers = new Headers(options.headers);
+  const { body, ...init } = options;
+  const isFormData = body instanceof FormData;
+  const headers = new Headers(init.headers);
+
   headers.set("Accept", "application/json");
-  if (options.body !== undefined) headers.set("Content-Type", "application/json");
+  if (body !== undefined && !isFormData) headers.set("Content-Type", "application/json");
   if (token) headers.set("Authorization", `Bearer ${token}`);
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...options,
+    ...init,
     headers,
-    body: options.body !== undefined ? JSON.stringify(options.body) : undefined
+    body: isFormData ? body : body !== undefined ? JSON.stringify(body) : undefined
   });
-  const payload: unknown = await response.json().catch(() => undefined);
-  const envelope = payload && typeof payload === "object" ? payload as ApiErrorBody : undefined;
 
   if (response.status === 401 && token) unauthorizedHandler?.();
-  if (!response.ok) {
-    throw new HttpError(envelope?.message ?? envelope?.detail ?? `Request failed (${response.status})`, response.status, envelope?.status_code);
+  if (response.status === 204) {
+    if (!response.ok) throw new HttpError(`Request failed (${response.status})`, response.status);
+    return undefined as T;
   }
-  // Auth endpoints return envelopes; form endpoints return plain objects or arrays.
-  if (envelope?.status_code !== undefined && envelope.status_code !== SUCCESS_STATUS_CODE) {
-    throw new ApiError(envelope.message ?? "Request failed", envelope.status_code);
+
+  const payload = await response.json().catch(() => undefined) as T | ApiErrorBody | undefined;
+
+  if (!response.ok) {
+    const error = payload as ApiErrorBody | undefined;
+    throw new HttpError(
+      error?.message ?? error?.detail ?? `Request failed (${response.status})`,
+      response.status,
+      error?.status_code
+    );
+  }
+
+  if (isApiEnvelope(payload) && payload.status_code !== SUCCESS_STATUS_CODE) {
+    throw new ApiError(payload.message ?? "Request failed", payload.status_code);
   }
   return payload as T;
 };

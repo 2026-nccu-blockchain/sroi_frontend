@@ -117,14 +117,14 @@ const onSubmit = (): void => {
 <style scoped>
 .register-form {
   display: grid;
-  gap: 24px;
+  gap: 16px;
   width: min(100%, 400px);
 }
 
 .register-form__heading {
   display: grid;
-  gap: 8px;
-  margin-bottom: 8px;
+  gap: 4px;
+  margin-bottom: 4px;
 }
 
 .register-form__eyebrow {
@@ -139,7 +139,7 @@ p {
 }
 
 h1 {
-  font-size: clamp(36px, 7vw, 52px);
+  font-size: clamp(28px, 5vw, 40px);
   line-height: 1;
   letter-spacing: -0.04em;
 }
@@ -157,7 +157,7 @@ label {
 
 input {
   width: 100%;
-  padding: 13px 0;
+  padding: 5px 0;
   border: 0;
   border-bottom: 1px solid #000;
   border-radius: 0;
@@ -211,8 +211,8 @@ input:focus {
 }
 
 button {
-  min-height: 48px;
-  padding: 12px 20px;
+  min-height: 30px;
+  padding: 10px 20px;
   border: 1px solid #000;
   background: #000;
   color: #fff;

@@ -25,7 +25,7 @@ const handleSubmit = async (payload: LoginPayload): Promise<void> => {
 
   try {
     await login(payload);
-    const requestedRedirect = typeof route.query.redirect === "string" ? route.query.redirect : "/";
+    const requestedRedirect = typeof route.query.redirect === "string" ? route.query.redirect : "/workspace/projects";
     const redirect = requestedRedirect.startsWith("/") && !requestedRedirect.startsWith("//")
       ? requestedRedirect
       : "/";

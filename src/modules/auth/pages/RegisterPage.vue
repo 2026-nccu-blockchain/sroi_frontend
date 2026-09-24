@@ -6,7 +6,7 @@ import RegisterForm from "@/modules/auth/components/RegisterForm.vue";
 import type { RegisterPayload } from "@/modules/auth/types/auth.types";
 import { toErrorMessage } from "@/shared/api/error-handler";
 import { ApiError } from "@/shared/api/error-handler";
-import { register } from "../api/auth.api";
+import { register } from "@/modules/auth/api/auth.api";
 
 const router = useRouter();
 const route = useRoute();
