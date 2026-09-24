@@ -1,25 +1,12 @@
-import type { AuthUser, LoginPayload } from "@/modules/auth/types/auth.types";
 import { httpClient } from "@/shared/api/http";
+import type { ApiEnvelope } from "@/shared/api/http";
+import type { LoginPayload, RegisterPayload, LoginResponse, ProfileResponse } from "@/modules/auth/types/auth.types";
 
-interface LoginResponse {
-  token: string;
-}
+export const login = (payload: LoginPayload): Promise<LoginResponse> =>
+  httpClient.post<LoginResponse>("/auth/user/login", payload);
 
-const getTokenUserId = (token: string): string => {
-  try {
-    const payload = token.split(".")[1];
-    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
-    return String((JSON.parse(window.atob(normalized)) as { user_id?: string }).user_id ?? "");
-  } catch {
-    return "";
-  }
-};
+export const getProfile = (): Promise<ProfileResponse> =>
+  httpClient.get<ProfileResponse>("/user/profile");
 
-export const login = async (payload: LoginPayload): Promise<AuthUser> => {
-  const response = await httpClient.post<LoginResponse>("/auth/user/login", payload);
-  return {
-    user_id: getTokenUserId(response.token),
-    email: payload.email,
-    token: response.token
-  };
-};
+export const register = (payload: RegisterPayload): Promise<ApiEnvelope> =>
+  httpClient.post<ApiEnvelope>("/auth/user/register", payload);

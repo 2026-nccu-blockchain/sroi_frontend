@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive } from "vue";
+import { reactive, ref } from "vue";
 
 import type { LoginPayload } from "@/modules/auth/types/auth.types";
 
@@ -17,6 +17,8 @@ const form = reactive<LoginPayload>({
   password: ""
 });
 
+const showPassword = ref(false);
+
 const onSubmit = (): void => {
   emit("submit", { ...form });
 };
@@ -25,13 +27,12 @@ const onSubmit = (): void => {
 <template>
   <form class="login-form" @submit.prevent="onSubmit">
     <div class="login-form__heading">
-      <span class="login-form__eyebrow">SROI / ADMIN</span>
-      <h1>Sign in</h1>
-      <p>Sign in to add, edit, or delete projects.</p>
+      <span class="login-form__eyebrow">SROI</span>
+      <h1>登入</h1>
     </div>
 
     <label>
-      Email
+      電子郵件
       <input
         v-model="form.email"
         type="email"
@@ -42,37 +43,47 @@ const onSubmit = (): void => {
     </label>
 
     <label>
-      Password
-      <input
-        v-model="form.password"
-        type="password"
-        placeholder="Enter your password"
-        autocomplete="current-password"
-        required
-      />
+      密碼
+      <div class="login-form__password">
+        <input
+          v-model="form.password"
+          :type="showPassword ? 'text' : 'password'"
+          placeholder="輸入密碼"
+          autocomplete="current-password"
+          required
+        />
+        <button
+          type="button"
+          class="login-form__password-toggle"
+          :aria-label="showPassword ? '隱藏密碼' : '顯示密碼'"
+          @click="showPassword = !showPassword"
+        >
+          {{ showPassword ? "隱藏" : "顯示" }}
+        </button>
+      </div>
     </label>
 
     <p v-if="error" class="login-form__error" role="alert">{{ error }}</p>
 
     <button type="submit" :disabled="loading">
-      {{ loading ? "Signing in..." : "Sign in" }}
+      {{ loading ? "登入中..." : "登入" }}
     </button>
 
-    <RouterLink class="login-form__back" to="/forms">Continue without signing in</RouterLink>
+    <RouterLink class="login-form__back" to="/">以訪客身分繼續</RouterLink>
   </form>
 </template>
 
 <style scoped>
 .login-form {
   display: grid;
-  gap: 24px;
+  gap: 16px;
   width: min(100%, 400px);
 }
 
 .login-form__heading {
   display: grid;
-  gap: 8px;
-  margin-bottom: 8px;
+  gap: 4px;
+  margin-bottom: 4px;
 }
 
 .login-form__eyebrow {
@@ -87,7 +98,7 @@ p {
 }
 
 h1 {
-  font-size: clamp(36px, 7vw, 52px);
+  font-size: clamp(28px, 5vw, 40px);
   line-height: 1;
   letter-spacing: -0.04em;
 }
@@ -98,14 +109,14 @@ h1 {
 
 label {
   display: grid;
-  gap: 8px;
+  gap: 4px;
   font-size: 13px;
   font-weight: 700;
 }
 
 input {
   width: 100%;
-  padding: 13px 0;
+  padding: 10px 0;
   border: 0;
   border-bottom: 1px solid #000;
   border-radius: 0;
@@ -119,9 +130,41 @@ input:focus {
   border-bottom-width: 2px;
 }
 
+.login-form__password {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid #000;
+}
+
+.login-form__password:focus-within {
+  border-bottom-width: 2px;
+}
+
+.login-form__password input {
+  border-bottom: 0;
+  flex: 1;
+}
+
+.login-form__password-toggle {
+  border: 0;
+  padding: 0 0 0 12px;
+  background: transparent;
+  color: #000;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.login-form__password-toggle:hover {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
 button {
-  min-height: 48px;
-  padding: 12px 20px;
+  min-height: 30px;
+  padding: 10px 20px;
   border: 1px solid #000;
   background: #000;
   color: #fff;
@@ -141,9 +184,10 @@ button:disabled {
 }
 
 .login-form__error {
-  padding: 12px;
-  border: 1px solid #000;
-  font-size: 13px;
+  padding: 14px;
+  border: 2px solid #ff0000;
+  font-size: 14px;
+  color: #ff0000;
 }
 
 .login-form__back {
