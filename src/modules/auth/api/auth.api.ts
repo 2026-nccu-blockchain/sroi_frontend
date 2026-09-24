@@ -9,4 +9,4 @@ export const getProfile = (): Promise<ProfileResponse> =>
   httpClient.get<ProfileResponse>("/user/profile");
 
 export const register = (payload: RegisterPayload): Promise<ApiEnvelope> =>
-  httpClient.post<ApiEnvelope>("/api/v1/auth/user/register", payload);
+  httpClient.post<ApiEnvelope>("/auth/user/register", payload);
