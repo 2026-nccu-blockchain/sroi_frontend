@@ -12,7 +12,7 @@ const props = defineProps<{ mode: CampusIdRequestMode }>();
 const ERROR_MESSAGES: Record<string, string> = {
   "10001": "找不到使用者",
   "10008": "權限不足",
-  "10011": "此學號已被驗證，或帳號已送出驗證",
+  "10011": "帳號已驗證，或已送出驗證申請",
   "10012": "此學號已被其他帳號使用",
   "10018": "上傳的檔案不是圖片（僅支援 JPG、PNG、WebP）",
   "10019": "圖片超過 5MB",

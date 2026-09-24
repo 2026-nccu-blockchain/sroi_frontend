@@ -17,7 +17,7 @@ interface ApiErrorBody {
   detail?: string;
 }
 
-type RequestOptions = Omit<RequestInit, "body"> & { body?: unknown };
+type RequestOptions = Omit<RequestInit, "body"> & { body?: unknown; responseType?: "json" | "blob" };
 type UnauthorizedHandler = () => void;
 
 let unauthorizedHandler: UnauthorizedHandler | null = null;
@@ -45,7 +45,7 @@ const isApiEnvelope = (payload: unknown): payload is ApiEnvelope =>
 
 const request = async <T>(path: string, options: RequestOptions = {}): Promise<T> => {
   const token = getCookie(AUTH_TOKEN_COOKIE_NAME);
-  const { body, ...init } = options;
+  const { body, responseType = "json", ...init } = options;
   const isFormData = body instanceof FormData;
   const headers = new Headers(init.headers);
 
@@ -64,6 +64,9 @@ const request = async <T>(path: string, options: RequestOptions = {}): Promise<T
     if (!response.ok) throw new HttpError(`Request failed (${response.status})`, response.status);
     return undefined as T;
   }
+
+  // 錯誤時後端仍回 JSON，所以只有成功時才讀成 blob
+  if (response.ok && responseType === "blob") return await response.blob() as T;
 
   const payload = await response.json().catch(() => undefined) as T | ApiErrorBody | undefined;
 
@@ -84,6 +87,7 @@ const request = async <T>(path: string, options: RequestOptions = {}): Promise<T
 
 export const httpClient = {
   get: <T>(path: string): Promise<T> => request<T>(path, { method: "GET" }),
+  getBlob: (path: string): Promise<Blob> => request<Blob>(path, { method: "GET", responseType: "blob" }),
   post: <T>(path: string, body?: unknown): Promise<T> => request<T>(path, { method: "POST", body }),
   put: <T>(path: string, body: unknown): Promise<T> => request<T>(path, { method: "PUT", body }),
   patch: <T>(path: string, body: unknown): Promise<T> => request<T>(path, { method: "PATCH", body }),
