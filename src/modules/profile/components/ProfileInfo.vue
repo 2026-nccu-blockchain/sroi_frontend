@@ -2,20 +2,36 @@
 import { computed } from "vue";
 
 import type { AuthUser } from "@/modules/auth/types/auth.types";
-import { ROLE_LABELS, UNVERIFIED_ROLES } from "@/modules/profile/constants";
+import { WORKSPACE_ROLES } from "@/modules/auth/constants";
+import { ROLE_LABELS, UNVERIFIED_ROLES, VERIFY_ROLES } from "@/modules/profile/constants";
 
 const props = defineProps<{ user: AuthUser }>();
 
 const showCampusId = computed(() => !UNVERIFIED_ROLES.includes(props.user.role ?? ""));
+
+const canVerify = computed(() => VERIFY_ROLES.includes(props.user.role ?? ""));
+// 已驗證、資料庫編輯者、管理員才可以申請變更學號
+const canChangeCampusId = computed(() => WORKSPACE_ROLES.includes(props.user.role ?? ""));
 
 const roleLabel = computed(() => ROLE_LABELS[props.user.role ?? ""] ?? props.user.role ?? "—");
 </script>
 
 <template>
   <div class="profile">
-    <div>
-      <p class="profile__eyebrow">帳號</p>
-      <h1>個人資料</h1>
+    <RouterLink class="back-link" to="/workspace/projects" aria-label="返回首頁">
+      <span aria-hidden="true">←</span> 返回
+    </RouterLink>
+    <div class="profile__header">
+      <div>
+        <p class="profile__eyebrow">帳號</p>
+        <h1>個人資料</h1>
+      </div>
+
+      <div class="profile__actions">
+        <RouterLink v-if="canVerify" class="button" :to="{ name: 'profile-verify' }">驗證帳號</RouterLink>
+        <RouterLink v-if="canChangeCampusId" class="button" :to="{ name: 'profile-campus-id' }">變更學號</RouterLink>
+        <RouterLink class="button button--primary" :to="{ name: 'profile-edit' }">修改</RouterLink>
+      </div>
     </div>
 
     <dl class="profile__list">
@@ -48,11 +64,73 @@ const roleLabel = computed(() => ROLE_LABELS[props.user.role ?? ""] ?? props.use
   max-width: 640px;
 }
 
+.profile__header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 16px;
+}
+
+.profile__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 8px 16px;
+  border: 1px solid #000;
+  background: #fff;
+  color: #000;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.button--primary {
+  background: #000;
+  color: #fff;
+}
+
+.button:hover {
+  background: #000;
+  color: #fff;
+}
+
+.button--primary:hover {
+  background: #fff;
+  color: #000;
+}
+
 .profile__eyebrow {
   margin: 0 0 8px;
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.15em;
+}
+
+.back-link {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #000;
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.back-link span {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.back-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 4px;
 }
 
 h1 {
@@ -64,7 +142,7 @@ h1 {
 }
 
 .profile__list {
-  margin: 0;
+  margin: 8px 0 0;
   border-top: 2px solid #000;
 }
 

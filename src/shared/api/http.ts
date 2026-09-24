@@ -22,15 +22,18 @@ export const setUnauthorizedHandler = (handler: UnauthorizedHandler): void => {
 
 const request = async <T extends ApiEnvelope>(path: string, options: RequestOptions = {}): Promise<T> => {
   const token = getCookie(AUTH_TOKEN_COOKIE_NAME);
+  const { body, ...init } = options;
+  // FormData 要讓瀏覽器自己帶 multipart boundary，不能設 Content-Type
+  const isFormData = body instanceof FormData;
 
   const response = await fetch(`${BASE_URL}${path}`, {
-    ...options,
+    ...init,
     headers: {
-      "Content-Type": "application/json",
+      ...(isFormData ? {} : { "Content-Type": "application/json" }),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options.headers
+      ...init.headers
     },
-    body: options.body !== undefined ? JSON.stringify(options.body) : undefined
+    body: isFormData ? body : body !== undefined ? JSON.stringify(body) : undefined
   });
 
   const payload = (await response.json().catch(() => undefined)) as T | undefined;
@@ -54,5 +57,7 @@ export const httpClient = {
   get: <T extends ApiEnvelope>(path: string): Promise<T> => request<T>(path, { method: "GET" }),
   post: <T extends ApiEnvelope>(path: string, body?: unknown): Promise<T> =>
     request<T>(path, { method: "POST", body }),
+  put: <T extends ApiEnvelope>(path: string, body?: unknown): Promise<T> =>
+    request<T>(path, { method: "PUT", body }),
   delete: <T extends ApiEnvelope>(path: string): Promise<T> => request<T>(path, { method: "DELETE" })
 };

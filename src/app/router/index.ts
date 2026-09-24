@@ -7,6 +7,8 @@ import RegisterPage from "@/modules/auth/pages/RegisterPage.vue";
 import DashboardPage from "@/modules/dashboard/pages/DashboardPage.vue";
 import FormBuilderPage from "@/modules/forms/pages/FormBuilderPage.vue";
 import ProfilePage from "@/modules/profile/pages/ProfilePage.vue";
+import ProfileEditPage from "@/modules/profile/pages/ProfileEditPage.vue";
+import CampusIdRequestPage from "@/modules/profile/pages/CampusIdRequestPage.vue";
 import ProxyVariablesPage from "@/modules/proxy-variables/pages/ProxyVariablesPage.vue";
 import MyGroupsPage from "@/modules/workspace/pages/MyGroupsPage.vue";
 import NewGroupPage from "@/modules/workspace/pages/NewGroupPage.vue";
@@ -15,6 +17,7 @@ import GroupSettingsPage from "@/modules/workspace/pages/GroupSettingsPage.vue";
 import MyProjectsPage from "@/modules/workspace/pages/MyProjectsPage.vue";
 import { registerRouterGuards } from "@/app/router/guards";
 import { WORKSPACE_ROLES } from "@/modules/auth/constants";
+import { VERIFY_ROLES } from "@/modules/profile/constants";
 
 const routes: RouteRecordRaw[] = [
   {
@@ -85,6 +88,26 @@ const routes: RouteRecordRaw[] = [
         name: "profile",
         component: ProfilePage,
         meta: { requiresAuth: true }
+      },
+      {
+        path: "profile/edit",
+        name: "profile-edit",
+        component: ProfileEditPage,
+        meta: { requiresAuth: true }
+      },
+      {
+        path: "profile/verify",
+        name: "profile-verify",
+        component: CampusIdRequestPage,
+        props: { mode: "verify" },
+        meta: { requiresAuth: true, roles: VERIFY_ROLES }
+      },
+      {
+        path: "profile/campus-id",
+        name: "profile-campus-id",
+        component: CampusIdRequestPage,
+        props: { mode: "change" },
+        meta: { requiresAuth: true, roles: WORKSPACE_ROLES }
       },
       {
         path: "proxy-variables",
