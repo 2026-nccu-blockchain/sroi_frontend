@@ -58,7 +58,7 @@ const editForm = async (formId: string): Promise<void> => {
 };
 
 const openResponses = async (formId: string): Promise<void> => {
-  await router.push({ name: "form-responses", params: { formId }, query: { from: "/" } });
+  await router.push({ name: "form-responses", params: { formId }, query: { from: "/forms" } });
 };
 
 const removeForm = async (form: FormResponse): Promise<void> => {

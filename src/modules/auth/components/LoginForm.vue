@@ -58,7 +58,7 @@ const onSubmit = (): void => {
       {{ loading ? "Signing in..." : "Sign in" }}
     </button>
 
-    <RouterLink class="login-form__back" to="/">Continue without signing in</RouterLink>
+    <RouterLink class="login-form__back" to="/forms">Continue without signing in</RouterLink>
   </form>
 </template>
 

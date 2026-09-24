@@ -10,7 +10,7 @@ const userInitial = computed(() => user.value?.email?.charAt(0).toUpperCase() ??
 
 const handleLogout = async (): Promise<void> => {
   logout();
-  await router.push("/");
+  await router.push("/forms");
 };
 </script>
 
@@ -18,14 +18,14 @@ const handleLogout = async (): Promise<void> => {
   <div class="layout">
     <aside class="sidebar">
       <div>
-        <RouterLink class="sidebar__brand" to="/">
+        <RouterLink class="sidebar__brand" to="/forms">
           <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
           <span>SROI <small>Forms</small></span>
         </RouterLink>
 
         <nav class="sidebar__nav" aria-label="主要導覽">
           <p class="sidebar__label">工作區</p>
-          <RouterLink class="sidebar__link" to="/">
+          <RouterLink class="sidebar__link" to="/forms">
             <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3" /><path d="M8 9h8M8 13h8M8 17h5" /></svg>
             <span>我的表單</span>
           </RouterLink>

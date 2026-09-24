@@ -11,6 +11,10 @@ import { registerRouterGuards } from "@/app/router/guards";
 
 const routes: RouteRecordRaw[] = [
   {
+    path: "/",
+    redirect: { name: "dashboard" }
+  },
+  {
     path: "/forms/new",
     name: "form-builder-new",
     component: FormBuilderPage,
@@ -45,7 +49,7 @@ const routes: RouteRecordRaw[] = [
     ]
   },
   {
-    path: "/",
+    path: "/forms",
     component: MainLayout,
     children: [
       {

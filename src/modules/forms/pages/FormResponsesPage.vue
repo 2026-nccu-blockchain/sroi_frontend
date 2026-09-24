@@ -20,7 +20,7 @@ const returnPath = computed(() => {
   const from = route.query.from;
   return typeof from === "string" && from.startsWith("/") && !from.startsWith("//")
     ? from
-    : "/";
+    : "/forms";
 });
 
 const form = ref<FormResponse | null>(null);
