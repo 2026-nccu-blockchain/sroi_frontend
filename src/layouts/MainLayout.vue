@@ -8,7 +8,6 @@ import { ROLE_LABELS } from "@/modules/profile/constants";
 
 const router = useRouter();
 const { user, isAuthenticated, logout } = useAuth();
-const userInitial = computed(() => user.value?.email?.charAt(0).toUpperCase() ?? "U");
 
 // 未驗證、驗證中的帳號導覽列跟訪客一樣
 const canUseWorkspace = computed(() => WORKSPACE_ROLES.includes(user.value?.role ?? ""));
@@ -17,7 +16,7 @@ const roleLabel = computed(() => ROLE_LABELS[user.value?.role ?? ""] ?? user.val
 
 const handleLogout = async (): Promise<void> => {
   logout();
-  await router.push("/forms");
+  await router.push("/");
 };
 </script>
 
@@ -25,10 +24,7 @@ const handleLogout = async (): Promise<void> => {
   <div class="layout">
     <aside class="sidebar">
       <div>
-        <RouterLink class="sidebar__brand" to="/forms">
-          <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
-          <span>SROI <small>Forms</small></span>
-        </RouterLink>
+        <RouterLink class="sidebar__brand" to="/">SROI</RouterLink>
 
         <nav class="sidebar__nav" aria-label="Main navigation">
           <template v-if="canUseWorkspace">
@@ -70,9 +66,12 @@ const handleLogout = async (): Promise<void> => {
           <button class="sidebar__auth-action" type="button" @click="handleLogout">登出</button>
         </template>
         <template v-else>
-          <p>登入後即可建立及管理表單。</p>
-          <RouterLink to="/auth/login">登入 →</RouterLink>
-          <RouterLink to="/auth/register">註冊 →</RouterLink>
+          <p class="sidebar__guest">訪客模式</p>
+          <div class="sidebar__auth">
+            <RouterLink class="sidebar__auth-action" to="/auth/login">登入 →</RouterLink>
+            <RouterLink class="sidebar__auth-action" to="/auth/register">註冊 →</RouterLink>
+          </div>
+          
         </template>
       </div>
     </aside>

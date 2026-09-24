@@ -87,7 +87,7 @@ const routes: RouteRecordRaw[] = [
     ]
   },
   {
-    path: "/forms",
+    path: "/",
     component: MainLayout,
     children: [
       {
