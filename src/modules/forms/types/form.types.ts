@@ -52,6 +52,8 @@ export interface FormResponse {
   title: string | null;
   content: string | null;
   status: FormStatus;
+  create_time?: string | null;
+  update_time?: string | null;
   pages: PageResponse[];
 }
 

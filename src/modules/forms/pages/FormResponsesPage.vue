@@ -20,12 +20,13 @@ const returnPath = computed(() => {
   const from = route.query.from;
   return typeof from === "string" && from.startsWith("/") && !from.startsWith("//")
     ? from
-    : "/forms/new";
+    : "/";
 });
 
 const form = ref<FormResponse | null>(null);
 const submissions = ref<FormSubmission[]>([]);
 const selectedId = ref<string | null>(null);
+const viewMode = ref<"summary" | "individual">("summary");
 const loading = ref(true);
 const error = ref("");
 
@@ -34,11 +35,16 @@ const selectedSubmission = computed(() =>
 );
 const questions = computed(() => form.value?.pages.flatMap((page) => page.questions) ?? []);
 const questionById = computed(() => new Map(questions.value.map((question) => [question.question_id, question])));
-const questionOrder = computed(() => new Map(questions.value.map((question, index) => [question.question_id, index])));
-const orderedAnswers = computed(() => [...(selectedSubmission.value?.answers ?? [])].sort((a, b) =>
-  (questionOrder.value.get(a.question_id) ?? Number.MAX_SAFE_INTEGER)
-  - (questionOrder.value.get(b.question_id) ?? Number.MAX_SAFE_INTEGER)
+const selectedAnswerByQuestion = computed(() => new Map(
+  (selectedSubmission.value?.answers ?? []).map((answer) => [answer.question_id, answer])
 ));
+const blockAnswers = computed(() => (form.value?.pages ?? []).map((page) => ({
+  ...page,
+  questions: page.questions.filter((question) => question.question_type !== "DS").map((question) => ({
+    question,
+    answer: selectedAnswerByQuestion.value.get(question.question_id) ?? null
+  }))
+})));
 
 const formatDate = (value: string | null): string => value
   ? new Intl.DateTimeFormat("zh-TW", {
@@ -47,9 +53,6 @@ const formatDate = (value: string | null): string => value
     timeZone: "Asia/Taipei"
   }).format(new Date(value))
   : "尚未提交";
-
-const questionTitle = (answer: SubmittedAnswer): string =>
-  questionById.value.get(answer.question_id)?.title || `已刪除的題目（${answer.question_id}）`;
 
 const answerText = (answer: SubmittedAnswer): string => {
   if (answer.option_ids.length > 0) {
@@ -62,6 +65,45 @@ const answerText = (answer: SubmittedAnswer): string => {
   if (answer.number_value !== null) return String(answer.number_value);
   if (answer.date_value) return answer.date_value;
   return answer.content?.trim() || "未作答";
+};
+
+const answersForQuestion = (questionId: string): SubmittedAnswer[] =>
+  submissions.value.flatMap((submission) => {
+    const answer = submission.answers.find((item) => item.question_id === questionId);
+    return answer ? [answer] : [];
+  });
+
+const optionStats = (question: QuestionResponse): Array<{ label: string; count: number; percent: number }> => {
+  const answers = answersForQuestion(question.question_id);
+  return question.options.map((option) => {
+    const count = answers.filter((answer) => answer.option_ids.includes(option.option_id)).length;
+    return {
+      label: option.label,
+      count,
+      percent: submissions.value.length ? Math.round((count / submissions.value.length) * 100) : 0
+    };
+  });
+};
+
+const scaleStats = (question: QuestionResponse): Array<{ value: number; count: number; percent: number }> => {
+  const values = answersForQuestion(question.question_id)
+    .map((answer) => answer.number_value)
+    .filter((value): value is number => value !== null);
+  const begin = question.scale_begin ?? 1;
+  const end = question.scale_end ?? 5;
+  return Array.from({ length: end - begin + 1 }, (_, index) => {
+    const value = begin + index;
+    const count = values.filter((answer) => answer === value).length;
+    return { value, count, percent: values.length ? Math.round((count / values.length) * 100) : 0 };
+  });
+};
+
+const scaleAverage = (question: QuestionResponse): string => {
+  const values = answersForQuestion(question.question_id)
+    .map((answer) => answer.number_value)
+    .filter((value): value is number => value !== null);
+  if (!values.length) return "—";
+  return (values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(1);
 };
 
 const load = async (): Promise<void> => {
@@ -120,7 +162,60 @@ watch(formId, () => void load(), { immediate: true });
           <p>分享已發布的表單連結後，填答紀錄會出現在這裡。</p>
         </section>
 
-        <div v-else class="responses-layout">
+        <template v-else>
+          <div class="view-switch" aria-label="回覆檢視模式">
+            <button type="button" :class="{ active: viewMode === 'summary' }" @click="viewMode = 'summary'">區塊統計</button>
+            <button type="button" :class="{ active: viewMode === 'individual' }" @click="viewMode = 'individual'">個別回覆</button>
+          </div>
+
+          <div v-if="viewMode === 'summary'" class="block-summary-list">
+            <section v-for="page in form?.pages" :key="page.page_id" class="block-summary">
+              <header>
+                <p class="eyebrow">成果區塊</p>
+                <h2>{{ page.title || "未命名區塊" }}</h2>
+                <p v-if="page.content">{{ page.content }}</p>
+              </header>
+
+              <article
+                v-for="question in page.questions.filter((item) => item.question_type !== 'DS')"
+                :key="question.question_id"
+                class="question-summary"
+              >
+                <div class="question-summary__heading">
+                  <h3>{{ question.title || "未命名問題" }}</h3>
+                  <span>{{ answersForQuestion(question.question_id).length }} 筆回答</span>
+                </div>
+
+                <div v-if="question.question_type === 'CQ'" class="bar-chart">
+                  <div v-for="stat in optionStats(question)" :key="stat.label" class="bar-row">
+                    <span>{{ stat.label }}</span>
+                    <div><i :style="{ width: `${stat.percent}%` }"></i></div>
+                    <b>{{ stat.count }}（{{ stat.percent }}%）</b>
+                  </div>
+                </div>
+
+                <div v-else-if="question.question_type === 'SC'" class="scale-summary">
+                  <p>平均分數 <b>{{ scaleAverage(question) }}</b></p>
+                  <div class="bar-chart">
+                    <div v-for="stat in scaleStats(question)" :key="stat.value" class="bar-row">
+                      <span>{{ stat.value }} 分</span>
+                      <div><i :style="{ width: `${stat.percent}%` }"></i></div>
+                      <b>{{ stat.count }}（{{ stat.percent }}%）</b>
+                    </div>
+                  </div>
+                </div>
+
+                <ul v-else class="raw-answer-list">
+                  <li v-for="answer in answersForQuestion(question.question_id)" :key="answer.answer_id">
+                    {{ answerText(answer) }}
+                  </li>
+                  <li v-if="answersForQuestion(question.question_id).length === 0">尚未收到回答</li>
+                </ul>
+              </article>
+            </section>
+          </div>
+
+          <div v-else class="responses-layout">
           <aside class="response-list" aria-label="歷次回覆">
             <button
               v-for="(submission, index) in submissions"
@@ -147,15 +242,23 @@ watch(formId, () => void load(), { immediate: true });
               <span class="status-pill">{{ selectedSubmission.status === "submitted" ? "已提交" : "草稿" }}</span>
             </header>
 
-            <div v-if="orderedAnswers.length === 0" class="empty-answers">這筆回覆沒有答案。</div>
-            <dl v-else class="answer-list">
-              <div v-for="answer in orderedAnswers" :key="answer.answer_id" class="answer-item">
-                <dt>{{ questionTitle(answer) }}</dt>
-                <dd>{{ answerText(answer) }}</dd>
-              </div>
-            </dl>
+            <div class="answer-blocks">
+              <section v-for="block in blockAnswers" :key="block.page_id" class="answer-block">
+                <header>
+                  <span>成果區塊</span>
+                  <h3>{{ block.title || "未命名區塊" }}</h3>
+                </header>
+                <dl class="answer-list">
+                  <div v-for="item in block.questions" :key="item.question.question_id" class="answer-item">
+                    <dt>{{ item.question.title || "未命名問題" }}</dt>
+                    <dd>{{ item.answer ? answerText(item.answer) : "未作答" }}</dd>
+                  </div>
+                </dl>
+              </section>
+            </div>
           </article>
-        </div>
+          </div>
+        </template>
       </template>
     </main>
   </div>
@@ -184,6 +287,29 @@ h1, h2, p { margin-top: 0; }
 .empty-state span { color: #8e70a5; font-size: 36px; }
 .empty-state h2 { margin: 12px 0 8px; font-size: 20px; }
 .empty-state p { margin-bottom: 0; color: #817b88; font-size: 13px; }
+.view-switch { display: flex; width: fit-content; margin: 0 0 18px; overflow: hidden; border: 1px solid #d8d0dd; border-radius: 9px; background: #fff; }
+.view-switch button { min-height: 38px; padding: 0 16px; border: 0; background: #fff; color: #756e7a; font: inherit; font-size: 12px; font-weight: 650; }
+.view-switch button.active { background: #765292; color: #fff; }
+.block-summary-list { display: grid; gap: 20px; }
+.block-summary { overflow: hidden; border: 1px solid #e2d9e7; border-radius: 12px; background: #fff; box-shadow: 0 2px 8px rgba(42, 27, 50, .04); }
+.block-summary > header { padding: 24px 28px; border-bottom: 1px solid #eee8f1; background: #faf7fc; }
+.block-summary > header h2 { margin-bottom: 6px; }
+.block-summary > header p:last-child { margin-bottom: 0; color: #77707d; font-size: 12px; }
+.question-summary { padding: 25px 28px; border-bottom: 1px solid #eeeaf0; }
+.question-summary:last-child { border-bottom: 0; }
+.question-summary__heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+.question-summary__heading h3 { margin: 0; font-size: 14px; }
+.question-summary__heading span { flex: none; color: #918a96; font-size: 10px; }
+.bar-chart { display: grid; gap: 12px; }
+.bar-row { display: grid; grid-template-columns: minmax(80px, 140px) minmax(100px, 1fr) 90px; align-items: center; gap: 12px; font-size: 11px; }
+.bar-row > span { overflow-wrap: anywhere; }
+.bar-row > div { height: 10px; overflow: hidden; border-radius: 6px; background: #eee9f1; }
+.bar-row i { display: block; min-width: 2px; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #765292, #aa86be); }
+.bar-row b { color: #6d6571; font-weight: 600; text-align: right; }
+.scale-summary > p { margin-bottom: 16px; color: #6e6673; font-size: 12px; }
+.scale-summary > p b { margin-left: 5px; color: #684884; font-size: 20px; }
+.raw-answer-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.raw-answer-list li { padding: 11px 13px; border-radius: 7px; background: #f8f6f9; color: #5d5662; font-size: 12px; line-height: 1.6; }
 .responses-layout { display: grid; grid-template-columns: minmax(215px, 280px) minmax(0, 1fr); align-items: start; gap: 18px; }
 .response-list { display: grid; overflow: hidden; }
 .response-list__item { display: grid; gap: 5px; width: 100%; padding: 18px 20px; border: 0; border-bottom: 1px solid #eeeaf0; background: #fff; color: #292631; text-align: left; cursor: pointer; }
@@ -197,8 +323,13 @@ h1, h2, p { margin-top: 0; }
 .response-detail__header { display: flex; align-items: start; justify-content: space-between; gap: 12px; padding-bottom: 22px; border-bottom: 1px solid #eeeaf0; }
 .response-detail__header h2 { margin-bottom: 6px; font-size: 19px; overflow-wrap: anywhere; }
 .status-pill { flex: none; padding: 6px 10px; border-radius: 20px; background: #edf7ef; color: #327c48; font-size: 11px; font-weight: 700; }
+.answer-blocks { display: grid; gap: 22px; padding-top: 24px; }
+.answer-block { overflow: hidden; border: 1px solid #e7e0ea; border-radius: 9px; }
+.answer-block > header { padding: 15px 18px; border-bottom: 1px solid #ece7ee; background: #faf7fc; }
+.answer-block > header span { color: #8c719f; font-size: 9px; font-weight: 700; letter-spacing: .08em; }
+.answer-block > header h3 { margin: 5px 0 0; font-size: 15px; }
 .answer-list { margin: 0; }
-.answer-item { padding: 21px 0; border-bottom: 1px solid #f0edf2; }
+.answer-item { padding: 18px; border-bottom: 1px solid #f0edf2; }
 .answer-item:last-child { border-bottom: 0; }
 .answer-item dt { margin-bottom: 8px; color: #5d5664; font-size: 13px; font-weight: 650; }
 .answer-item dd { margin: 0; color: #292631; font-size: 15px; line-height: 1.6; overflow-wrap: anywhere; white-space: pre-wrap; }

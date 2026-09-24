@@ -4,6 +4,7 @@ import type {
   FormResponse,
   FormSubmission,
   FormStatus,
+  PageResponse,
   PublicFormResponse,
   AnswerPayload,
   QuestionPayload,
@@ -15,6 +16,9 @@ export const createForm = (payload: CreateFormPayload): Promise<FormResponse> =>
 
 export const getForm = (formId: string): Promise<FormResponse> =>
   httpClient.get<FormResponse>(`/form/${formId}`);
+
+export const getForms = (): Promise<FormResponse[]> =>
+  httpClient.get<FormResponse[]>("/form");
 
 export const getFormSubmissions = (formId: string): Promise<FormSubmission[]> =>
   httpClient.get<FormSubmission[]>(`/form/${formId}/responses`);
@@ -39,6 +43,22 @@ export const updateQuestion = (
 
 export const deleteQuestion = (questionId: string): Promise<void> =>
   httpClient.delete(`/form/questions/${questionId}`);
+
+export const deleteForm = (formId: string): Promise<void> =>
+  httpClient.delete(`/form/${formId}`);
+
+export const createPage = (
+  formId: string,
+  payload: { title?: string; content: string; position: number; questions: QuestionPayload[] }
+): Promise<PageResponse> => httpClient.post<PageResponse>(`/form/${formId}/pages`, payload);
+
+export const updatePage = (
+  pageId: string,
+  payload: { title?: string; content?: string; position?: number }
+): Promise<PageResponse> => httpClient.patch<PageResponse>(`/form/pages/${pageId}`, payload);
+
+export const deletePage = (pageId: string): Promise<void> =>
+  httpClient.delete(`/form/pages/${pageId}`);
 
 export const saveFormStructure = (
   formId: string,

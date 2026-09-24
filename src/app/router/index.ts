@@ -12,8 +12,15 @@ import { registerRouterGuards } from "@/app/router/guards";
 const routes: RouteRecordRaw[] = [
   {
     path: "/forms/new",
-    name: "form-builder",
-    component: FormBuilderPage
+    name: "form-builder-new",
+    component: FormBuilderPage,
+    meta: { requiresAuth: true }
+  },
+  {
+    path: "/forms/:formId/edit",
+    name: "form-builder-edit",
+    component: FormBuilderPage,
+    meta: { requiresAuth: true }
   },
   {
     path: "/forms/:formId/responses",

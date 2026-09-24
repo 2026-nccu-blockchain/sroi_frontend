@@ -1,728 +1,307 @@
 <script setup lang="ts">
-import { nextTick, onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 
 import { useAuth } from "@/modules/auth/composables/useAuth";
-import {
-  createForm,
-  createQuestion as createQuestionApi,
-  deleteQuestion as deleteQuestionApi,
-  getForm,
-  saveFormStructure,
-  updateForm,
-  updateQuestion
-} from "@/modules/forms/api/forms.api";
-import type {
-  ApiQuestionType,
-  FormResponse,
-  QuestionPayload,
-  QuestionResponse
-} from "@/modules/forms/types/form.types";
-import { HttpError } from "@/shared/api/http";
+import { deleteForm, getForms } from "@/modules/forms/api/forms.api";
+import type { FormResponse, FormStatus } from "@/modules/forms/types/form.types";
 
-type QuestionType = "description" | "text" | "scale" | "date" | "choice";
+type StatusFilter = "all" | FormStatus;
 
-interface QuestionOption {
-  id?: string;
-  label: string;
-}
-
-interface Question {
-  id: string;
-  title: string;
-  type: QuestionType;
-  required: boolean;
-  options: QuestionOption[];
-  scaleBegin: number;
-  scaleEnd: number;
-  isTemp: boolean;
-}
-
-const FORM_SESSION_KEY = "sroi.form-builder.form-id";
 const router = useRouter();
-const { isAuthenticated } = useAuth();
-const formId = ref("");
-const pageId = ref("");
-const formTitle = ref("社會影響力評估問卷");
-const formDescription = ref("感謝您撥空填寫這份問卷。您的回答將協助我們更了解計畫所帶來的改變。");
-const activeQuestionId = ref("");
-const saved = ref(false);
-const saving = ref(false);
-const initializing = ref(true);
-const saveError = ref("");
-const showToast = ref(false);
-const draggedQuestionId = ref<string | null>(null);
-const dragOverQuestionId = ref<string | null>(null);
-let saveTimer: number | undefined;
-let activeSave: Promise<void> | null = null;
-let pendingSave = false;
+const { isAuthenticated, user } = useAuth();
+const forms = ref<FormResponse[]>([]);
+const loading = ref(false);
+const error = ref("");
+const deletingId = ref("");
+const search = ref("");
+const statusFilter = ref<StatusFilter>("all");
 
-const questionTypes: { value: QuestionType; label: string; icon: string }[] = [
-  { value: "description", label: "題目敘述", icon: "T" },
-  { value: "text", label: "問答題", icon: "☰" },
-  { value: "scale", label: "量表", icon: "⌁" },
-  { value: "date", label: "日期", icon: "□" },
-  { value: "choice", label: "選擇題", icon: "◉" }
-];
-
-const questions = ref<Question[]>([]);
-
-const typeToApi: Record<QuestionType, ApiQuestionType> = {
-  description: "DS",
-  text: "OQ",
-  scale: "SC",
-  date: "DT",
-  choice: "CQ"
+const statusLabel: Record<FormStatus, string> = {
+  draft: "草稿",
+  published: "已發布",
+  closed: "已關閉"
 };
 
-const apiToType: Record<ApiQuestionType, QuestionType> = {
-  DS: "description",
-  OQ: "text",
-  SC: "scale",
-  DT: "date",
-  CQ: "choice"
-};
-
-const toPayload = (question: Question, position: number): QuestionPayload => ({
-  question_type: typeToApi[question.type],
-  title: question.type === "description" ? null : question.title,
-  content: question.type === "description" ? question.title : "",
-  is_required: question.type === "description" ? false : question.required,
-  position,
-  scale_begin: question.type === "scale" ? question.scaleBegin : null,
-  scale_end: question.type === "scale" ? question.scaleEnd : null,
-  is_multiple: false,
-  options: question.type === "choice"
-    ? question.options.map((option, index) => ({ option_id: option.id, label: option.label, value: option.label, position: index }))
-    : []
+const publishedCount = computed(() => forms.value.filter((form) => form.status === "published").length);
+const draftCount = computed(() => forms.value.filter((form) => form.status === "draft").length);
+const filteredForms = computed(() => {
+  const keyword = search.value.trim().toLowerCase();
+  return forms.value.filter((form) => {
+    const matchesStatus = statusFilter.value === "all" || form.status === statusFilter.value;
+    const matchesKeyword = !keyword
+      || (form.title ?? "").toLowerCase().includes(keyword)
+      || (form.content ?? "").toLowerCase().includes(keyword);
+    return matchesStatus && matchesKeyword;
+  });
 });
 
-const fromResponse = (question: QuestionResponse): Question => ({
-  id: question.question_id,
-  title: question.question_type === "DS" ? question.content : question.title ?? "",
-  type: apiToType[question.question_type],
-  required: question.is_required,
-  options: question.options.map((option) => ({ id: option.option_id, label: option.label })),
-  scaleBegin: question.scale_begin ?? 1,
-  scaleEnd: question.scale_end ?? 5,
-  isTemp: question.is_temp
-});
-
-const hydrate = (form: FormResponse): void => {
-  formId.value = form.form_id;
-  formTitle.value = form.title ?? "未命名表單";
-  formDescription.value = form.content ?? "";
-  const firstPage = form.pages[0];
-  pageId.value = firstPage?.page_id ?? "";
-  questions.value = firstPage?.questions.map(fromResponse) ?? [];
-  activeQuestionId.value = questions.value[0]?.id ?? "";
-  window.sessionStorage.setItem(FORM_SESSION_KEY, form.form_id);
-};
-
-const initialPayloads = (): QuestionPayload[] => [
-  toPayload({
-    id: "initial-choice",
-    title: "您與本計畫的關係是？",
-    type: "choice",
-    required: true,
-    options: ["計畫參與者", "工作人員或志工", "合作夥伴", "其他"].map((label) => ({ label })),
-    scaleBegin: 1,
-    scaleEnd: 5,
-    isTemp: false
-  }, 0),
-  toPayload({
-    id: "initial-text",
-    title: "參與計畫後，您感受到最大的改變是什麼？",
-    type: "text",
-    required: false,
-    options: [],
-    scaleBegin: 1,
-    scaleEnd: 5,
-    isTemp: false
-  }, 1)
-];
-
-const initializeForm = async (): Promise<void> => {
-  if (!isAuthenticated.value) {
-    await router.replace("/login?redirect=/forms/new");
-    return;
-  }
-
+const loadForms = async (): Promise<void> => {
+  if (!isAuthenticated.value) return;
+  loading.value = true;
+  error.value = "";
   try {
-    const storedId = window.sessionStorage.getItem(FORM_SESSION_KEY);
-    if (storedId) {
-      try {
-        hydrate(await getForm(storedId));
-        saved.value = true;
-        return;
-      } catch (error) {
-        if (!(error instanceof HttpError) || error.status !== 404) throw error;
-        window.sessionStorage.removeItem(FORM_SESSION_KEY);
-      }
-    }
-
-    const created = await createForm({
-      title: formTitle.value,
-      content: formDescription.value,
-      status: "draft",
-      pages: [{ title: "第一區", content: "", position: 0, questions: initialPayloads() }]
-    });
-    hydrate(created);
-    saved.value = true;
-  } catch (error) {
-    saveError.value = error instanceof Error ? error.message : "無法連接後端";
-    if (error instanceof HttpError && error.status === 401) {
-      window.localStorage.removeItem("sroi.auth.user");
-      await router.replace("/login?redirect=/forms/new");
-    }
+    forms.value = await getForms();
+  } catch (caught) {
+    error.value = caught instanceof Error ? caught.message : "無法載入表單";
   } finally {
-    initializing.value = false;
+    loading.value = false;
   }
 };
 
-const persistDraft = (): Promise<void> => {
-  if (!formId.value) return Promise.resolve();
-  if (activeSave) {
-    pendingSave = true;
-    return activeSave.then(() => pendingSave ? persistDraft() : undefined);
-  }
-
-  pendingSave = false;
-  saving.value = true;
-  saveError.value = "";
-  activeSave = (async () => {
-    try {
-      await updateForm(formId.value, { title: formTitle.value, content: formDescription.value });
-      await Promise.all(questions.value.map((question, index) =>
-        updateQuestion(question.id, toPayload(question, index))
-      ));
-      saved.value = true;
-    } catch (error) {
-      saveError.value = error instanceof Error ? error.message : "儲存失敗";
-      saved.value = false;
-    } finally {
-      saving.value = false;
-      activeSave = null;
-    }
-  })();
-  return activeSave;
+const createNewForm = async (): Promise<void> => {
+  await router.push({ name: "form-builder-new" });
 };
 
-const touch = (): void => {
-  saved.value = false;
-  pendingSave = true;
-  saveError.value = "";
-  window.clearTimeout(saveTimer);
-  saveTimer = window.setTimeout(() => void persistDraft(), 700);
+const editForm = async (formId: string): Promise<void> => {
+  await router.push({ name: "form-builder-edit", params: { formId } });
 };
 
-const addQuestion = async (): Promise<void> => {
-  if (!formId.value || !pageId.value) return;
+const openResponses = async (formId: string): Promise<void> => {
+  await router.push({ name: "form-responses", params: { formId }, query: { from: "/" } });
+};
+
+const removeForm = async (form: FormResponse): Promise<void> => {
+  if (!window.confirm(`確定要刪除「${form.title ?? "未命名表單"}」嗎？`)) return;
+  deletingId.value = form.form_id;
+  error.value = "";
   try {
-    const position = questions.value.length;
-    const response = await createQuestionApi(formId.value, pageId.value, {
-      question_type: "OQ",
-      title: "未命名問題",
-      content: "",
-      is_required: false,
-      position,
-      scale_begin: null,
-      scale_end: null,
-      is_multiple: false,
-      options: []
-    });
-    const question = fromResponse(response);
-    questions.value.push(question);
-    activeQuestionId.value = question.id;
-    saved.value = true;
-    await nextTick();
-    document.getElementById(`question-${question.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
-  } catch (error) {
-    saveError.value = error instanceof Error ? error.message : "新增題目失敗";
+    await deleteForm(form.form_id);
+    forms.value = forms.value.filter((item) => item.form_id !== form.form_id);
+  } catch (caught) {
+    error.value = caught instanceof Error ? caught.message : "刪除表單失敗";
+  } finally {
+    deletingId.value = "";
   }
 };
 
-const removeQuestion = async (id: string): Promise<void> => {
-  if (questions.value.length === 1) return;
-  const index = questions.value.findIndex((question) => question.id === id);
-  try {
-    await deleteQuestionApi(id);
-    questions.value.splice(index, 1);
-    activeQuestionId.value = questions.value[Math.max(0, index - 1)].id;
-    touch();
-  } catch (error) {
-    saveError.value = error instanceof Error ? error.message : "刪除題目失敗";
-  }
+const questionCount = (form: FormResponse): number =>
+  form.pages.reduce((count, page) => count + page.questions.length, 0);
+
+const blockCount = (form: FormResponse): number => form.pages.length;
+
+const formatDate = (value?: string | null): string => {
+  if (!value) return "尚未更新";
+  return new Intl.DateTimeFormat("zh-TW", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(new Date(value));
 };
 
-const duplicateQuestion = async (question: Question): Promise<void> => {
-  if (!formId.value || !pageId.value) return;
-  const index = questions.value.findIndex((item) => item.id === question.id);
-  try {
-    const response = await createQuestionApi(formId.value, pageId.value, toPayload(question, index + 1));
-    const copy = fromResponse(response);
-    questions.value.splice(index + 1, 0, copy);
-    activeQuestionId.value = copy.id;
-    touch();
-  } catch (error) {
-    saveError.value = error instanceof Error ? error.message : "複製題目失敗";
-  }
-};
-
-const changeType = (question: Question): void => {
-  if (question.type === "choice" && question.options.length === 0) {
-    question.options = [{ label: "選項 1" }, { label: "選項 2" }];
-  }
-  if (question.type !== "choice") question.options = [];
-  touch();
-};
-
-const addOption = (question: Question): void => {
-  question.options.push({ label: `選項 ${question.options.length + 1}` });
-  touch();
-};
-
-const moveQuestion = (questionId: string, offset: -1 | 1): void => {
-  const fromIndex = questions.value.findIndex((question) => question.id === questionId);
-  const toIndex = fromIndex + offset;
-  if (fromIndex < 0 || toIndex < 0 || toIndex >= questions.value.length) return;
-  const [question] = questions.value.splice(fromIndex, 1);
-  questions.value.splice(toIndex, 0, question);
-  activeQuestionId.value = questionId;
-  touch();
-};
-
-const startQuestionDrag = (event: DragEvent, questionId: string): void => {
-  draggedQuestionId.value = questionId;
-  event.dataTransfer?.setData("text/plain", questionId);
-  if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
-};
-
-const dropQuestion = (targetQuestionId: string): void => {
-  const sourceQuestionId = draggedQuestionId.value;
-  if (!sourceQuestionId || sourceQuestionId === targetQuestionId) {
-    dragOverQuestionId.value = null;
-    return;
-  }
-
-  const fromIndex = questions.value.findIndex((question) => question.id === sourceQuestionId);
-  const targetIndex = questions.value.findIndex((question) => question.id === targetQuestionId);
-  if (fromIndex < 0 || targetIndex < 0) return;
-  const [question] = questions.value.splice(fromIndex, 1);
-  const insertIndex = fromIndex < targetIndex ? targetIndex : targetIndex;
-  questions.value.splice(insertIndex, 0, question);
-  activeQuestionId.value = sourceQuestionId;
-  draggedQuestionId.value = null;
-  dragOverQuestionId.value = null;
-  touch();
-};
-
-const endQuestionDrag = (): void => {
-  draggedQuestionId.value = null;
-  dragOverQuestionId.value = null;
-};
-
-const publish = async (): Promise<void> => {
-  window.clearTimeout(saveTimer);
-  await persistDraft();
-  if (!formId.value || saveError.value) return;
-  try {
-    const structured = await saveFormStructure(formId.value, [{
-      page_id: pageId.value,
-      question_ids: questions.value.map((question) => question.id)
-    }]);
-    await updateForm(formId.value, { status: "published" });
-    hydrate(structured);
-    showToast.value = true;
-    window.setTimeout(() => (showToast.value = false), 2400);
-  } catch (error) {
-    saveError.value = error instanceof Error ? error.message : "發布失敗";
-  }
-};
-
-const openResponses = async (): Promise<void> => {
-  if (!formId.value) return;
-  window.clearTimeout(saveTimer);
-  if (!saved.value) await persistDraft();
-  if (saveError.value) return;
-  await router.push({ name: "form-responses", params: { formId: formId.value }, query: { from: "/" } });
-};
-
-onMounted(() => void initializeForm());
+onMounted(() => void loadForms());
 </script>
 
 <template>
-  <div class="builder-shell">
-    <header class="topbar">
-      <div class="topbar__left">
-        <button class="icon-button icon-button--back" type="button" aria-label="返回" @click="router.push('/')">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
+  <section class="dashboard">
+    <header class="welcome-card">
+      <div class="welcome-card__copy">
+        <p class="eyebrow">SROI FORM WORKSPACE</p>
+        <h1>我的表單</h1>
+        <p v-if="isAuthenticated">整理關鍵精神、設計題目，並在同一個地方查看每份表單的回覆。</p>
+        <p v-else>登入後即可建立、發布並管理你的 SROI 評估表單。</p>
+        <button v-if="isAuthenticated" class="primary-button" type="button" @click="createNewForm">
+          <span>＋</span> 建立新表單
         </button>
-        <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
-        <div class="document-meta">
-          <input v-model="formTitle" class="document-meta__title" aria-label="表單名稱" @input="touch" />
-          <span class="document-meta__status" :class="{ 'document-meta__status--error': saveError }">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 18a4.6 4.6 0 0 1-.4-9.2A6 6 0 0 1 18.1 8a4 4 0 0 1-.1 8H7Z" /><path d="m9.5 13 1.7 1.7 3.5-4" /></svg>
-            {{ saveError || (initializing ? "載入中…" : saving ? "儲存中…" : saved ? "已儲存" : "尚未儲存") }}
-          </span>
-        </div>
+        <RouterLink v-else class="primary-button" to="/login">登入開始使用</RouterLink>
       </div>
-
-      <div class="topbar__actions">
-        <button class="icon-button hide-mobile" type="button" aria-label="自訂主題" title="自訂主題">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18h1.5a2 2 0 0 0 0-4H12a2 2 0 0 1 0-4h5a4 4 0 0 0 4-4c0-3.3-4-6-9-6Z" /><circle cx="7.5" cy="10" r="1" /><circle cx="10" cy="6.5" r="1" /><circle cx="15" cy="7" r="1" /></svg>
-        </button>
-        <button class="icon-button hide-mobile" type="button" aria-label="預覽" title="預覽">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" /><circle cx="12" cy="12" r="2.7" /></svg>
-        </button>
-        <button class="publish-button" type="button" :disabled="initializing || saving" @click="publish">
-          發布 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 14-7-4 14-3-6-7-1Z" /></svg>
-        </button>
-        <button class="avatar-button" type="button" aria-label="帳號選單">J</button>
+      <div class="welcome-card__visual" aria-hidden="true">
+        <div class="visual-card visual-card--back"><i></i><i></i><i></i></div>
+        <div class="visual-card visual-card--front">
+          <span></span><b></b><b></b><b></b>
+        </div>
       </div>
     </header>
 
-    <nav class="tabs" aria-label="表單功能">
-      <button class="tabs__item tabs__item--active" type="button">問題</button>
-      <button class="tabs__item" type="button" :disabled="initializing || !formId" @click="openResponses">回覆</button>
-      <button class="tabs__item" type="button">設定</button>
-    </nav>
+    <template v-if="isAuthenticated">
+      <section class="summary-grid" aria-label="表單統計">
+        <article>
+          <div class="summary-icon summary-icon--all">▤</div>
+          <div><strong>{{ forms.length }}</strong><span>全部表單</span></div>
+        </article>
+        <article>
+          <div class="summary-icon summary-icon--published">✓</div>
+          <div><strong>{{ publishedCount }}</strong><span>已發布</span></div>
+        </article>
+        <article>
+          <div class="summary-icon summary-icon--draft">✎</div>
+          <div><strong>{{ draftCount }}</strong><span>編輯中的草稿</span></div>
+        </article>
+      </section>
 
-    <main class="workspace">
-      <div class="form-canvas">
-        <p v-if="saveError" class="connection-error" role="alert">{{ saveError }}</p>
-        <section class="form-heading">
-          <div class="form-heading__accent"></div>
-          <label>
-            <span class="sr-only">表單標題</span>
-            <textarea v-model="formTitle" rows="1" class="form-heading__title" @input="touch"></textarea>
-          </label>
-          <label>
-            <span class="sr-only">表單說明</span>
-            <textarea v-model="formDescription" rows="2" class="form-heading__description" placeholder="表單說明" @input="touch"></textarea>
-          </label>
-        </section>
-
-        <section
-          v-for="(question, index) in questions"
-          :id="`question-${question.id}`"
-          :key="question.id"
-          class="question-card"
-          :class="{
-            'question-card--active': activeQuestionId === question.id,
-            'question-card--dragging': draggedQuestionId === question.id,
-            'question-card--drag-over': dragOverQuestionId === question.id && draggedQuestionId !== question.id
-          }"
-          @dragover.prevent="dragOverQuestionId = question.id"
-          @dragleave="dragOverQuestionId === question.id && (dragOverQuestionId = null)"
-          @drop.prevent="dropQuestion(question.id)"
-          @click="activeQuestionId = question.id"
-        >
-          <button
-            class="drag-handle"
-            type="button"
-            draggable="true"
-            aria-label="拖曳以調整題目順序"
-            title="拖曳以排序"
-            @dragstart.stop="startQuestionDrag($event, question.id)"
-            @dragend="endQuestionDrag"
-          >⠿</button>
-
-          <div class="question-card__top">
-            <div class="question-title-wrap">
-              <span class="question-number">{{ index + 1 }}.</span>
-              <input v-model="question.title" class="question-title" aria-label="問題標題" @input="touch" />
-              <span v-if="question.required" class="required-mark">＊</span>
-            </div>
-
-            <label class="type-select">
-              <span class="type-select__icon">{{ questionTypes.find((item) => item.value === question.type)?.icon }}</span>
-              <select v-model="question.type" aria-label="題型" @change="changeType(question)">
-                <option v-for="type in questionTypes" :key="type.value" :value="type.value">{{ type.label }}</option>
-              </select>
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 10 4 4 4-4" /></svg>
-            </label>
+      <section class="library">
+        <header class="library__header">
+          <div>
+            <p class="eyebrow">YOUR LIBRARY</p>
+            <h2>所有表單</h2>
           </div>
+          <div class="library__tools">
+            <label class="search-box">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" /><path d="m16 16 4 4" /></svg>
+              <input v-model="search" type="search" placeholder="搜尋表單" aria-label="搜尋表單" />
+            </label>
+            <select v-model="statusFilter" aria-label="依狀態篩選">
+              <option value="all">全部狀態</option>
+              <option value="draft">草稿</option>
+              <option value="published">已發布</option>
+              <option value="closed">已關閉</option>
+            </select>
+          </div>
+        </header>
 
-          <div class="answer-area">
-            <div v-if="question.type === 'description'" class="description-preview">
-              此區塊只顯示說明文字，不需要填答者回答。
-            </div>
-            <div v-else-if="question.type === 'text'" class="text-preview">填答者的文字回答</div>
-            <div v-else-if="question.type === 'scale'" class="scale-preview">
-              <span class="scale-preview__label">非常不同意</span>
-              <label v-for="score in 5" :key="score">
-                <span>{{ score }}</span>
+        <p v-if="error" class="message message--error" role="alert">{{ error }}</p>
+        <div v-if="loading" class="loading-grid" aria-label="表單載入中">
+          <span v-for="index in 3" :key="index"></span>
+        </div>
+
+        <div v-else-if="forms.length && filteredForms.length" class="form-grid">
+          <article v-for="(form, index) in filteredForms" :key="form.form_id" class="form-card">
+            <button class="form-card__preview" type="button" @click="editForm(form.form_id)">
+              <span class="preview-accent" :class="`preview-accent--${index % 4}`"></span>
+              <span class="status" :class="`status--${form.status}`">
+                <i></i>{{ statusLabel[form.status] }}
+              </span>
+              <div class="preview-lines" aria-hidden="true"><i></i><i></i><i></i></div>
+            </button>
+            <div class="form-card__body">
+              <button class="form-title" type="button" @click="editForm(form.form_id)">
+                {{ form.title || "未命名表單" }}
+              </button>
+              <p>{{ form.content || "尚未加入表單說明" }}</p>
+              <div class="form-meta">
+                <span>{{ blockCount(form) }} 個區塊</span>
                 <i></i>
-              </label>
-              <span class="scale-preview__label">非常同意</span>
-            </div>
-            <div v-else-if="question.type === 'date'" class="date-preview">
-              <span>年 / 月 / 日</span><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="2" /><path d="M8 3v4m8-4v4M4 10h16" /></svg>
-            </div>
-            <template v-else>
-              <div v-for="(option, optionIndex) in question.options" :key="option.id ?? optionIndex" class="option-row">
-                <span class="option-circle"></span>
-                <input v-model="option.label" :aria-label="`選項 ${optionIndex + 1}`" @input="touch" />
-                <button v-if="question.options.length > 1" class="remove-option" type="button" aria-label="刪除選項" @click.stop="question.options.splice(optionIndex, 1); touch()">×</button>
+                <span>{{ questionCount(form) }} 題</span>
+                <i></i>
+                <span>{{ formatDate(form.update_time ?? form.create_time) }}</span>
               </div>
-              <button class="add-option" type="button" @click.stop="addOption(question)">＋ 新增選項</button>
-            </template>
-          </div>
+            </div>
+            <footer>
+              <button type="button" @click="editForm(form.form_id)">編輯</button>
+              <button type="button" @click="openResponses(form.form_id)">查看回覆</button>
+              <a v-if="form.public_token" :href="`/forms/${form.public_token}`" target="_blank" rel="noopener">開啟表單 ↗</a>
+              <button class="danger" type="button" :disabled="deletingId === form.form_id" @click="removeForm(form)">
+                {{ deletingId === form.form_id ? "刪除中…" : "刪除" }}
+              </button>
+            </footer>
+          </article>
 
-          <footer v-if="activeQuestionId === question.id" class="question-card__footer">
-            <button class="footer-icon" type="button" aria-label="上移問題" title="上移" :disabled="index === 0" @click.stop="moveQuestion(question.id, -1)">↑</button>
-            <button class="footer-icon" type="button" aria-label="下移問題" title="下移" :disabled="index === questions.length - 1" @click.stop="moveQuestion(question.id, 1)">↓</button>
-            <button class="footer-icon" type="button" aria-label="複製問題" title="複製" @click.stop="duplicateQuestion(question)">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="12" rx="1.5" /><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h3" /></svg>
-            </button>
-            <button class="footer-icon" type="button" aria-label="刪除問題" title="刪除" :disabled="questions.length === 1" @click.stop="removeQuestion(question.id)">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5" /></svg>
-            </button>
-            <span v-if="question.type !== 'description'" class="footer-divider"></span>
-            <label v-if="question.type !== 'description'" class="required-toggle">
-              必填
-              <input v-model="question.required" type="checkbox" @change="touch" />
-              <span></span>
-            </label>
-            <button class="footer-icon" type="button" aria-label="更多選項">•••</button>
-          </footer>
+          <button class="new-form-card" type="button" @click="createNewForm">
+            <span>＋</span>
+            <strong>建立新表單</strong>
+            <small>從空白表單開始設計</small>
+          </button>
+        </div>
+
+        <section v-else-if="forms.length" class="empty-state">
+          <span>⌕</span>
+          <h3>找不到符合條件的表單</h3>
+          <p>換一個關鍵字或篩選條件試試看。</p>
+          <button type="button" @click="search = ''; statusFilter = 'all'">清除篩選</button>
         </section>
 
-        <button class="mobile-add" type="button" @click="addQuestion">＋ 新增問題</button>
-        <p class="canvas-footer">請勿透過表單提交密碼或其他機密資訊。</p>
-      </div>
-
-      <aside class="floating-tools" aria-label="新增表單內容">
-        <button type="button" title="新增問題" @click="addQuestion">＋</button>
-        <button type="button" title="匯入問題">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h11v5h3v11H8v-3H5V4Z" /><path d="M8 7h8v10H8V7Zm4 3v4m-2-2h4" /></svg>
-        </button>
-        <button type="button" title="新增標題和說明">T<span>T</span></button>
-        <button type="button" title="新增圖片">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="9" cy="9" r="2" /><path d="m4 17 5-5 3 3 2-2 6 5" /></svg>
-        </button>
-        <button type="button" title="新增區段">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="1" /><path d="M4 9h16M9 4v5" /></svg>
-        </button>
-      </aside>
-    </main>
-
-    <Transition name="toast">
-      <div v-if="showToast" class="toast">表單已發布！分享連結已建立。</div>
-    </Transition>
-  </div>
+        <section v-else class="empty-state">
+          <span>＋</span>
+          <h3>建立你的第一份表單</h3>
+          <p>先建立關鍵精神區塊，再加入量表、選擇題或文字問題。</p>
+          <button type="button" @click="createNewForm">建立新表單</button>
+        </section>
+      </section>
+    </template>
+  </section>
 </template>
 
 <style scoped>
-.builder-shell {
-  min-height: 100vh;
-  color: #292631;
-  background: #f7f5fa;
-  font-family: Inter, "Noto Sans TC", "PingFang TC", system-ui, sans-serif;
+.dashboard { display: grid; gap: 28px; color: #312b35; font-family: Inter, "Noto Sans TC", "PingFang TC", system-ui, sans-serif; }
+.eyebrow { margin: 0 0 10px; color: #8a699f; font-size: 10px; font-weight: 800; letter-spacing: .15em; }
+button, input, select { font: inherit; }
+button { cursor: pointer; }
+svg { fill: none; stroke: currentColor; stroke-linecap: round; stroke-width: 1.8; }
+.welcome-card { position: relative; display: grid; min-height: 270px; grid-template-columns: minmax(0, 1fr) 310px; align-items: center; overflow: hidden; padding: 42px 46px; border: 1px solid #e4dbe9; border-radius: 22px; background: linear-gradient(125deg, #fff 15%, #f7f0fb 60%, #eee1f5); box-shadow: 0 10px 36px rgba(67, 42, 79, .08); }
+.welcome-card::before { position: absolute; width: 260px; height: 260px; border: 55px solid rgba(132, 91, 157, .08); border-radius: 50%; content: ""; right: -85px; top: -110px; }
+.welcome-card__copy { position: relative; z-index: 2; }
+.welcome-card h1 { margin: 0; color: #352a3b; font-size: clamp(38px, 5vw, 58px); letter-spacing: -.055em; line-height: 1; }
+.welcome-card__copy > p:not(.eyebrow) { max-width: 540px; margin: 18px 0 26px; color: #746b79; font-size: 13px; line-height: 1.8; }
+.primary-button { display: inline-flex; min-height: 44px; align-items: center; gap: 8px; padding: 0 19px; border: 0; border-radius: 10px; background: #6e4a88; box-shadow: 0 7px 18px rgba(91, 57, 116, .22); color: #fff; font-size: 12px; font-weight: 700; text-decoration: none; }
+.primary-button:hover { background: #5e3c77; transform: translateY(-1px); }
+.primary-button span { font-size: 18px; font-weight: 400; }
+.welcome-card__visual { position: relative; height: 190px; }
+.visual-card { position: absolute; width: 190px; height: 155px; border-radius: 15px; background: #fff; box-shadow: 0 18px 45px rgba(67, 39, 81, .15); }
+.visual-card--back { top: 0; right: 62px; padding: 35px 26px; transform: rotate(-8deg); background: #d7c2e4; }
+.visual-card--back i { display: block; width: 75%; height: 7px; margin-bottom: 13px; border-radius: 5px; background: rgba(255,255,255,.68); }
+.visual-card--front { right: 6px; bottom: 0; padding: 28px 25px; transform: rotate(5deg); }
+.visual-card--front span { display: block; width: 60%; height: 10px; margin-bottom: 25px; border-radius: 5px; background: #82609a; }
+.visual-card--front b { display: block; width: 100%; height: 8px; margin-top: 16px; border-radius: 5px; background: #eee8f1; }
+.visual-card--front b:nth-of-type(2) { width: 82%; }
+.visual-card--front b:nth-of-type(3) { width: 65%; }
+.summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.summary-grid article { display: flex; align-items: center; gap: 15px; padding: 20px 22px; border: 1px solid #e7e0ea; border-radius: 14px; background: #fff; box-shadow: 0 3px 14px rgba(58, 39, 67, .035); }
+.summary-grid article > div:last-child { display: grid; gap: 2px; }
+.summary-grid strong { color: #39313e; font-size: 23px; line-height: 1; }
+.summary-grid article span { color: #8b838f; font-size: 11px; }
+.summary-icon { display: grid; width: 40px; height: 40px; place-items: center; border-radius: 11px; font-size: 17px; }
+.summary-icon--all { background: #eee5f3; color: #765292; }
+.summary-icon--published { background: #e6f2e9; color: #47805a; }
+.summary-icon--draft { background: #fff1d9; color: #9c6d23; }
+.library { display: grid; gap: 20px; padding-top: 10px; }
+.library__header { display: flex; align-items: end; justify-content: space-between; gap: 20px; }
+.library__header h2 { margin: 0; font-size: 24px; letter-spacing: -.025em; }
+.library__tools { display: flex; gap: 9px; }
+.search-box { display: flex; width: 220px; height: 40px; align-items: center; gap: 8px; padding: 0 12px; border: 1px solid #ded7e2; border-radius: 9px; background: #fff; color: #918997; }
+.search-box svg { width: 17px; }
+.search-box input { min-width: 0; flex: 1; border: 0; outline: 0; color: #403944; font-size: 11px; }
+.library__tools select { min-width: 120px; border: 1px solid #ded7e2; border-radius: 9px; padding: 0 12px; outline: 0; background: #fff; color: #665e6a; font-size: 11px; }
+.message { margin: 0; padding: 14px 16px; border: 1px solid #dccfd4; border-radius: 9px; background: #fff; font-size: 12px; }
+.message--error { border-color: #e2b8c1; background: #fff5f7; color: #913b50; }
+.loading-grid, .form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(285px, 1fr)); gap: 17px; }
+.loading-grid span { height: 330px; border-radius: 14px; background: linear-gradient(100deg, #eeeaf0 20%, #f8f6f9 40%, #eeeaf0 60%); background-size: 200% 100%; animation: shimmer 1.4s infinite; }
+.form-card { display: grid; overflow: hidden; grid-template-rows: 138px 1fr auto; border: 1px solid #e3dce7; border-radius: 15px; background: #fff; box-shadow: 0 4px 18px rgba(55, 36, 64, .045); transition: transform 160ms ease, box-shadow 160ms ease; }
+.form-card:hover { transform: translateY(-3px); box-shadow: 0 12px 28px rgba(55, 36, 64, .09); }
+.form-card__preview { position: relative; overflow: hidden; border: 0; border-bottom: 1px solid #eee8f1; background: #f8f4fa; text-align: left; }
+.preview-accent { position: absolute; inset: 0 auto 0 0; width: 8px; background: #765292; }
+.preview-accent--1 { background: #54869b; }
+.preview-accent--2 { background: #a77158; }
+.preview-accent--3 { background: #608568; }
+.status { position: absolute; top: 17px; right: 17px; display: flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 15px; background: #eee9f1; color: #756c79; font-size: 9px; font-weight: 750; }
+.status i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.status--published { background: #e4f2e7; color: #417653; }
+.status--closed { background: #f5e5e8; color: #945262; }
+.preview-lines { position: absolute; right: 26px; bottom: 22px; left: 31px; display: grid; gap: 10px; }
+.preview-lines i { width: 75%; height: 7px; border-radius: 5px; background: #e3dae8; }
+.preview-lines i:first-child { width: 48%; height: 11px; background: #baa6c5; }
+.preview-lines i:last-child { width: 60%; }
+.form-card__body { min-height: 132px; padding: 20px 20px 16px; }
+.form-title { display: block; overflow: hidden; width: 100%; border: 0; padding: 0; background: transparent; color: #3a333e; font-size: 16px; font-weight: 750; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.form-card__body > p { display: -webkit-box; min-height: 38px; overflow: hidden; margin: 8px 0 14px; color: #817987; font-size: 11px; line-height: 1.7; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.form-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; color: #9a929d; font-size: 9px; }
+.form-meta i { width: 3px; height: 3px; border-radius: 50%; background: #c1bbc4; }
+.form-card footer { display: flex; align-items: center; gap: 13px; min-height: 47px; padding: 0 18px; border-top: 1px solid #eeeaf0; }
+.form-card footer button, .form-card footer a { border: 0; padding: 2px 0; background: transparent; color: #6d4b84; font-size: 10px; font-weight: 650; text-decoration: none; }
+.form-card footer .danger { margin-left: auto; color: #aa5363; }
+.form-card footer button:disabled { cursor: wait; opacity: .45; }
+.new-form-card { display: grid; min-height: 330px; place-content: center; justify-items: center; gap: 8px; border: 1px dashed #bdaac9; border-radius: 15px; background: rgba(255,255,255,.5); color: #765292; }
+.new-form-card:hover { border-color: #765292; background: #faf6fc; }
+.new-form-card > span { display: grid; width: 46px; height: 46px; margin-bottom: 7px; place-items: center; border-radius: 50%; background: #ede4f2; font-size: 24px; }
+.new-form-card strong { font-size: 13px; }
+.new-form-card small { color: #9b8fa2; font-size: 10px; }
+.empty-state { display: grid; justify-items: center; padding: 70px 24px; border: 1px dashed #c9bcd0; border-radius: 15px; background: #fdfbfe; text-align: center; }
+.empty-state > span { display: grid; width: 48px; height: 48px; place-items: center; border-radius: 50%; background: #eee5f3; color: #765292; font-size: 23px; }
+.empty-state h3 { margin: 18px 0 7px; }
+.empty-state p { margin: 0 0 20px; color: #8a818e; font-size: 11px; }
+.empty-state button { min-height: 38px; padding: 0 16px; border: 0; border-radius: 8px; background: #765292; color: #fff; font-size: 11px; font-weight: 700; }
+@keyframes shimmer { to { background-position: -200% 0; } }
+@media (max-width: 820px) {
+  .welcome-card { grid-template-columns: 1fr; }
+  .welcome-card__visual { display: none; }
+  .summary-grid { grid-template-columns: 1fr; }
 }
-
-button,
-input,
-textarea,
-select { font: inherit; }
-
-svg { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
-
-.topbar {
-  position: sticky;
-  z-index: 20;
-  top: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  height: 72px;
-  padding: 0 28px;
-  border-bottom: 1px solid #eeeaf2;
-  background: rgba(255, 255, 255, 0.96);
-  backdrop-filter: blur(12px);
-}
-
-.topbar__left,
-.topbar__actions { display: flex; align-items: center; gap: 10px; }
-
-.icon-button {
-  display: grid;
-  width: 40px;
-  height: 40px;
-  place-items: center;
-  border: 0;
-  border-radius: 50%;
-  background: transparent;
-  color: #5b5663;
-}
-
-.icon-button:hover { background: #f4f0f7; color: #6f4b8b; }
-.icon-button svg { width: 22px; height: 22px; }
-
-.brand-mark {
-  display: grid;
-  grid-template-columns: repeat(3, 5px);
-  align-content: end;
-  gap: 3px;
-  width: 38px;
-  height: 38px;
-  padding: 8px;
-  border-radius: 9px;
-  background: linear-gradient(145deg, #7e57a4, #5d357e);
-  box-shadow: 0 5px 14px rgba(94, 53, 126, 0.24);
-}
-
-.brand-mark span { display: block; border-radius: 2px; background: #fff; }
-.brand-mark span:nth-child(1) { height: 8px; }
-.brand-mark span:nth-child(2) { height: 14px; }
-.brand-mark span:nth-child(3) { height: 20px; }
-
-.document-meta { display: grid; gap: 3px; margin-left: 4px; }
-.document-meta__title { width: min(320px, 28vw); border: 0; border-bottom: 1px solid transparent; outline: 0; color: #292631; font-size: 15px; font-weight: 650; }
-.document-meta__title:focus { border-color: #72508c; }
-.document-meta__status { display: flex; align-items: center; gap: 5px; color: #8b8690; font-size: 11px; }
-.document-meta__status--error { color: #a43f55; }
-.document-meta__status svg { width: 15px; height: 15px; }
-
-.publish-button {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 40px;
-  margin-left: 4px;
-  padding: 0 18px;
-  border: 0;
-  border-radius: 9px;
-  background: #694786;
-  box-shadow: 0 3px 10px rgba(84, 47, 114, 0.22);
-  color: #fff;
-  font-size: 13px;
-  font-weight: 650;
-}
-
-.publish-button:hover { background: #593674; transform: translateY(-1px); }
-.publish-button:disabled { cursor: wait; opacity: .55; transform: none; }
-.publish-button svg { width: 17px; height: 17px; }
-.avatar-button { width: 38px; height: 38px; margin-left: 5px; border: 0; border-radius: 50%; background: #e8d9ef; color: #62407b; font-weight: 700; }
-
-.tabs {
-  position: sticky;
-  z-index: 19;
-  top: 72px;
-  display: flex;
-  justify-content: center;
-  height: 48px;
-  gap: 34px;
-  border-bottom: 1px solid #ece8ef;
-  background: rgba(255, 255, 255, 0.96);
-}
-
-.tabs__item { position: relative; border: 0; background: none; color: #77717e; font-size: 13px; font-weight: 600; }
-.tabs__item span { display: inline-grid; min-width: 19px; height: 19px; margin-left: 4px; place-items: center; border-radius: 10px; background: #eee9f1; font-size: 10px; }
-.tabs__item--active { color: #684884; }
-.tabs__item--active::after { content: ""; position: absolute; right: 0; bottom: 0; left: 0; height: 3px; border-radius: 3px 3px 0 0; background: #765292; }
-
-.workspace { position: relative; width: min(820px, calc(100% - 48px)); margin: 0 auto; padding: 30px 58px 70px 0; }
-.form-canvas { display: grid; gap: 14px; }
-.connection-error { margin: 0; padding: 12px 16px; border: 1px solid #e4b8c2; border-radius: 9px; background: #fff4f6; color: #91374a; font-size: 12px; }
-.form-heading,
-.question-card { position: relative; border: 1px solid #e8e3eb; border-radius: 12px; background: #fff; box-shadow: 0 2px 7px rgba(42, 27, 50, 0.035); }
-
-.form-heading { overflow: hidden; padding: 34px 36px 28px; }
-.form-heading__accent { position: absolute; top: 0; right: 0; left: 0; height: 9px; background: linear-gradient(90deg, #6c4788, #9b76b4); }
-.form-heading label { display: block; }
-.form-heading textarea { width: 100%; resize: none; border: 0; outline: 0; color: inherit; }
-.form-heading__title { padding: 0 0 12px; border-bottom: 1px solid #e1dce4 !important; font-size: clamp(24px, 4vw, 32px) !important; font-weight: 720 !important; letter-spacing: -0.035em; line-height: 1.25; }
-.form-heading__title:focus { border-color: #765292 !important; }
-.form-heading__description { margin-top: 17px; color: #706a74 !important; font-size: 13px !important; line-height: 1.7; }
-
-.question-card { padding: 31px 30px 0; transition: box-shadow 160ms ease, border-color 160ms ease; }
-.question-card--active { border-color: #d8cbe1; box-shadow: 0 5px 22px rgba(57, 35, 67, 0.08); }
-.question-card--dragging { opacity: .48; }
-.question-card--drag-over { border-color: #765292; box-shadow: 0 0 0 2px rgba(118, 82, 146, .16); }
-.question-card--active::before { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 5px; border-radius: 12px 0 0 12px; background: #765292; }
-.drag-handle { position: absolute; top: 3px; left: 50%; width: 34px; height: 22px; transform: translateX(-50%) rotate(90deg); border: 0; background: transparent; color: #bbb4bf; font-size: 19px; line-height: 1; cursor: grab; }
-.drag-handle:active { cursor: grabbing; }
-.question-card__top { display: grid; grid-template-columns: minmax(0, 1fr) 180px; align-items: start; gap: 22px; }
-.question-title-wrap { display: flex; align-items: baseline; border-bottom: 1px solid transparent; }
-.question-card--active .question-title-wrap { border-bottom-color: #e1dce4; }
-.question-number { flex: 0 0 auto; margin-right: 8px; color: #45404a; font-size: 14px; font-weight: 650; }
-.question-title { min-width: 0; width: 100%; padding: 4px 0 12px; border: 0; outline: 0; color: #353039; background: transparent; font-size: 14px; font-weight: 600; }
-.required-mark { color: #b1485c; font-size: 13px; }
-
-.type-select { position: relative; display: flex; align-items: center; height: 42px; border: 1px solid #ddd7e1; border-radius: 8px; background: #fff; color: #645e69; }
-.type-select__icon { width: 40px; color: #706179; text-align: center; font-size: 16px; }
-.type-select select { width: 100%; height: 100%; appearance: none; border: 0; outline: 0; background: transparent; color: inherit; font-size: 12px; cursor: pointer; }
-.type-select svg { width: 16px; height: 16px; margin-right: 12px; pointer-events: none; }
-.answer-area { min-height: 78px; padding: 27px 0 25px 26px; }
-.text-preview { width: 100%; padding: 0 0 22px; border-bottom: 1px dotted #bbb5be; color: #aaa4ad; font-size: 12px; }
-.text-preview--short { width: 58%; }
-.description-preview { padding: 15px 17px; border-left: 3px solid #aa8dbd; border-radius: 0 7px 7px 0; background: #f8f4fa; color: #77707b; font-size: 12px; line-height: 1.7; }
-.scale-preview { display: flex; align-items: flex-end; justify-content: center; gap: clamp(10px, 3vw, 24px); padding: 8px 0; }
-.scale-preview label { display: grid; justify-items: center; gap: 9px; color: #6d6671; font-size: 11px; }
-.scale-preview i { display: block; width: 18px; height: 18px; border: 1.5px solid #aaa3ad; border-radius: 50%; }
-.scale-preview__label { max-width: 58px; padding-bottom: 2px; color: #918a95; font-size: 10px; line-height: 1.4; text-align: center; }
-.date-preview { display: flex; width: 160px; justify-content: space-between; padding: 0 0 8px; border-bottom: 1px solid #c9c3cc; color: #aaa4ad; font-size: 12px; }
-.date-preview svg { width: 17px; height: 17px; }
-.option-row { display: flex; align-items: center; min-height: 38px; gap: 11px; }
-.option-row input { min-width: 0; flex: 1; padding: 7px 2px; border: 0; border-bottom: 1px solid transparent; outline: 0; color: #5a545e; font-size: 13px; }
-.option-row input:focus { border-bottom-color: #84629e; }
-.option-circle { display: grid; flex: 0 0 17px; width: 17px; height: 17px; place-items: center; border: 1.5px solid #aaa3ad; border-radius: 50%; color: #837b87; font-size: 11px; }
-.option-box { flex: 0 0 17px; width: 17px; height: 17px; border: 1.5px solid #aaa3ad; border-radius: 3px; font-size: 0; }
-.remove-option { opacity: 0; border: 0; background: transparent; color: #9e97a1; font-size: 22px; }
-.option-row:hover .remove-option { opacity: 1; }
-.add-option { margin: 9px 0 0 26px; border: 0; border-bottom: 1px solid #b69fc5; padding: 3px 0; background: transparent; color: #72508d; font-size: 12px; }
-
-.question-card__footer { display: flex; align-items: center; justify-content: flex-end; min-height: 60px; border-top: 1px solid #eeeaf0; gap: 4px; }
-.footer-icon { display: grid; width: 38px; height: 38px; place-items: center; border: 0; border-radius: 50%; background: transparent; color: #726c76; font-size: 13px; }
-.footer-icon:hover { background: #f4f0f6; }
-.footer-icon:disabled { opacity: .3; }
-.footer-icon svg { width: 19px; height: 19px; }
-.footer-divider { width: 1px; height: 28px; margin: 0 9px; background: #e3dee6; }
-.required-toggle { display: flex; align-items: center; gap: 10px; margin-right: 8px; color: #59535e; font-size: 12px; cursor: pointer; }
-.required-toggle input { position: absolute; opacity: 0; pointer-events: none; }
-.required-toggle span { position: relative; width: 35px; height: 20px; border-radius: 12px; background: #d6d1d9; transition: background 150ms ease; }
-.required-toggle span::after { content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.18); transition: transform 150ms ease; }
-.required-toggle input:checked + span { background: #765292; }
-.required-toggle input:checked + span::after { transform: translateX(15px); }
-
-.floating-tools { position: fixed; top: 178px; left: calc(50% + 351px); display: grid; overflow: hidden; border: 1px solid #e1dce4; border-radius: 12px; background: #fff; box-shadow: 0 5px 18px rgba(48, 32, 56, .1); }
-.floating-tools button { display: grid; width: 47px; height: 47px; place-items: center; border: 0; border-bottom: 1px solid #eeeaf0; background: #fff; color: #6d6671; font-size: 24px; }
-.floating-tools button:last-child { border-bottom: 0; }
-.floating-tools button:hover { background: #f5f0f7; color: #6c4788; }
-.floating-tools svg { width: 20px; height: 20px; }
-.floating-tools button:nth-child(3) { font-family: Georgia, serif; font-size: 17px; font-weight: 700; }
-.floating-tools button:nth-child(3) span { font-size: 10px; }
-.mobile-add { display: none; }
-.canvas-footer { margin: 12px 0 0; color: #aaa4ad; font-size: 10px; text-align: center; }
-.toast { position: fixed; z-index: 50; right: 28px; bottom: 28px; padding: 15px 20px; border-radius: 9px; background: #32273a; box-shadow: 0 8px 30px rgba(25, 16, 30, .25); color: #fff; font-size: 13px; }
-.toast-enter-active, .toast-leave-active { transition: opacity .2s ease, transform .2s ease; }
-.toast-enter-from, .toast-leave-to { opacity: 0; transform: translateY(8px); }
-.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
-
-@media (max-width: 840px) {
-  .topbar { padding: 0 14px; }
-  .icon-button--back { display: none; }
-  .document-meta__status { display: none; }
-  .workspace { width: min(700px, calc(100% - 28px)); padding-right: 0; }
-  .floating-tools { display: none; }
-  .mobile-add { display: block; width: 100%; height: 48px; border: 1px dashed #bcaac8; border-radius: 10px; background: #fdfcff; color: #6c4788; font-size: 13px; font-weight: 650; }
-}
-
-@media (max-width: 600px) {
-  .topbar { height: 64px; }
-  .tabs { top: 64px; }
-  .hide-mobile, .avatar-button { display: none; }
-  .brand-mark { width: 34px; height: 34px; }
-  .document-meta__title { width: 150px; }
-  .publish-button { padding: 0 13px; }
-  .workspace { padding-top: 18px; }
-  .form-heading { padding: 28px 22px 22px; }
-  .question-card { padding: 29px 20px 0; }
-  .question-card__top { grid-template-columns: 1fr; gap: 14px; }
-  .type-select { width: 100%; }
-  .answer-area { padding-left: 2px; }
-  .text-preview--short { width: 80%; }
+@media (max-width: 620px) {
+  .welcome-card { min-height: auto; padding: 34px 25px; border-radius: 16px; }
+  .library__header { align-items: stretch; flex-direction: column; }
+  .library__tools { flex-direction: column; }
+  .search-box { width: 100%; }
+  .library__tools select { height: 40px; }
+  .form-grid { grid-template-columns: 1fr; }
 }
 </style>

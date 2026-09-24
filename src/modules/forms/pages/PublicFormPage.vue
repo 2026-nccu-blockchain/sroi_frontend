@@ -10,16 +10,45 @@ const form = ref<PublicFormResponse | null>(null);
 const loading = ref(true);
 const submitting = ref(false);
 const submitted = ref(false);
+const emailVerified = ref(false);
 const error = ref("");
 const email = ref("");
-const answers = reactive<Record<string, string | number>>({});
+const answers = reactive<Record<string, string | number | string[]>>({});
+const shuffledQuestions = ref<QuestionResponse[]>([]);
 
 const publicToken = computed(() => String(route.params.publicToken ?? ""));
-const questions = computed(() => form.value?.pages.flatMap((page) => page.questions) ?? []);
+const allQuestions = computed(() => form.value?.pages.flatMap((page) => page.questions) ?? []);
+const questions = computed(() => emailVerified.value ? shuffledQuestions.value : allQuestions.value);
+
+const seededShuffle = (items: QuestionResponse[], seedText: string): QuestionResponse[] => {
+  let seed = 2166136261;
+  for (const character of seedText) {
+    seed ^= character.charCodeAt(0);
+    seed = Math.imul(seed, 16777619);
+  }
+  const random = (): number => {
+    seed += 0x6D2B79F5;
+    let value = seed;
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+  };
+  const result = [...items];
+  for (let index = result.length - 1; index > 0; index -= 1) {
+    const target = Math.floor(random() * (index + 1));
+    [result[index], result[target]] = [result[target], result[index]];
+  }
+  return result;
+};
 
 const load = async (): Promise<void> => {
   try {
     form.value = await getPublicForm(publicToken.value);
+    for (const question of form.value.pages.flatMap((page) => page.questions)) {
+      if (question.question_type === "CQ" && question.is_multiple) {
+        answers[question.question_id] = [];
+      }
+    }
   } catch (caught) {
     error.value = caught instanceof Error ? caught.message : "找不到這份表單";
   } finally {
@@ -32,15 +61,45 @@ const answerPayload = (question: QuestionResponse): AnswerPayload => {
   if (question.question_type === "OQ") return { question_id: question.question_id, text_value: String(value ?? "") };
   if (question.question_type === "SC") return { question_id: question.question_id, number_value: Number(value) };
   if (question.question_type === "DT") return { question_id: question.question_id, date_value: String(value ?? "") };
-  return { question_id: question.question_id, option_ids: value ? [String(value)] : [] };
+  const optionIds = Array.isArray(value) ? value : value ? [String(value)] : [];
+  return { question_id: question.question_id, option_ids: optionIds };
+};
+
+const hasAnswer = (question: QuestionResponse): boolean => {
+  const value = answers[question.question_id];
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === "string") return value.trim() !== "";
+  return value !== undefined;
+};
+
+const verifyEmail = (): void => {
+  email.value = email.value.trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.value)) {
+    error.value = "請輸入有效的 Email";
+    return;
+  }
+  error.value = "";
+  shuffledQuestions.value = seededShuffle(
+    allQuestions.value,
+    `${publicToken.value}:${email.value}`
+  );
+  emailVerified.value = true;
+  window.scrollTo({ top: 0, behavior: "smooth" });
 };
 
 const submit = async (): Promise<void> => {
   error.value = "";
+  const missingRequired = questions.value.find((question) =>
+    question.question_type !== "DS" && question.is_required && !hasAnswer(question)
+  );
+  if (missingRequired) {
+    error.value = `請回答必填問題：${missingRequired.title ?? "未命名問題"}`;
+    return;
+  }
   submitting.value = true;
   try {
     const answeredQuestions = questions.value.filter((question) =>
-      question.question_type !== "DS" && answers[question.question_id] !== undefined && answers[question.question_id] !== ""
+      question.question_type !== "DS" && hasAnswer(question)
     );
     await submitPublicForm(publicToken.value, email.value, answeredQuestions.map(answerPayload));
     submitted.value = true;
@@ -75,7 +134,31 @@ onMounted(() => void load());
           <small><b>*</b> 表示必填問題</small>
         </header>
 
-        <form @submit.prevent="submit">
+        <form v-if="!emailVerified" class="email-step" @submit.prevent="verifyEmail">
+          <section class="answer-card respondent-card">
+            <p class="step-label">開始填寫前</p>
+            <h2>請先驗證你的 Email <b>*</b></h2>
+            <p class="email-hint">Email 會和這次回覆一起保存，請確認格式正確。</p>
+            <label class="sr-only" for="respondent-email">Email</label>
+            <input
+              id="respondent-email"
+              v-model="email"
+              type="email"
+              autocomplete="email"
+              placeholder="name@example.com"
+              required
+            />
+          </section>
+          <p v-if="error" class="submit-error" role="alert">{{ error }}</p>
+          <button class="submit-button" type="submit">驗證並開始填寫</button>
+        </form>
+
+        <form v-else @submit.prevent="submit">
+          <section class="email-confirmed">
+            <span>填答 Email：{{ email }}</span>
+            <button type="button" @click="emailVerified = false">更換</button>
+          </section>
+
           <template v-for="(question, index) in questions" :key="question.question_id">
             <section v-if="question.question_type === 'DS'" class="description-card">
               <p>{{ question.content }}</p>
@@ -116,21 +199,17 @@ onMounted(() => void load());
                 <label v-for="option in question.options" :key="option.option_id">
                   <input
                     v-model="answers[question.question_id]"
-                    type="radio"
+                    :type="question.is_multiple ? 'checkbox' : 'radio'"
                     :name="question.question_id"
                     :value="option.option_id"
-                    :required="question.is_required"
+                    :required="question.is_required && !question.is_multiple"
                   />
                   {{ option.label }}
                 </label>
+                <small v-if="question.is_multiple">可複選</small>
               </div>
             </section>
           </template>
-
-          <section class="answer-card respondent-card">
-            <label for="respondent-email">Email（選填）</label>
-            <input id="respondent-email" v-model="email" type="email" placeholder="name@example.com" />
-          </section>
 
           <p v-if="error" class="submit-error" role="alert">{{ error }}</p>
           <button class="submit-button" type="submit" :disabled="submitting">
@@ -165,6 +244,11 @@ form { display: grid; gap: 14px; }
 .choice-answer label { display: flex; align-items: center; gap: 10px; color: #5f5863; font-size: 13px; }
 .respondent-card { display: grid; gap: 8px; }
 .respondent-card label { font-size: 12px; font-weight: 650; }
+.step-label { margin: 0 0 6px; color: #765292; font-size: 11px; font-weight: 700; }
+.email-hint { margin: -12px 0 14px; color: #817986; font-size: 12px; line-height: 1.6; }
+.email-confirmed { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border: 1px solid #dcd1e2; border-radius: 9px; background: #faf7fc; color: #665d6b; font-size: 12px; }
+.email-confirmed button { border: 0; background: transparent; color: #765292; font-weight: 650; }
+.choice-answer small { color: #918996; font-size: 10px; }
 .submit-button { justify-self: start; min-height: 44px; padding: 0 24px; border: 0; border-radius: 8px; background: #694786; color: #fff; font-weight: 650; }
 .submit-button:disabled { cursor: wait; opacity: .55; }
 .submit-error { margin: 0; padding: 13px 16px; border-radius: 8px; background: #fff0f3; color: #943c50; font-size: 12px; }
@@ -174,5 +258,6 @@ form { display: grid; gap: 14px; }
 .state-card--success span { display: inline-grid; width: 48px; height: 48px; place-items: center; border-radius: 50%; background: #e5f1e8; color: #3d7550; font-size: 22px; }
 .state-card--success h1 { margin: 20px 0 8px; }
 .state-card--success p { margin: 0; color: #79727c; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
 @media (max-width: 560px) { .public-shell { padding-top: 18px; } .public-heading, .answer-card, .description-card { padding: 25px 22px; } }
 </style>
