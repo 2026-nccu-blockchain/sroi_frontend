@@ -8,6 +8,7 @@ interface UseAuthResult {
   user: ComputedRef<AuthUser | null>;
   isAuthenticated: ComputedRef<boolean>;
   login: (payload: LoginPayload) => Promise<void>;
+  fetchProfile: () => Promise<void>;
   logout: () => void;
 }
 
@@ -19,6 +20,7 @@ export const useAuth = (): UseAuthResult => {
     user: computed(() => user.value),
     isAuthenticated: computed(() => user.value !== null),
     login: authStore.login,
+    fetchProfile: authStore.fetchProfile,
     logout: authStore.logout
   };
 };

@@ -19,28 +19,48 @@ const handleLogout = async (): Promise<void> => {
         <RouterLink class="sidebar__brand" to="/">SROI</RouterLink>
 
         <nav class="sidebar__nav" aria-label="Main navigation">
-          <p class="sidebar__label">Workspace</p>
-          <RouterLink class="sidebar__link" to="/">
-            <span>Projects</span>
-            <span aria-hidden="true">01</span>
-          </RouterLink>
-
-          <RouterLink v-if="isAuthenticated" class="sidebar__link" to="/forms/new">
-            <span>Add project</span>
-            <span aria-hidden="true">＋</span>
-          </RouterLink>
+          <template v-if="isAuthenticated">
+            <p class="sidebar__label">工作區</p>
+            <RouterLink class="sidebar__link" to="/">
+              <span>我的專案</span>
+            </RouterLink>
+            <RouterLink class="sidebar__link" to="/">
+              <span>我的群組</span>
+            </RouterLink>
+            <p> </p> <!--排版空白-->
+            <p class="sidebar__label">共用資料庫</p>
+            <RouterLink class="sidebar__link" to="/">
+              <span>專案</span>
+            </RouterLink>
+            <RouterLink class="sidebar__link" to="/">
+              <span>財務代理變數</span>
+            </RouterLink>
+          </template>
+          <template v-else>
+            <p class="sidebar__label">共用資料庫</p>
+            <RouterLink class="sidebar__link" to="/">
+              <span>專案</span>
+            </RouterLink>
+            <RouterLink class="sidebar__link" to="/">
+              <span>財務代理變數</span>
+            </RouterLink>
+          </template>
         </nav>
       </div>
 
       <div class="sidebar__account">
         <template v-if="isAuthenticated">
           <p class="sidebar__label">Signed in as</p>
-          <span class="sidebar__email">{{ user?.email }}</span>
-          <button class="sidebar__auth-action" type="button" @click="handleLogout">Log out</button>
+          <span class="sidebar__user">{{ user?.campus_id }} {{ user?.name }}</span>
+          <button class="sidebar__auth-action" type="button" @click="handleLogout">登出</button>
         </template>
         <template v-else>
-          <p class="sidebar__guest">Sign in to add, edit, or delete projects.</p>
-          <RouterLink class="sidebar__auth-action" to="/login">Sign in →</RouterLink>
+          <p class="sidebar__guest">訪客模式</p>
+          <div class="sidebar__auth">
+            <RouterLink class="sidebar__auth-action" to="/auth/login">登入 →</RouterLink>
+            <RouterLink class="sidebar__auth-action" to="/auth/register">註冊 →</RouterLink>
+          </div>
+          
         </template>
       </div>
     </aside>
@@ -75,7 +95,7 @@ const handleLogout = async (): Promise<void> => {
   display: inline-block;
   margin-bottom: 64px;
   color: inherit;
-  font-size: 18px;
+  font-size: 25px;
   font-weight: 800;
   letter-spacing: 0.12em;
   text-decoration: none;
@@ -88,9 +108,9 @@ const handleLogout = async (): Promise<void> => {
 }
 
 .sidebar__label {
-  margin: 0 0 12px;
+  margin: 0 0 15px;
   color: #777;
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -108,7 +128,7 @@ const handleLogout = async (): Promise<void> => {
   background: transparent;
   color: #000;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   text-decoration: none;
   cursor: pointer;
@@ -125,17 +145,22 @@ const handleLogout = async (): Promise<void> => {
   vertical-align: 2px;
 }
 
+.sidebar__auth {
+  display: flex;
+}
+
 .sidebar__guest,
-.sidebar__email {
+.sidebar__user {
   margin: 0 0 16px;
   overflow-wrap: anywhere;
   color: #555;
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.5;
 }
 
 .sidebar__auth-action {
   justify-self: start;
+  margin: 0 40px 0 0;
   border: 0;
   border-bottom: 1px solid #000;
   padding: 3px 0;
