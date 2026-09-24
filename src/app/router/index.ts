@@ -3,17 +3,13 @@ import { createRouter, createWebHistory, type RouteRecordRaw } from "vue-router"
 import AuthLayout from "@/layouts/AuthLayout.vue";
 import MainLayout from "@/layouts/MainLayout.vue";
 import LoginPage from "@/modules/auth/pages/LoginPage.vue";
-import DashboardPage from "@/modules/dashboard/pages/DashboardPage.vue";
+import FormDashboardPage from "@/modules/formdashboard/pages/FormDashboardPage.vue";
 import FormBuilderPage from "@/modules/forms/pages/FormBuilderPage.vue";
 import FormResponsesPage from "@/modules/forms/pages/FormResponsesPage.vue";
 import PublicFormPage from "@/modules/forms/pages/PublicFormPage.vue";
 import { registerRouterGuards } from "@/app/router/guards";
 
 const routes: RouteRecordRaw[] = [
-  {
-    path: "/",
-    redirect: { name: "dashboard" }
-  },
   {
     path: "/forms/new",
     name: "form-builder-new",
@@ -54,8 +50,8 @@ const routes: RouteRecordRaw[] = [
     children: [
       {
         path: "",
-        name: "dashboard",
-        component: DashboardPage
+        name: "form-dashboard",
+        component: FormDashboardPage
       }
     ]
   }
