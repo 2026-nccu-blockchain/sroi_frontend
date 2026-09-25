@@ -8,7 +8,8 @@ export interface WorkspaceProject {
   status: "草稿" | "已發布";
 }
 
-export type GroupStatus = "已驗證" | "審核中" | "未驗證";
+// 後端 Group.status 的值
+export type GroupReviewStatus = "verified" | "in_progress" | "unverified";
 
 export interface Group {
   group_id: string;
@@ -16,6 +17,8 @@ export interface Group {
   desc: string;
   begin: string;
   end: string;
+  // 只有不同意的群組會帶
+  reason?: string;
 }
 
 export interface GroupBuckets {
@@ -23,6 +26,8 @@ export interface GroupBuckets {
   inProgress: Group[];
   unverified: Group[];
 }
+
+export type GroupBucketKey = keyof GroupBuckets;
 
 export interface GroupListResponse extends ApiEnvelope {
   verified_groups: Group[];
@@ -44,6 +49,7 @@ export interface GroupUser {
 }
 
 export interface GroupInfo extends Group {
+  status: GroupReviewStatus;
   group_leaders: GroupUser[];
   group_members: GroupUser[];
 }

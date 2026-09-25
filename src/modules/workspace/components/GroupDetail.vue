@@ -3,7 +3,7 @@ import { computed } from "vue";
 
 import type { GroupInfo } from "@/modules/workspace/types/workspace.types";
 
-const props = defineProps<{ group: GroupInfo }>();
+const props = withDefaults(defineProps<{ group: GroupInfo; eyebrow?: string }>(), { eyebrow: "我的群組" });
 
 const sections = computed(() => [
   { title: "組長", users: props.group.group_leaders },
@@ -17,7 +17,7 @@ const formatDate = (iso: string): string => new Date(iso).toLocaleDateString("zh
   <div class="group-detail">
     <div class="group-detail__main">
       <div>
-        <p class="group-detail__eyebrow">我的群組</p>
+        <p class="group-detail__eyebrow">{{ eyebrow }}</p>
         <h1>{{ group.title }}</h1>
       </div>
 
@@ -26,10 +26,17 @@ const formatDate = (iso: string): string => new Date(iso).toLocaleDateString("zh
         <dd>{{ formatDate(group.begin) }} — {{ formatDate(group.end) }}</dd>
       </dl>
 
+      <section v-if="group.status === 'unverified' && group.reason" class="group-detail__section group-detail__reason">
+        <h2>不同意原因</h2>
+        <p class="group-detail__desc">{{ group.reason }}</p>
+      </section>
+
       <section class="group-detail__section">
         <h2>群組描述</h2>
         <p class="group-detail__desc">{{ group.desc }}</p>
       </section>
+
+      <slot />
     </div>
 
     <aside class="people" aria-label="群組成員">
@@ -119,6 +126,12 @@ h2 {
   line-height: 1.7;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.group-detail__reason {
+  padding: 16px 20px;
+  border: 1px solid #c00;
+  color: #c00;
 }
 
 .people {

@@ -1,4 +1,5 @@
 import type { ApiEnvelope } from "@/shared/api/http";
+import type { Group, GroupInfo } from "@/modules/workspace/types/workspace.types";
 
 export type UserRole = "admin" | "db_editor" | "verified" | "in_progress" | "unverified";
 export type ManagedRole = "admin" | "db_editor";
@@ -54,3 +55,11 @@ export interface AdminUserDetail {
 }
 
 export interface OneUserResponse extends ApiEnvelope, AdminUserDetail {}
+
+export interface AllGroupsResponse extends ApiEnvelope {
+  agree_groups: Group[];
+  in_progress_groups: Group[];
+  disagree_groups: Group[];
+}
+
+export interface OneGroupResponse extends ApiEnvelope, GroupInfo {}

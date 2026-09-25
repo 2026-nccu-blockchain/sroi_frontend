@@ -1,7 +1,9 @@
 import { httpClient, type ApiEnvelope } from "@/shared/api/http";
 import type {
+  AllGroupsResponse,
   AllUserResponse,
   ManagedRole,
+  OneGroupResponse,
   OneUserResponse,
   ReviewDecision,
   ReviewKind,
@@ -33,6 +35,18 @@ export const getOneUser = (userId: string): Promise<OneUserResponse> =>
 
 export const reviewRequest = (kind: ReviewKind, decision: ReviewDecision, userId: string): Promise<ApiEnvelope> =>
   httpClient.post<ApiEnvelope>(`/admin/${REVIEW_ENDPOINTS[kind][decision]}/${encodeURIComponent(userId)}`);
+
+export const getAllGroups = (): Promise<AllGroupsResponse> =>
+  httpClient.get<AllGroupsResponse>("/admin/all_groups");
+
+export const getOneGroup = (groupId: string): Promise<OneGroupResponse> =>
+  httpClient.get<OneGroupResponse>(`/admin/one_group/${encodeURIComponent(groupId)}`);
+
+export const approveGroup = (groupId: string): Promise<ApiEnvelope> =>
+  httpClient.post<ApiEnvelope>(`/admin/confirm_group/${encodeURIComponent(groupId)}`);
+
+export const rejectGroup = (groupId: string, reason: string): Promise<ApiEnvelope> =>
+  httpClient.post<ApiEnvelope>(`/admin/unconfirm_group/${encodeURIComponent(groupId)}`, { reason });
 
 // 圖片需要帶 token，不能直接放在 <img src>
 export const getIdCardImage = (filename: string): Promise<Blob> =>

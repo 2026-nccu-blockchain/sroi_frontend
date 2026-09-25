@@ -20,6 +20,8 @@ import GroupDetailPage from "@/modules/workspace/pages/GroupDetailPage.vue";
 import GroupSettingsPage from "@/modules/workspace/pages/GroupSettingsPage.vue";
 import MyProjectsPage from "@/modules/workspace/pages/MyProjectsPage.vue";
 import { registerRouterGuards } from "@/app/router/guards";
+import AdminGroupDetailPage from "@/modules/admin/pages/AdminGroupDetailPage.vue";
+import AdminGroupsPage from "@/modules/admin/pages/AdminGroupsPage.vue";
 import AdminUserDetailPage from "@/modules/admin/pages/AdminUserDetailPage.vue";
 import AdminUsersPage from "@/modules/admin/pages/AdminUsersPage.vue";
 import { ADMIN_ROLES, WORKSPACE_ROLES } from "@/modules/auth/constants";
@@ -164,6 +166,19 @@ const routes: RouteRecordRaw[] = [
         path: "admin/users/:userId",
         name: "admin-user-detail",
         component: AdminUserDetailPage,
+        meta: { requiresAuth: true, roles: ADMIN_ROLES }
+      },
+      {
+        path: "admin/groups",
+        name: "admin-groups",
+        component: AdminGroupsPage,
+        meta: { requiresAuth: true, roles: ADMIN_ROLES }
+      },
+      {
+        path: "admin/groups/:groupId",
+        name: "admin-group-detail",
+        component: AdminGroupDetailPage,
+        props: true,
         meta: { requiresAuth: true, roles: ADMIN_ROLES }
       },
       {
