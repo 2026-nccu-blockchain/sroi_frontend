@@ -4,6 +4,7 @@ import { computed, ref } from "vue";
 import { useAuthStore } from "@/modules/auth/store/auth.store";
 import { changeCampusId, requestVerification, uploadImage } from "@/modules/profile/api/profile.api";
 import CampusIdRequestForm from "@/modules/profile/components/CampusIdRequestForm.vue";
+import { ID_CARD_FORMAT_LABEL, ID_CARD_MAX_SIZE_LABEL } from "@/modules/profile/constants";
 import type { CampusIdRequestMode } from "@/modules/profile/types/profile.types";
 import { ApiError, toErrorMessage } from "@/shared/api/error-handler";
 
@@ -14,8 +15,8 @@ const ERROR_MESSAGES: Record<string, string> = {
   "10008": "權限不足",
   "10011": "帳號已驗證，或已送出驗證申請",
   "10012": "此學號已被其他帳號使用",
-  "10018": "上傳的檔案不是圖片（僅支援 JPG、PNG、WebP）",
-  "10019": "圖片超過 5MB",
+  "10018": `檔案格式不支援（僅支援 ${ID_CARD_FORMAT_LABEL}）`,
+  "10019": `檔案超過 ${ID_CARD_MAX_SIZE_LABEL}`,
   "10020": "證件照片無效，請重新上傳"
 };
 
