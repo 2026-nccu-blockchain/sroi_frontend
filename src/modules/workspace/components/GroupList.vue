@@ -1,33 +1,37 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
+import type { RouteLocationRaw } from "vue-router";
 
-import type { Group, GroupBuckets, GroupStatus } from "@/modules/workspace/types/workspace.types";
+import { GROUP_BUCKET_LABELS, GROUP_BUCKETS } from "@/modules/workspace/constants";
+import type { Group, GroupBucketKey, GroupBuckets } from "@/modules/workspace/types/workspace.types";
 
-const props = defineProps<{ groups: GroupBuckets }>();
+const props = withDefaults(
+  defineProps<{
+    groups: GroupBuckets;
+    title: string;
+    eyebrow?: string;
+    // 回傳 null 表示這一列不能點
+    linkTo: (group: Group, bucket: GroupBucketKey) => RouteLocationRaw | null;
+    canCreate?: boolean;
+  }>(),
+  { eyebrow: "工作區", canCreate: false }
+);
 
-const TABS: { key: GroupStatus; label: string }[] = [
-  { key: "已驗證", label: "已驗證" },
-  { key: "審核中", label: "審核中" },
-  { key: "未驗證", label: "未驗證" }
-];
-
-const activeTab = ref<GroupStatus>("已驗證");
+// 父層可以用 v-model:tab 綁到網址，不綁就只存在元件內
+const activeTab = defineModel<GroupBucketKey>("tab", { default: "verified" });
 const search = ref("");
 
-const activeGroups = computed<Group[]>(() => {
-  if (activeTab.value === "已驗證") return props.groups.verified;
-  if (activeTab.value === "審核中") return props.groups.inProgress;
-  return props.groups.unverified;
-});
+const showReason = computed(() => activeTab.value === "unverified");
 
-const filteredGroups = computed(() => {
+const rows = computed(() => {
   const keyword = search.value.trim().toLowerCase();
-  if (!keyword) return activeGroups.value;
-  return activeGroups.value.filter(
-    (group) =>
-      group.title.toLowerCase().includes(keyword) ||
-      group.desc.toLowerCase().includes(keyword)
-  );
+  const groups = props.groups[activeTab.value];
+  const matched = keyword
+    ? groups.filter((group) =>
+        [group.title, group.desc, group.reason ?? ""].some((text) => text.toLowerCase().includes(keyword))
+      )
+    : groups;
+  return matched.map((group) => ({ group, to: props.linkTo(group, activeTab.value) }));
 });
 
 const formatDate = (iso: string): string => new Date(iso).toLocaleDateString("zh-TW");
@@ -37,54 +41,51 @@ const formatDate = (iso: string): string => new Date(iso).toLocaleDateString("zh
   <section class="groups">
     <div class="groups__intro">
       <div>
-        <p class="groups__eyebrow">工作區</p>
-        <h1>我的群組</h1>
+        <p class="groups__eyebrow">{{ eyebrow }}</p>
+        <h1>{{ title }}</h1>
       </div>
-      <RouterLink class="button button--primary" to="/workspace/groups/new">
+      <RouterLink v-if="canCreate" class="button button--primary" to="/workspace/groups/new">
         <span>＋</span> 新增群組
       </RouterLink>
     </div>
 
     <div class="tab-bar" role="tablist">
       <button
-        v-for="tab in TABS"
-        :key="tab.key"
+        v-for="key in GROUP_BUCKETS"
+        :key="key"
         type="button"
         class="tab-bar__item"
-        :class="{ 'tab-bar__item--active': activeTab === tab.key }"
+        :class="{ 'tab-bar__item--active': activeTab === key }"
         role="tab"
-        :aria-selected="activeTab === tab.key"
-        @click="activeTab = tab.key"
+        :aria-selected="activeTab === key"
+        @click="activeTab = key"
       >
-        {{ tab.label }}
+        {{ GROUP_BUCKET_LABELS[key] }}
+        <span class="tab-bar__count">{{ groups[key].length }}</span>
       </button>
     </div>
 
     <div class="search-bar">
-      <input v-model="search" type="search" placeholder="搜尋群組名稱或說明..." aria-label="搜尋我的群組" />
+      <input v-model="search" type="search" placeholder="搜尋群組名稱或說明..." :aria-label="`搜尋${title}`" />
     </div>
 
-    <div class="group-list">
+    <div class="group-list" :class="{ 'group-list--with-reason': showReason }">
       <div class="group-list__header" aria-hidden="true">
         <span>群組名稱</span>
         <span>群組描述</span>
+        <span v-if="showReason">不同意原因</span>
         <span>期間</span>
       </div>
 
-      <article v-for="group in filteredGroups" :key="group.group_id" class="group-row">
-        <RouterLink
-          v-if="activeTab === '已驗證'"
-          class="group-row__title"
-          :to="`/workspace/groups/${group.group_id}`"
-        >
-          {{ group.title }}
-        </RouterLink>
+      <article v-for="{ group, to } in rows" :key="group.group_id" class="group-row">
+        <RouterLink v-if="to" class="group-row__title" :to="to">{{ group.title }}</RouterLink>
         <span v-else class="group-row__title group-row__title--static">{{ group.title }}</span>
         <span data-label="群組描述" class="desc">{{ group.desc }}</span>
+        <span v-if="showReason" data-label="不同意原因" class="reason">{{ group.reason || "—" }}</span>
         <span data-label="期間">{{ formatDate(group.begin) }} — {{ formatDate(group.end) }}</span>
       </article>
 
-      <p v-if="filteredGroups.length === 0" class="group-list__empty">找不到符合的群組。</p>
+      <p v-if="rows.length === 0" class="group-list__empty">找不到符合的群組。</p>
     </div>
   </section>
 </template>
@@ -165,6 +166,12 @@ h1 {
   color: #fff;
 }
 
+.tab-bar__count {
+  margin-left: 6px;
+  font-size: 11px;
+  opacity: 0.7;
+}
+
 .search-bar {
   border-bottom: 1px solid #000;
   padding-bottom: 10px;
@@ -186,8 +193,24 @@ h1 {
   overflow: hidden;
 }
 
+.reason {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: #c00;
+}
+
 .group-list {
   border-top: 2px solid #000;
+}
+
+/* 放在 min-width 裡，才不會蓋掉手機版的 1fr auto */
+@media (min-width: 841px) {
+  .group-list--with-reason .group-list__header,
+  .group-list--with-reason .group-row {
+    grid-template-columns: repeat(4, minmax(140px, 1fr));
+  }
 }
 
 .group-list__header,

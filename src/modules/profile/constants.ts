@@ -18,5 +18,13 @@ export const isStrongPassword = (password: string): boolean =>
 
 export const PASSWORD_RULE_HINT = "至少 8 碼，需包含大寫、小寫英文與數字";
 
-export const ID_CARD_ACCEPT = ["image/jpeg", "image/png", "image/webp"];
-export const ID_CARD_MAX_SIZE = 5 * 1024 * 1024;
+// 與後端 upload.py 的 ALLOWED_FILE_TYPES、MAX_FILE_SIZE 一致
+// HEIC / HEIF 在很多瀏覽器的 file.type 是空的，所以用副檔名判斷；真正的格式由後端檢查檔案內容
+export const ID_CARD_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".pdf"];
+export const ID_CARD_ACCEPT = [...ID_CARD_EXTENSIONS, "image/heic", "image/heif", "application/pdf"].join(",");
+export const ID_CARD_MAX_SIZE = 2 * 1024 * 1024;
+export const ID_CARD_MAX_SIZE_LABEL = "2MB";
+export const ID_CARD_FORMAT_LABEL = "JPG、PNG、WebP、HEIC、HEIF、PDF";
+
+export const isAllowedIdCardFile = (file: File): boolean =>
+  ID_CARD_EXTENSIONS.some((ext) => file.name.toLowerCase().endsWith(ext));
