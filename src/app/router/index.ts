@@ -20,7 +20,11 @@ import GroupDetailPage from "@/modules/workspace/pages/GroupDetailPage.vue";
 import GroupSettingsPage from "@/modules/workspace/pages/GroupSettingsPage.vue";
 import MyProjectsPage from "@/modules/workspace/pages/MyProjectsPage.vue";
 import { registerRouterGuards } from "@/app/router/guards";
-import { WORKSPACE_ROLES } from "@/modules/auth/constants";
+import AdminGroupDetailPage from "@/modules/admin/pages/AdminGroupDetailPage.vue";
+import AdminGroupsPage from "@/modules/admin/pages/AdminGroupsPage.vue";
+import AdminUserDetailPage from "@/modules/admin/pages/AdminUserDetailPage.vue";
+import AdminUsersPage from "@/modules/admin/pages/AdminUsersPage.vue";
+import { ADMIN_ROLES, WORKSPACE_ROLES } from "@/modules/auth/constants";
 import { VERIFY_ROLES } from "@/modules/profile/constants";
 
 const routes: RouteRecordRaw[] = [
@@ -56,18 +60,18 @@ const routes: RouteRecordRaw[] = [
         name: "public-form",
         component: PublicFormPage
       },
+      {
+        path: ":formId/responses",
+        name: "form-responses",
+        component: FormResponsesPage,
+        meta: { requiresAuth: true }
+      },
+      {
+        path: ":publicToken",
+        name: "public-form",
+        component: PublicFormPage
+      },
     ]
-  },
-  {
-    path: "/forms/:formId/responses",
-    name: "form-responses",
-    component: FormResponsesPage,
-    meta: { requiresAuth: true }
-  },
-  {
-    path: "/forms/:publicToken",
-    name: "public-form",
-    component: PublicFormPage
   },
   {
     path: "/auth",
@@ -75,7 +79,6 @@ const routes: RouteRecordRaw[] = [
     children: [
       {
         path: "login",
-        alias: "/login",
         name: "login",
         component: LoginPage
       },
@@ -152,6 +155,31 @@ const routes: RouteRecordRaw[] = [
         component: CampusIdRequestPage,
         props: { mode: "change" },
         meta: { requiresAuth: true, roles: WORKSPACE_ROLES }
+      },
+      {
+        path: "admin/users",
+        name: "admin-users",
+        component: AdminUsersPage,
+        meta: { requiresAuth: true, roles: ADMIN_ROLES }
+      },
+      {
+        path: "admin/users/:userId",
+        name: "admin-user-detail",
+        component: AdminUserDetailPage,
+        meta: { requiresAuth: true, roles: ADMIN_ROLES }
+      },
+      {
+        path: "admin/groups",
+        name: "admin-groups",
+        component: AdminGroupsPage,
+        meta: { requiresAuth: true, roles: ADMIN_ROLES }
+      },
+      {
+        path: "admin/groups/:groupId",
+        name: "admin-group-detail",
+        component: AdminGroupDetailPage,
+        props: true,
+        meta: { requiresAuth: true, roles: ADMIN_ROLES }
       },
       {
         path: "proxy-variables",
