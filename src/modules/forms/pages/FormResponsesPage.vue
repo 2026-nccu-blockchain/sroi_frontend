@@ -193,15 +193,32 @@ watch([projectId, formId], () => void load(), { immediate: true });
                   <span>{{ answersForQuestion(question.question_id).length }} 筆回答</span>
                 </div>
 
-                <div v-if="question.question_type === 'CQ'" class="bar-chart">
-                  <div v-for="stat in optionStats(question)" :key="stat.label" class="bar-row">
-                    <span>{{ stat.label }}</span>
-                    <div><i :style="{ width: `${stat.percent}%` }"></i></div>
-                    <b>{{ stat.count }}（{{ stat.percent }}%）</b>
+                <div v-if="question.question_type === 'SC'" class="choice-summary">
+                  <div
+                    class="pie-chart"
+                    :style="{
+                      background: `conic-gradient(${optionStats(question)
+                        .reduce((parts, stat, index, all) => {
+                          const palette = ['#765292', '#a77bbd', '#c7a8d7', '#5f8fc9', '#72b7a6', '#d79a68'];
+                          const start = all.slice(0, index).reduce((sum, item) => sum + item.percent, 0);
+                          const end = start + stat.percent;
+                          parts.push(`${palette[index % palette.length]} ${start}% ${end}%`);
+                          return parts;
+                        }, [] as string[])
+                        .join(', ') || '#eee9f1 0% 100%'})`
+                    }"
+                    aria-label="選擇題圓餅圖"
+                  ></div>
+                  <div class="pie-legend">
+                    <div v-for="(stat, index) in optionStats(question)" :key="stat.label" class="pie-legend__row">
+                      <i :style="{ background: ['#765292', '#a77bbd', '#c7a8d7', '#5f8fc9', '#72b7a6', '#d79a68'][index % 6] }"></i>
+                      <span>{{ stat.label }}</span>
+                      <b>{{ stat.count }} 人（{{ stat.percent }}%）</b>
+                    </div>
                   </div>
                 </div>
 
-                <div v-else-if="question.question_type === 'SC'" class="scale-summary">
+                <div v-else-if="question.question_type === 'CQ'" class="scale-summary">
                   <p>平均分數 <b>{{ scaleAverage(question) }}</b></p>
                   <div class="bar-chart">
                     <div v-for="stat in scaleStats(question)" :key="stat.value" class="bar-row">
@@ -307,6 +324,12 @@ h1, h2, p { margin-top: 0; }
 .question-summary__heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
 .question-summary__heading h3 { margin: 0; font-size: 14px; }
 .question-summary__heading span { flex: none; color: #918a96; font-size: 10px; }
+.choice-summary { display: grid; grid-template-columns: 190px minmax(0, 1fr); align-items: center; gap: 30px; }
+.pie-chart { width: 180px; aspect-ratio: 1; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(80, 58, 95, .08); }
+.pie-legend { display: grid; gap: 12px; }
+.pie-legend__row { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; align-items: center; gap: 10px; color: #625a67; font-size: 12px; }
+.pie-legend__row i { width: 10px; height: 10px; border-radius: 50%; }
+.pie-legend__row b { color: #6d6571; font-weight: 650; }
 .bar-chart { display: grid; gap: 12px; }
 .bar-row { display: grid; grid-template-columns: minmax(80px, 140px) minmax(100px, 1fr) 90px; align-items: center; gap: 12px; font-size: 11px; }
 .bar-row > span { overflow-wrap: anywhere; }
@@ -347,5 +370,7 @@ h1, h2, p { margin-top: 0; }
   .responses-layout { grid-template-columns: 1fr; }
   .response-list { max-height: 270px; overflow-y: auto; }
   .response-detail { padding: 24px 20px; }
+  .choice-summary { grid-template-columns: 1fr; }
+  .pie-chart { width: 160px; margin: 0 auto; }
 }
 </style>

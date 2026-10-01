@@ -78,6 +78,11 @@ let saveTimer: number | undefined;
 let activeSave: Promise<void> | null = null;
 let pendingSave = false;
 
+const activeTab = ref<"questions" | "responses" | "settings">("questions");
+const showThemePanel = ref(false);
+const showSettingsPanel = ref(false);
+const showQuestionTypeMenu = ref(false);
+
 const questionTypes: { value: QuestionType; label: string; icon: string }[] = [
   { value: "description", label: "題目敘述", icon: "T" },
   { value: "text", label: "問答題", icon: "☰" },
@@ -274,14 +279,84 @@ const touch = (): void => {
 const questionsForBlock = (blockId: string): Question[] =>
   questions.value.filter((question) => question.pageId === blockId);
 
-const addQuestion = async (blockId = activeBlockId.value): Promise<void> => {
+const addQuestionOfType = async (type: QuestionType): Promise<void> => {
+  showQuestionTypeMenu.value = false;
+
+  if (type === "description") {
+    await addDescription();
+    return;
+  }
+
+  let blockId = activeBlockId.value || blocks.value[0]?.id || "";
+
+// 如果目前完全沒有成果區塊，就先在前端自動建立第一個區塊
+if (!blockId) {
+  const tempBlockId = `temp-block-${Date.now()}`;
+
+  const firstBlock: Block = {
+    id: tempBlockId,
+    title: "",
+    content: ""
+  };
+
+  blocks.value.push(firstBlock);
+  activeBlockId.value = tempBlockId;
+  blockId = tempBlockId;
+
+  saved.value = false;
+}
+
+  const tempId = `temp-${Date.now()}`;
+
+  const question: Question = {
+    id: tempId,
+    pageId: blockId,
+    title: "未命名問題",
+    type: type,
+    required: false,
+
+    options:
+      type === "choice"
+        ? [
+            { label: "選項 1" },
+            { label: "選項 2" }
+          ]
+        : [],
+
+    scaleBegin: 1,
+    scaleEnd: 5,
+    isMultiple: false,
+    isTemp: true
+  };
+
+  questions.value.push(question);
+
+  activeBlockId.value = blockId;
+  activeQuestionId.value = tempId;
+
+  saved.value = false;
+  saveError.value = "";
+
+  await nextTick();
+
+  document
+    .getElementById(`question-${tempId}`)
+    ?.scrollIntoView({
+      behavior: "smooth",
+      block: "center"
+    });
+};
+
+const addDescription = async (blockId = activeBlockId.value): Promise<void> => {
   if (!formId.value || !blockId) return;
+
   try {
     const position = questionsForBlock(blockId).length;
+
     const response = await createQuestionApi(formId.value, blockId, {
-      question_type: "OQ",
-      title: "未命名問題",
-      content: "",
+      question_type: "DS",
+      title: null,
+      content: "標題與說明",
       is_required: false,
       position,
       scale_begin: null,
@@ -289,44 +364,197 @@ const addQuestion = async (blockId = activeBlockId.value): Promise<void> => {
       is_multiple: false,
       options: []
     });
+
     const question = fromResponse(response);
+
     questions.value.push(question);
     activeBlockId.value = blockId;
     activeQuestionId.value = question.id;
     saved.value = true;
+
     await nextTick();
-    document.getElementById(`question-${question.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+
+    document
+      .getElementById(`question-${question.id}`)
+      ?.scrollIntoView({
+        behavior: "smooth",
+        block: "center"
+      });
   } catch (error) {
-    saveError.value = error instanceof Error ? error.message : "新增題目失敗";
+    saveError.value =
+      error instanceof Error ? error.message : "新增標題失敗";
   }
+};
+
+
+const previewForm = async (): Promise<void> => {
+  if (!formId.value) return;
+  try {
+    await persistDraft();
+    if (saveError.value) return;
+
+    const form = await getForm(formId.value);
+    if (form.public_token) {
+      window.open(`${window.location.origin}/forms/${form.public_token}`, "_blank");
+      return;
+    }
+
+    const previewWindow = window.open("", "_blank");
+    if (!previewWindow) {
+      saveError.value = "瀏覽器阻擋了預覽視窗，請允許彈出式視窗";
+      return;
+    }
+
+    const esc = (value: string): string =>
+      value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+    const renderQuestion = (question: Question): string => {
+      if (question.type === "description") {
+        return `<div class="description">${esc(question.title)}</div>`;
+      }
+      const required = question.required ? '<span class="required">*</span>' : "";
+      let answer = "";
+      if (question.type === "text") {
+        answer = '<textarea rows="3" placeholder="請輸入回答"></textarea>';
+      } else if (question.type === "date") {
+        answer = '<input type="date">';
+      } else if (question.type === "scale") {
+        answer = `<div class="scale">${scaleValues(question).map((score) =>
+          `<label><input type="radio" name="${esc(question.id)}"><span>${score}</span></label>`
+        ).join("")}</div>`;
+      } else {
+        const inputType = question.isMultiple ? "checkbox" : "radio";
+        answer = question.options.map((option, index) =>
+          `<label class="choice"><input type="${inputType}" name="${esc(question.id)}" value="${index}"><span>${esc(option.label)}</span></label>`
+        ).join("");
+      }
+      return `<section class="q"><h3>${esc(question.title)} ${required}</h3>${answer}</section>`;
+    };
+
+    const body = blocks.value.map((block) => `
+      <section class="block">
+        <h2>${esc(block.title)}</h2>
+        ${block.content ? `<p>${esc(block.content)}</p>` : ""}
+        ${questionsForBlock(block.id).map(renderQuestion).join("")}
+      </section>
+    `).join("");
+
+    previewWindow.document.write(`<!doctype html>
+<html lang="zh-Hant"><head><meta charset="UTF-8"><title>${esc(formTitle.value)}｜預覽</title>
+<style>
+body{margin:0;background:#f7f5fa;color:#292631;font-family:Inter,"Noto Sans TC",sans-serif}
+main{width:min(760px,calc(100% - 32px));margin:36px auto 70px}
+header,.block{background:#fff;border:1px solid #e8e3eb;border-radius:14px;padding:28px 32px;margin-bottom:16px}
+header{border-top:9px solid #765292}h1{margin:0 0 10px}h2{color:#684884}
+p{color:#756b79}.q{padding:22px 0;border-top:1px solid #eeeaf0}.q h3{font-size:15px}
+textarea,input[type=date]{box-sizing:border-box;width:100%;padding:12px;border:1px solid #ddd7e1;border-radius:8px}
+.choice{display:flex;gap:10px;margin:12px 0}.scale{display:flex;gap:18px;flex-wrap:wrap}
+.scale label{display:grid;justify-items:center;gap:6px}.required{color:#b1485c}.description{padding:14px;border-left:3px solid #aa8dbd;background:#f8f4fa}
+.badge{display:inline-block;margin-bottom:12px;padding:5px 9px;border-radius:999px;background:#eee7f3;color:#684884;font-size:12px}
+</style></head><body><main><header><span class="badge">預覽模式</span><h1>${esc(formTitle.value)}</h1><p>${esc(formDescription.value)}</p></header>${body}</main></body></html>`);
+    previewWindow.document.close();
+  } catch (error) {
+    saveError.value = error instanceof Error ? error.message : "預覽失敗";
+  }
+};
+
+
+const confirmRemoveQuestion = async (id: string): Promise<void> => {
+  if (!window.confirm("確定要刪除這個問題嗎？")) return;
+  await removeQuestion(id);
+};
+
+
+const normalizeScale = (question: Question): void => {
+  if (question.scaleBegin < 0) question.scaleBegin = 0;
+  if (question.scaleEnd > 10) question.scaleEnd = 10;
+
+  if (question.scaleEnd <= question.scaleBegin) {
+    question.scaleEnd = Math.min(question.scaleBegin + 1, 10);
+  }
+
+  touch();
+};
+
+
+const scaleValues = (question: Question): number[] => {
+  const values: number[] = [];
+
+  for (
+    let value = question.scaleBegin;
+    value <= question.scaleEnd;
+    value++
+  ) {
+    values.push(value);
+  }
+
+  return values;
 };
 
 const removeQuestion = async (id: string): Promise<void> => {
-  const index = questions.value.findIndex((question) => question.id === id);
-  try {
-    await deleteQuestionApi(id);
-    questions.value.splice(index, 1);
-    activeQuestionId.value = questions.value[Math.max(0, index - 1)]?.id ?? "";
-    touch();
-  } catch (error) {
-    saveError.value = error instanceof Error ? error.message : "刪除題目失敗";
+  const index = questions.value.findIndex(
+    (question) => question.id === id
+  );
+
+  if (index === -1) return;
+
+  // 先從畫面刪除，temp 題目不需要呼叫後端
+  questions.value.splice(index, 1);
+
+  activeQuestionId.value =
+    questions.value[Math.max(0, index - 1)]?.id ?? "";
+
+  saved.value = false;
+  saveError.value = "";
+
+  // 如果是已經存在後端的正式題目，再嘗試同步刪除
+  if (!id.startsWith("temp-")) {
+    try {
+      await deleteQuestionApi(id);
+    } catch (error) {
+      saveError.value =
+        error instanceof Error
+          ? `${error.message}（畫面上的題目已刪除）`
+          : "題目已從畫面刪除，但後端同步失敗";
+    }
   }
 };
-
 const duplicateQuestion = async (question: Question): Promise<void> => {
-  if (!formId.value || !question.pageId) return;
-  const blockQuestions = questionsForBlock(question.pageId);
-  const blockIndex = blockQuestions.findIndex((item) => item.id === question.id);
-  const globalIndex = questions.value.findIndex((item) => item.id === question.id);
-  try {
-    const response = await createQuestionApi(formId.value, question.pageId, toPayload(question, blockIndex + 1));
-    const copy = fromResponse(response);
-    questions.value.splice(globalIndex + 1, 0, copy);
-    activeQuestionId.value = copy.id;
-    touch();
-  } catch (error) {
-    saveError.value = error instanceof Error ? error.message : "複製題目失敗";
-  }
+  const newId = `temp-${Date.now()}`;
+
+  const copiedQuestion: Question = {
+    ...question,
+    id: newId,
+    title: question.title,
+    options: question.options.map((option) => ({
+      ...option,
+      id: undefined
+    })),
+    isTemp: true
+  };
+
+  const index = questions.value.findIndex(
+    (item) => item.id === question.id
+  );
+
+  if (index === -1) return;
+
+  questions.value.splice(index + 1, 0, copiedQuestion);
+
+  activeQuestionId.value = newId;
+  activeBlockId.value = question.pageId;
+
+  saved.value = false;
+  saveError.value = "";
+
+  await nextTick();
+
+  document
+    .getElementById(`question-${newId}`)
+    ?.scrollIntoView({
+      behavior: "smooth",
+      block: "center"
+    });
 };
 
 const changeType = (question: Question): void => {
@@ -346,20 +574,33 @@ const addOption = (question: Question): void => {
 };
 
 const addBlock = async (): Promise<void> => {
-  if (!formId.value) return;
-  try {
-    const page = await createPage(formId.value, {
-      title: `區塊 ${blocks.value.length + 1}`,
-      content: "",
-      position: blocks.value.length,
-      questions: []
+  // 先在前端建立成果區塊，不等待 API
+  const tempBlockId = `temp-block-${Date.now()}`;
+
+  const newBlock: Block = {
+    id: tempBlockId,
+    title: `成果區塊 ${blocks.value.length + 1}`,
+    content: ""
+  };
+
+  blocks.value.push(newBlock);
+
+  // 新增完直接切換到這個成果區塊
+  activeBlockId.value = tempBlockId;
+  activeQuestionId.value = null;
+
+  saved.value = false;
+  saveError.value = "";
+
+  await nextTick();
+
+  // 自動滑到剛新增的成果區塊
+  document
+    .getElementById(`block-${tempBlockId}`)
+    ?.scrollIntoView({
+      behavior: "smooth",
+      block: "center"
     });
-    blocks.value.push({ id: page.page_id, title: page.title ?? "未命名區塊", content: page.content });
-    activeBlockId.value = page.page_id;
-    saved.value = true;
-  } catch (error) {
-    saveError.value = error instanceof Error ? error.message : "新增區塊失敗";
-  }
 };
 
 const removeBlock = async (blockId: string): Promise<void> => {
@@ -456,30 +697,342 @@ const publishIssues = (): string[] => {
 };
 
 const publish = async (): Promise<void> => {
-  validationIssues.value = publishIssues();
-  if (validationIssues.value.length) {
-    saveError.value = "發布前請先完成以下內容";
-    window.scrollTo({ top: 0, behavior: "smooth" });
+  saveError.value = "";
+
+  try {
+    // 1. 如果目前還沒有真正的 form，先建立
+    if (!formId.value) {
+      const created = await createForm({
+        title: formTitle.value || "未命名表單",
+        content: formDescription.value || "",
+        status: "draft",
+        pages: []
+      });
+
+      formId.value = created.form_id;
+    }
+
+    // 2. 先更新表單基本資料
+    await updateForm(formId.value, {
+      title: formTitle.value || "未命名表單",
+      content: formDescription.value || ""
+    });
+
+    // 3. 把目前前端的成果區塊與題目真正建立到後端
+    const realBlocks: Block[] = [];
+    const realQuestions: Question[] = [];
+
+    for (let blockIndex = 0; blockIndex < blocks.value.length; blockIndex++) {
+      const block = blocks.value[blockIndex];
+
+      const blockQuestions = questionsForBlock(block.id);
+
+      const page = await createPage(formId.value, {
+        title: block.title || `成果區塊 ${blockIndex + 1}`,
+        content: block.content || "",
+        position: blockIndex,
+        questions: blockQuestions.map((question, questionIndex) => ({
+          question_type: typeToApi[question.type],
+          title: question.title || "未命名問題",
+          content: "",
+          is_required: question.required,
+          position: questionIndex,
+
+          scale_begin:
+            question.type === "scale"
+              ? question.scaleBegin
+              : null,
+
+          scale_end:
+            question.type === "scale"
+              ? question.scaleEnd
+              : null,
+
+          is_multiple:
+            question.type === "choice"
+              ? question.isMultiple
+              : false,
+
+          options:
+            question.type === "choice"
+              ? question.options.map((option, optionIndex) => ({
+                  label: option.label,
+                  value: option.label,
+                  position: optionIndex
+                }))
+              : []
+        }))
+      });
+
+      realBlocks.push({
+        id: page.page_id,
+        title: page.title ?? "",
+        content: page.content
+      });
+
+      page.questions.forEach((question) => {
+        realQuestions.push(fromResponse(question));
+      });
+    }
+
+    // 4. 用後端真正 ID 取代 temp 資料
+    blocks.value = realBlocks;
+    questions.value = realQuestions;
+
+    // 5. 正式發布
+    const published = await updateForm(formId.value, {
+      status: "published"
+    });
+
+    status.value = published.status;
+    publicToken.value = published.public_token;
+
+    saved.value = true;
+    saveError.value = "";
+
+    // 6. 發布成功提示
+    showToast.value = true;
+
+    window.setTimeout(() => {
+      showToast.value = false;
+    }, 2400);
+
+  } catch (error) {
+    saveError.value =
+      error instanceof Error
+        ? error.message
+        : "發布失敗";
+  }
+};
+
+// ==============================
+// 匯出學習單
+// ==============================
+const exportWorksheet = (): void => {
+  const allQuestions = questions.value.filter(
+    (question) => question.type !== "description"
+  );
+
+  if (allQuestions.length === 0) {
+    saveError.value = "目前沒有可以匯出的題目";
     return;
   }
-  window.clearTimeout(saveTimer);
-  await persistDraft();
-  if (!formId.value || saveError.value) return;
-  try {
-    const structured = await saveFormStructure(formId.value, blocks.value.map((block) => ({
-      page_id: block.id,
-      question_ids: questionsForBlock(block.id).map((question) => question.id)
-    })));
-    const published = await updateForm(formId.value, { status: "published" });
-    const publishedForm = { ...structured, status: published.status, public_token: published.public_token };
-    formStore.upsert(publishedForm);
-    hydrate(publishedForm);
-    await copyPublishedLink();
-    showToast.value = true;
-    window.setTimeout(() => (showToast.value = false), 2400);
-  } catch (error) {
-    saveError.value = error instanceof Error ? error.message : "發布失敗";
+
+  const escapeHtml = (value: string): string =>
+    value
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+
+  const questionHtml = allQuestions
+    .map((question, index) => {
+      const title = escapeHtml(question.title || "未命名問題");
+
+      // 問答題
+      if (question.type === "text") {
+        return `
+          <div class="question">
+            <div class="question-title">${index + 1}. ${title}</div>
+            <div class="answer-line"></div>
+            <div class="answer-line"></div>
+            <div class="answer-line"></div>
+          </div>
+        `;
+      }
+
+      // 選擇題
+      if (question.type === "choice") {
+        const options = question.options
+          .map(
+            (option, optionIndex) => `
+              <div class="option">
+                ○ ${String.fromCharCode(65 + optionIndex)}.
+                ${escapeHtml(option.label)}
+              </div>
+            `
+          )
+          .join("");
+
+        return `
+          <div class="question">
+            <div class="question-title">${index + 1}. ${title}</div>
+            <div class="options">${options}</div>
+          </div>
+        `;
+      }
+
+      // 日期題
+      if (question.type === "date") {
+        return `
+          <div class="question">
+            <div class="question-title">${index + 1}. ${title}</div>
+            <div class="date-answer">
+              ______ 年 ______ 月 ______ 日
+            </div>
+          </div>
+        `;
+      }
+
+      // 量表題
+      if (question.type === "scale") {
+        const start = question.scaleBegin ?? 1;
+        const end = question.scaleEnd ?? 5;
+
+        const scale = Array.from(
+          { length: end - start + 1 },
+          (_, i) => start + i
+        )
+          .map(
+            (value) => `
+              <span class="scale-item">○ ${value}</span>
+            `
+          )
+          .join("");
+
+        return `
+          <div class="question">
+            <div class="question-title">${index + 1}. ${title}</div>
+            <div class="scale">${scale}</div>
+          </div>
+        `;
+      }
+
+      return "";
+    })
+    .join("");
+
+  const descriptionHtml = formDescription.value
+    ? `<div class="description">${escapeHtml(formDescription.value)}</div>`
+    : "";
+
+  const worksheetHtml = `
+    <!DOCTYPE html>
+    <html lang="zh-Hant">
+    <head>
+      <meta charset="UTF-8">
+
+      <title>${escapeHtml(formTitle.value || "學習單")}</title>
+
+      <style>
+        @page {
+          size: A4;
+          margin: 18mm;
+        }
+
+        * {
+          box-sizing: border-box;
+        }
+
+        body {
+          font-family: "Microsoft JhengHei", sans-serif;
+          color: #222;
+          line-height: 1.7;
+          font-size: 15px;
+        }
+
+        h1 {
+          text-align: center;
+          font-size: 26px;
+          margin-bottom: 8px;
+        }
+
+        .description {
+          text-align: center;
+          color: #666;
+          margin-bottom: 28px;
+        }
+
+        .student-info {
+          display: flex;
+          justify-content: space-between;
+          margin-bottom: 32px;
+          border-bottom: 1px solid #bbb;
+          padding-bottom: 12px;
+        }
+
+        .question {
+          margin-bottom: 28px;
+          page-break-inside: avoid;
+        }
+
+        .question-title {
+          font-weight: 600;
+          font-size: 17px;
+          margin-bottom: 12px;
+        }
+
+        .answer-line {
+          height: 32px;
+          border-bottom: 1px solid #aaa;
+        }
+
+        .options {
+          margin-left: 20px;
+        }
+
+        .option {
+          margin: 8px 0;
+        }
+
+        .date-answer {
+          margin-top: 18px;
+          margin-left: 20px;
+        }
+
+        .scale {
+          display: flex;
+          gap: 22px;
+          flex-wrap: wrap;
+          margin-top: 15px;
+          margin-left: 20px;
+        }
+
+        .scale-item {
+          white-space: nowrap;
+        }
+
+        .footer {
+          margin-top: 50px;
+          text-align: center;
+          font-size: 12px;
+          color: #999;
+        }
+      </style>
+    </head>
+
+    <body>
+
+      <h1>${escapeHtml(formTitle.value || "學習單")}</h1>
+
+      ${descriptionHtml}
+
+      <div class="student-info">
+        <span>姓名：________________</span>
+        <span>班級：________________</span>
+        <span>日期：________________</span>
+      </div>
+
+      ${questionHtml}
+
+      <div class="footer">
+        SROI 學習單
+      </div>
+    </body>
+    </html>
+  `;
+
+  const printWindow = window.open("", "_blank");
+
+  if (!printWindow) {
+    saveError.value = "瀏覽器阻擋了學習單視窗";
+    return;
   }
+
+  printWindow.document.open();
+  printWindow.document.write(worksheetHtml);
+  printWindow.document.close();
 };
 
 const copyPublishedLink = async (): Promise<void> => {
@@ -500,6 +1053,25 @@ const openResponses = async (): Promise<void> => {
     name: "form-responses",
     params: { projectId: sourceProjectId.value, formId: formId.value }
   });
+};
+
+const openQuestionTab = (): void => {
+  activeTab.value = "questions";
+  showSettingsPanel.value = false;
+};
+
+const openSettings = (): void => {
+  activeTab.value = "settings";
+  showSettingsPanel.value = true;
+};
+
+const toggleThemePanel = (): void => {
+  showThemePanel.value = !showThemePanel.value;
+};
+
+const scrollToActiveBlock = (): void => {
+  const target = document.querySelector(".block-editor--active");
+  target?.scrollIntoView({ behavior: "smooth", block: "center" });
 };
 
 onMounted(() => void initializeForm());
@@ -523,6 +1095,10 @@ onMounted(() => void initializeForm());
       </div>
 
       <div class="topbar__actions">
+
+        </button>
+        <button type="button" class="worksheet-export-btn" @click="exportWorksheet">匯出學習單</button>
+
         <button class="publish-button" type="button" :disabled="initializing || saving" @click="publish">
           {{ formStatus === "published" ? "重新發布" : "發布" }}
         </button>
@@ -536,12 +1112,31 @@ onMounted(() => void initializeForm());
     </header>
 
     <nav class="tabs" aria-label="表單功能">
+
       <button class="tabs__item tabs__item--active" type="button">問題</button>
       <button v-if="canViewResponses" class="tabs__item" type="button" @click="openResponses">回覆</button>
     </nav>
 
     <main class="workspace">
       <div class="form-canvas">
+        <section v-if="showThemePanel" class="utility-panel">
+          <strong>表單主題</strong>
+          <p>目前使用紫色 SROI 主題。這裡先保留為可操作面板，之後可再加入自訂色彩與字型。</p>
+          <button type="button" @click="showThemePanel = false">完成</button>
+        </section>
+        <section v-if="showSettingsPanel" class="utility-panel">
+          <strong>表單設定</strong>
+          <label class="settings-row">
+            <span>表單名稱</span>
+            <input v-model="formTitle" @input="touch" />
+          </label>
+          <label class="settings-row">
+            <span>表單說明</span>
+            <textarea v-model="formDescription" rows="3" @input="touch"></textarea>
+          </label>
+          <p>更多設定（例如收集 Email、截止時間）需要後端欄位支援後再加入。</p>
+          <button type="button" @click="openQuestionTab">返回問題</button>
+        </section>
         <p v-if="saveError" class="connection-error" role="alert">{{ saveError }}</p>
         <section v-if="validationIssues.length" class="validation-reminder" role="alert">
           <strong>表單還沒有完成</strong>
@@ -631,14 +1226,45 @@ onMounted(() => void initializeForm());
               此區塊只顯示說明文字，不需要填答者回答。
             </div>
             <div v-else-if="question.type === 'text'" class="text-preview">填答者的文字回答</div>
-            <div v-else-if="question.type === 'scale'" class="scale-preview">
-              <span class="scale-preview__label">非常不同意</span>
-              <label v-for="score in 5" :key="score">
-                <span>{{ score }}</span>
-                <i></i>
-              </label>
-              <span class="scale-preview__label">非常同意</span>
-            </div>
+            <div v-else-if="question.type === 'scale'">
+  <div class="scale-settings">
+    <label>
+      <span>起始值</span>
+      <select
+        v-model.number="question.scaleBegin"
+        @change="normalizeScale(question)"
+      >
+        <option
+          v-for="value in 10"
+          :key="`begin-${value - 1}`"
+          :value="value - 1"
+        >
+          {{ value - 1 }}
+        </option>
+      </select>
+    </label>
+
+    <span class="scale-settings__separator">～</span>
+
+    <label>
+      <span>結束值</span>
+      <select
+        v-model.number="question.scaleEnd"
+        @change="normalizeScale(question)"
+      >
+        <option
+          v-for="value in 10"
+          :key="`end-${value + 1}`"
+          :value="value + 1"
+        >
+          {{ value + 1 }}
+        </option>
+      </select>
+    </label>
+  </div>
+    <div class="scale-preview"><span class="scale-preview__label">非常不同意</span>
+    <label v-for="score in scaleValues(question)" :key="score"><span>{{ score }}</span><i></i></label>
+    <span class="scale-preview__label">非常同意</span></div></div>
             <div v-else-if="question.type === 'date'" class="date-preview">
               <span>年 / 月 / 日</span><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="2" /><path d="M8 3v4m8-4v4M4 10h16" /></svg>
             </div>
@@ -658,9 +1284,14 @@ onMounted(() => void initializeForm());
             <button class="footer-icon" type="button" aria-label="複製問題" title="複製" @click.stop="duplicateQuestion(question)">
               <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="12" rx="1.5" /><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h3" /></svg>
             </button>
-            <button class="footer-icon" type="button" aria-label="刪除問題" title="刪除" @click.stop="removeQuestion(question.id)">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5" /></svg>
-            </button>
+            <button
+  class="footer-icon"
+  type="button"
+  aria-label="刪除問題" title="刪除" @click.stop="confirmRemoveQuestion(question.id)">
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5" />
+  </svg>
+</button>
             <span v-if="question.type !== 'description'" class="footer-divider"></span>
             <label v-if="question.type === 'choice'" class="required-toggle">
               多選
@@ -672,23 +1303,24 @@ onMounted(() => void initializeForm());
               <input v-model="question.required" type="checkbox" @change="touch" />
               <span></span>
             </label>
-            <button class="footer-icon" type="button" aria-label="更多選項">•••</button>
+            
           </footer>
         </section>
 
           <section v-if="questionsForBlock(block.id).length === 0" class="empty-questions">
             <strong>這個區塊還沒有題目</strong>
             <p>加入用來評估「{{ block.title || '這項能力' }}」的問題。</p>
-            <button type="button" @click.stop="addQuestion(block.id)">＋ 新增第一題</button>
+            <button type="button" @click.stop="activeBlockId = block.id; showQuestionTypeMenu = true">＋ 新增第一題</button>
           </section>
 
-          <button class="block-add-question" type="button" @click.stop="addQuestion(block.id)">＋ 在此區塊新增問題</button>
+          <button class="block-add-question" type="button" @click.stop="activeBlockId = block.id; showQuestionTypeMenu = true">＋ 在此區塊新增問題</button>
         </section>
 
         <button class="add-block" type="button" @click="addBlock">＋ 新增成果區塊</button>
-        <button class="mobile-add" type="button" @click="addQuestion()">＋ 新增問題</button>
+        <button class="mobile-add" type="button" @click="showQuestionTypeMenu = true">＋ 新增問題</button>
         <p class="canvas-footer">請勿透過表單提交密碼或其他機密資訊。</p>
       </div>
+
 
     </main>
 
@@ -810,6 +1442,14 @@ svg { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: 
 
 .workspace { position: relative; width: min(760px, calc(100% - 48px)); margin: 0 auto; padding: 30px 0 70px; }
 .form-canvas { display: grid; gap: 14px; }
+.utility-panel { display: grid; gap: 14px; padding: 20px; border: 1px solid #d8c9e1; border-radius: 12px; background: #fff; }
+.utility-panel strong { color: #55475f; font-size: 15px; }
+.utility-panel p { margin: 0; color: #756b79; font-size: 12px; line-height: 1.6; }
+.utility-panel > button { justify-self: start; min-height: 36px; padding: 0 14px; border: 0; border-radius: 7px; background: #765292; color: #fff; }
+.settings-row { display: grid; gap: 6px; color: #5f5664; font-size: 12px; }
+.settings-row input, .settings-row textarea { box-sizing: border-box; width: 100%; padding: 10px 12px; border: 1px solid #ddd7e1; border-radius: 8px; outline: none; resize: vertical; }
+.settings-row input:focus, .settings-row textarea:focus { border-color: #765292; }
+
 .connection-error { margin: 0; padding: 12px 16px; border: 1px solid #e4b8c2; border-radius: 9px; background: #fff4f6; color: #91374a; font-size: 12px; }
 .validation-reminder { padding: 18px 20px; border: 1px solid #e2b45e; border-radius: 10px; background: #fffaf0; color: #6f5122; }
 .validation-reminder strong { font-size: 14px; }
@@ -869,6 +1509,40 @@ svg { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: 
 .text-preview { width: 100%; padding: 0 0 22px; border-bottom: 1px dotted #bbb5be; color: #aaa4ad; font-size: 12px; }
 .text-preview--short { width: 58%; }
 .description-preview { padding: 15px 17px; border-left: 3px solid #aa8dbd; border-radius: 0 7px 7px 0; background: #f8f4fa; color: #77707b; font-size: 12px; line-height: 1.7; }
+.scale-settings {
+  display: flex;
+  align-items: flex-end;
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.scale-settings label {
+  display: grid;
+  gap: 7px;
+  color: #77717d;
+  font-size: 11px;
+}
+
+.scale-settings select {
+  min-width: 90px;
+  height: 38px;
+  padding: 0 10px;
+  border: 1px solid #ddd7e1;
+  border-radius: 7px;
+  outline: none;
+  background: #fff;
+  color: #4f4853;
+  font-size: 12px;
+}
+
+.scale-settings select:focus {
+  border-color: #765292;
+}
+
+.scale-settings__separator {
+  padding-bottom: 10px;
+  color: #8a838e;
+}
 .scale-preview { display: flex; align-items: flex-end; justify-content: center; gap: clamp(10px, 3vw, 24px); padding: 8px 0; }
 .scale-preview label { display: grid; justify-items: center; gap: 9px; color: #6d6671; font-size: 11px; }
 .scale-preview i { display: block; width: 18px; height: 18px; border: 1.5px solid #aaa3ad; border-radius: 50%; }
@@ -927,4 +1601,26 @@ svg { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: 
   .answer-area { padding-left: 2px; }
   .text-preview--short { width: 80%; }
 }
+
+.question-type-menu { position: absolute; top: 0; right: 64px; width: 170px; padding: 10px; border: 1px solid #e3dbe8; border-radius: 12px; background: #fff; box-shadow: 0 10px 30px rgba(48,32,58,.14); z-index: 20; }
+.question-type-menu strong { display: block; padding: 7px 9px 9px; color: #684884; font-size: 12px; }
+.question-type-menu button { display: flex !important; align-items: center; justify-content: flex-start !important; gap: 10px; width: 100% !important; height: 38px !important; padding: 0 10px !important; border: 0 !important; border-radius: 8px !important; background: transparent !important; color: #39333e !important; font-size: 12px !important; }
+.question-type-menu button:hover { background: #f6f1f8 !important; }
+.question-type-menu button span { width: 20px; color: #765292; text-align: center; }
+.worksheet-export-btn {
+  border: 1px solid #74459a;
+  background: #ffffff;
+  color: #74459a;
+  border-radius: 12px;
+  padding: 12px 18px;
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+  margin-right: 10px;
+}
+
+.worksheet-export-btn:hover {
+  background: #f5eff9;
+}
 </style>
+
