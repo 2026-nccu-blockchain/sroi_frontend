@@ -587,7 +587,7 @@ const addBlock = async (): Promise<void> => {
 
   // 新增完直接切換到這個成果區塊
   activeBlockId.value = tempBlockId;
-  activeQuestionId.value = null;
+  activeQuestionId.value = "";
 
   saved.value = false;
   saveError.value = "";
@@ -784,8 +784,8 @@ const publish = async (): Promise<void> => {
       status: "published"
     });
 
-    status.value = published.status;
-    publicToken.value = published.public_token;
+    // status.value = published.status;
+    // publicToken.value = published.public_token;
 
     saved.value = true;
     saveError.value = "";
@@ -1096,7 +1096,6 @@ onMounted(() => void initializeForm());
 
       <div class="topbar__actions">
 
-        </button>
         <button type="button" class="worksheet-export-btn" @click="exportWorksheet">匯出學習單</button>
 
         <button class="publish-button" type="button" :disabled="initializing || saving" @click="publish">
