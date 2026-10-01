@@ -22,6 +22,7 @@ import type {
   QuestionResponse
 } from "@/modules/forms/types/form.types";
 import { useFormStore } from "@/modules/forms/store/form.store";
+import { getProject } from "@/modules/workspace/api/workspace.api";
 import { useProjectStore } from "@/modules/workspace/store/project.store";
 import { HttpError } from "@/shared/api/http";
 
@@ -53,11 +54,11 @@ interface Block {
 
 const route = useRoute();
 const router = useRouter();
-const { isAuthenticated } = useAuth();
+const { user, isAuthenticated } = useAuth();
 const formStore = useFormStore();
 const projectStore = useProjectStore();
 const formId = ref("");
-const sourceProjectId = computed(() => typeof route.query.projectId === "string" ? route.query.projectId : "");
+const sourceProjectId = computed(() => typeof route.params.projectId === "string" ? route.params.projectId : "");
 const blocks = ref<Block[]>([]);
 const activeBlockId = ref("");
 const formTitle = ref("未命名表單");
@@ -70,6 +71,7 @@ const saveError = ref("");
 const validationIssues = ref<string[]>([]);
 const showToast = ref(false);
 const publishedLink = ref("");
+const formStatus = ref<FormResponse["status"]>("draft");
 const draggedQuestionId = ref<string | null>(null);
 const dragOverQuestionId = ref<string | null>(null);
 let saveTimer: number | undefined;
@@ -85,6 +87,8 @@ const questionTypes: { value: QuestionType; label: string; icon: string }[] = [
 ];
 
 const questions = ref<Question[]>([]);
+const userInitial = computed(() => (user.value?.name || user.value?.email || "U").charAt(0).toUpperCase());
+const canViewResponses = computed(() => formStatus.value === "published" && Boolean(formId.value));
 
 const typeToApi: Record<QuestionType, ApiQuestionType> = {
   description: "DS",
@@ -131,6 +135,7 @@ const fromResponse = (question: QuestionResponse): Question => ({
 
 const hydrate = (form: FormResponse): void => {
   formId.value = form.form_id;
+  formStatus.value = form.status;
   formTitle.value = form.title ?? "未命名表單";
   formDescription.value = form.content ?? "";
   blocks.value = form.pages.map((page) => ({
@@ -153,13 +158,32 @@ const initializeForm = async (): Promise<void> => {
   }
 
   try {
+    if (!sourceProjectId.value) {
+      await router.replace({ name: "my-projects" });
+      return;
+    }
+    const cachedProject = projectStore.projects.find((item) => item.project_id === sourceProjectId.value);
+    const project = cachedProject ?? await getProject(sourceProjectId.value);
+    projectStore.upsert(project);
+
     const requestedFormId = String(route.params.formId ?? "");
     if (requestedFormId) {
+      if (project.linked_form_id !== requestedFormId) {
+        throw new Error("這份表單沒有連結到目前專案");
+      }
       const cachedForm = formStore.forms.find((item) => item.form_id === requestedFormId);
       const form = cachedForm ?? await getForm(requestedFormId);
       formStore.upsert(form);
       hydrate(form);
       saved.value = true;
+      return;
+    }
+
+    if (project.linked_form_id) {
+      await router.replace({
+        name: "form-builder-edit",
+        params: { projectId: project.project_id, formId: project.linked_form_id }
+      });
       return;
     }
 
@@ -177,8 +201,7 @@ const initializeForm = async (): Promise<void> => {
     saved.value = true;
     await router.replace({
       name: "form-builder-edit",
-      params: { formId: created.form_id },
-      query: sourceProjectId.value ? { projectId: sourceProjectId.value } : undefined
+      params: { projectId: sourceProjectId.value, formId: created.form_id }
     });
   } catch (error) {
     saveError.value = error instanceof Error ? error.message : "無法連接後端";
@@ -196,7 +219,7 @@ const goBack = async (): Promise<void> => {
     await router.push({ name: "project-edit", params: { projectId: sourceProjectId.value } });
     return;
   }
-  await router.push("/forms");
+  await router.push({ name: "my-projects" });
 };
 
 const persistDraft = (): Promise<void> => {
@@ -473,7 +496,10 @@ const openResponses = async (): Promise<void> => {
   window.clearTimeout(saveTimer);
   if (!saved.value) await persistDraft();
   if (saveError.value) return;
-  await router.push({ name: "form-responses", params: { formId: formId.value }, query: { from: route.fullPath } });
+  await router.push({
+    name: "form-responses",
+    params: { projectId: sourceProjectId.value, formId: formId.value }
+  });
 };
 
 onMounted(() => void initializeForm());
@@ -497,23 +523,21 @@ onMounted(() => void initializeForm());
       </div>
 
       <div class="topbar__actions">
-        <button class="icon-button hide-mobile" type="button" aria-label="自訂主題" title="自訂主題">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18h1.5a2 2 0 0 0 0-4H12a2 2 0 0 1 0-4h5a4 4 0 0 0 4-4c0-3.3-4-6-9-6Z" /><circle cx="7.5" cy="10" r="1" /><circle cx="10" cy="6.5" r="1" /><circle cx="15" cy="7" r="1" /></svg>
-        </button>
-        <button class="icon-button hide-mobile" type="button" aria-label="預覽" title="預覽">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" /><circle cx="12" cy="12" r="2.7" /></svg>
-        </button>
         <button class="publish-button" type="button" :disabled="initializing || saving" @click="publish">
-          發布 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 14-7-4 14-3-6-7-1Z" /></svg>
+          {{ formStatus === "published" ? "重新發布" : "發布" }}
         </button>
-        <button class="avatar-button" type="button" aria-label="帳號選單">J</button>
+        <RouterLink
+          class="avatar-button"
+          to="/profile"
+          :aria-label="`前往 ${user?.name || user?.email || '使用者'} 的個人資料`"
+          :title="user?.email || '個人資料'"
+        >{{ userInitial }}</RouterLink>
       </div>
     </header>
 
     <nav class="tabs" aria-label="表單功能">
       <button class="tabs__item tabs__item--active" type="button">問題</button>
-      <button class="tabs__item" type="button" :disabled="initializing || !formId" @click="openResponses">回覆</button>
-      <button class="tabs__item" type="button">設定</button>
+      <button v-if="canViewResponses" class="tabs__item" type="button" @click="openResponses">回覆</button>
     </nav>
 
     <main class="workspace">
@@ -666,19 +690,6 @@ onMounted(() => void initializeForm());
         <p class="canvas-footer">請勿透過表單提交密碼或其他機密資訊。</p>
       </div>
 
-      <aside class="floating-tools" aria-label="新增表單內容">
-        <button type="button" title="新增問題" @click="addQuestion()">＋</button>
-        <button type="button" title="匯入問題">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h11v5h3v11H8v-3H5V4Z" /><path d="M8 7h8v10H8V7Zm4 3v4m-2-2h4" /></svg>
-        </button>
-        <button type="button" title="新增標題和說明">T<span>T</span></button>
-        <button type="button" title="新增圖片">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="9" cy="9" r="2" /><path d="m4 17 5-5 3 3 2-2 6 5" /></svg>
-        </button>
-        <button type="button" title="新增區塊" @click="addBlock">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="1" /><path d="M4 9h16M9 4v5" /></svg>
-        </button>
-      </aside>
     </main>
 
     <Transition name="toast">
@@ -777,7 +788,8 @@ svg { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: 
 .publish-button:hover { background: #593674; transform: translateY(-1px); }
 .publish-button:disabled { cursor: wait; opacity: .55; transform: none; }
 .publish-button svg { width: 17px; height: 17px; }
-.avatar-button { width: 38px; height: 38px; margin-left: 5px; border: 0; border-radius: 50%; background: #e8d9ef; color: #62407b; font-weight: 700; }
+.avatar-button { display: grid; width: 38px; height: 38px; margin-left: 5px; place-items: center; border: 1px solid #d9c8e3; border-radius: 50%; background: #f1e8f5; color: #62407b; font-size: 13px; font-weight: 750; text-decoration: none; }
+.avatar-button:hover { border-color: #765292; background: #e8d9ef; }
 
 .tabs {
   position: sticky;
@@ -796,7 +808,7 @@ svg { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: 
 .tabs__item--active { color: #684884; }
 .tabs__item--active::after { content: ""; position: absolute; right: 0; bottom: 0; left: 0; height: 3px; border-radius: 3px 3px 0 0; background: #765292; }
 
-.workspace { position: relative; width: min(820px, calc(100% - 48px)); margin: 0 auto; padding: 30px 58px 70px 0; }
+.workspace { position: relative; width: min(760px, calc(100% - 48px)); margin: 0 auto; padding: 30px 0 70px; }
 .form-canvas { display: grid; gap: 14px; }
 .connection-error { margin: 0; padding: 12px 16px; border: 1px solid #e4b8c2; border-radius: 9px; background: #fff4f6; color: #91374a; font-size: 12px; }
 .validation-reminder { padding: 18px 20px; border: 1px solid #e2b45e; border-radius: 10px; background: #fffaf0; color: #6f5122; }
@@ -885,13 +897,6 @@ svg { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: 
 .required-toggle input:checked + span { background: #765292; }
 .required-toggle input:checked + span::after { transform: translateX(15px); }
 
-.floating-tools { position: fixed; top: 178px; left: calc(50% + 351px); display: grid; overflow: hidden; border: 1px solid #e1dce4; border-radius: 12px; background: #fff; box-shadow: 0 5px 18px rgba(48, 32, 56, .1); }
-.floating-tools button { display: grid; width: 47px; height: 47px; place-items: center; border: 0; border-bottom: 1px solid #eeeaf0; background: #fff; color: #6d6671; font-size: 24px; }
-.floating-tools button:last-child { border-bottom: 0; }
-.floating-tools button:hover { background: #f5f0f7; color: #6c4788; }
-.floating-tools svg { width: 20px; height: 20px; }
-.floating-tools button:nth-child(3) { font-family: Georgia, serif; font-size: 17px; font-weight: 700; }
-.floating-tools button:nth-child(3) span { font-size: 10px; }
 .mobile-add { display: none; }
 .canvas-footer { margin: 12px 0 0; color: #aaa4ad; font-size: 10px; text-align: center; }
 .toast { position: fixed; z-index: 50; right: 28px; bottom: 28px; padding: 15px 20px; border-radius: 9px; background: #32273a; box-shadow: 0 8px 30px rgba(25, 16, 30, .25); color: #fff; font-size: 13px; }
@@ -904,7 +909,6 @@ svg { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: 
   .icon-button--back { display: none; }
   .document-meta__status { display: none; }
   .workspace { width: min(700px, calc(100% - 28px)); padding-right: 0; }
-  .floating-tools { display: none; }
   .mobile-add { display: block; width: 100%; height: 48px; border: 1px dashed #bcaac8; border-radius: 10px; background: #fdfcff; color: #6c4788; font-size: 13px; font-weight: 650; }
 }
 

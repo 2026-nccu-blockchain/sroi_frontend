@@ -8,11 +8,15 @@ import type { WorkspaceProject } from "@/modules/workspace/types/workspace.types
 
 const { isAuthenticated } = useAuth();
 const projectStore = useProjectStore();
-const { projects, loading, error } = storeToRefs(projectStore);
+const { projectsWithForms: projects, loading, error } = storeToRefs(projectStore);
 const selectedProject = ref<string | null>(null);
 
-const statusLabel = (status: WorkspaceProject["status"]): string =>
-  status === "published" ? "已發布" : "草稿";
+const statusLabel = (project: WorkspaceProject): string => {
+  const status = project.linked_form?.status ?? project.status;
+  return status === "published" ? "已發布" : status === "closed" ? "已關閉" : "草稿";
+};
+const formStatusLabel = (project: WorkspaceProject): string =>
+  project.linked_form?.status === "published" ? "表單已發布" : "表單編輯中";
 
 onMounted(async () => {
   if (!isAuthenticated.value) return;
@@ -29,7 +33,6 @@ onMounted(async () => {
       </div>
       <div class="intro-actions">
         <RouterLink v-if="isAuthenticated" class="outline-button" to="/workspace/projects/new">＋ 新增專案</RouterLink>
-        <RouterLink class="solid-button" to="/forms">進入表單工作區 →</RouterLink>
       </div>
     </div>
 
@@ -58,14 +61,20 @@ onMounted(async () => {
         </button>
         <span data-label="所屬單位">{{ project.organization || "—" }}</span>
         <span data-label="年度">{{ project.year }}</span>
-        <span data-label="狀態" class="project-row__status">{{ statusLabel(project.status) }}</span>
+        <span data-label="狀態" class="project-row__status">{{ statusLabel(project) }}</span>
         <div class="project-row__actions">
           <RouterLink :to="`/workspace/projects/${project.project_id}/edit`">編輯</RouterLink>
         </div>
         <div v-if="selectedProject === project.project_id" class="project-row__detail">
           <span>{{ project.stakeholders.length }} 位利害關係人</span>
           <p>{{ project.description || "尚未填寫專案說明。" }}</p>
-          <span>表單：{{ project.linked_form?.title || "尚未連結" }}</span>
+          <span v-if="project.linked_form" class="form-summary">
+            表單：{{ project.linked_form.title || "未命名表單" }}
+            <small :class="['form-badge', { 'form-badge--published': project.linked_form.status === 'published' }]">
+              {{ formStatusLabel(project) }}
+            </small>
+          </span>
+          <span v-else>表單：尚未連結</span>
         </div>
       </article>
 
@@ -80,8 +89,7 @@ onMounted(async () => {
 .projects__eyebrow { margin: 0 0 8px; font-size: 12px; font-weight: 700; letter-spacing: .15em; }
 h1 { margin: 0; font-size: 26px; font-weight: 500; line-height: 1; letter-spacing: -.04em; }
 .intro-actions { display: flex; gap: 10px; }
-.outline-button, .solid-button { border: 1px solid #111; border-radius: 8px; padding: 10px 14px; color: #111; font-size: 13px; font-weight: 700; text-decoration: none; }
-.solid-button { background: #111; color: #fff; }
+.outline-button { border: 1px solid #111; border-radius: 8px; padding: 10px 14px; color: #111; font-size: 13px; font-weight: 700; text-decoration: none; }
 .projects__notice { margin: -12px 0 0; padding: 13px 0; border-top: 1px solid #aaa; border-bottom: 1px solid #aaa; color: #555; font-size: 13px; }
 .projects__notice--error { color: #8c2020; }
 .project-list { border-top: 2px solid #000; }
@@ -96,6 +104,9 @@ h1 { margin: 0; font-size: 26px; font-weight: 500; line-height: 1; letter-spacin
 .project-row__actions a { border-bottom: 1px solid #000; color: #000; font-size: 12px; text-decoration: none; }
 .project-row__detail { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(160px, .6fr) 2fr minmax(180px, 1fr); gap: 20px; padding: 4px 0 24px; color: #555; font-size: 12px; }
 .project-row__detail p, .project-list__empty { margin: 0; }
+.form-summary { display: flex; align-items: center; gap: 8px; }
+.form-badge { display: inline-flex; padding: 4px 8px; border-radius: 999px; background: #f0e8f4; color: #765292; font-size: 10px; font-weight: 700; white-space: nowrap; }
+.form-badge--published { background: #e5f3e8; color: #2f7140; }
 .project-list__empty { padding: 40px 0; border-bottom: 1px solid #000; color: #555; }
 @media (max-width: 840px) {
   .project-list__header { display: none; }

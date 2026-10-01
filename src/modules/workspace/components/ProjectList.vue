@@ -24,8 +24,12 @@ const filteredProjects = computed(() => {
   );
 });
 
-const statusLabel = (status: WorkspaceProject["status"]): string =>
-  status === "published" ? "已發布" : "草稿";
+const statusLabel = (project: WorkspaceProject): string => {
+  const status = project.linked_form?.status ?? project.status;
+  return status === "published" ? "已發布" : status === "closed" ? "已關閉" : "草稿";
+};
+const formStatusLabel = (project: WorkspaceProject): string =>
+  project.linked_form?.status === "published" ? "已發布" : "編輯中";
 </script>
 
 <template>
@@ -62,12 +66,18 @@ const statusLabel = (status: WorkspaceProject["status"]): string =>
           <RouterLink class="project-row__title" :to="`/workspace/projects/${project.project_id}/edit`">
             {{ project.name }}
           </RouterLink>
-          <small class="project-row__status">{{ statusLabel(project.status) }}</small>
+          <small class="project-row__status">{{ statusLabel(project) }}</small>
         </div>
         <span data-label="所屬單位">{{ project.organization }}</span>
         <span data-label="年度">{{ project.year }}</span>
         <span data-label="利害關係人">{{ project.stakeholders.length }} 位</span>
-        <span data-label="連結表單">{{ project.linked_form?.title || "尚未連結" }}</span>
+        <span v-if="project.linked_form" data-label="連結表單" class="linked-form">
+          {{ project.linked_form.title || "未命名表單" }}
+          <small :class="['form-badge', { 'form-badge--published': project.linked_form.status === 'published' }]">
+            {{ formStatusLabel(project) }}
+          </small>
+        </span>
+        <span v-else data-label="連結表單">尚未連結</span>
         <div class="project-row__actions">
           <RouterLink :to="`/workspace/projects/${project.project_id}/edit`">編輯</RouterLink>
           <button type="button" @click="$emit('delete', project)">刪除</button>
@@ -194,6 +204,10 @@ h1 {
   font-size: 11px;
   text-transform: uppercase;
 }
+
+.linked-form { display: flex; align-items: center; gap: 7px; }
+.form-badge { display: inline-flex; padding: 4px 8px; border-radius: 999px; background: #f0e8f4; color: #765292; font-size: 10px; font-weight: 700; white-space: nowrap; }
+.form-badge--published { background: #e5f3e8; color: #2f7140; }
 
 .project-row__actions {
   display: flex;

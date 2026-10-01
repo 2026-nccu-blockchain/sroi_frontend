@@ -1,4 +1,5 @@
 import { defineStore } from "pinia";
+import { useFormStore } from "@/modules/forms/store/form.store";
 
 import {
   createProject as createProjectRequest,
@@ -30,6 +31,17 @@ export const useProjectStore = defineStore("projects", {
     error: "",
     lastLoadedAt: 0
   }),
+  getters: {
+    projectsWithForms(state): WorkspaceProject[] {
+      const forms = useFormStore().forms;
+      return state.projects.map((project) => {
+        const form = forms.find((item) => item.form_id === project.linked_form_id);
+        return form
+          ? { ...project, linked_form: { form_id: form.form_id, title: form.title, status: form.status } }
+          : project;
+      });
+    }
+  },
   actions: {
     async refresh(background = false): Promise<WorkspaceProject[]> {
       if (activeRequest) return activeRequest;

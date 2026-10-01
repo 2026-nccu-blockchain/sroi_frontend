@@ -10,18 +10,19 @@ import type {
   QuestionResponse,
   SubmittedAnswer
 } from "@/modules/forms/types/form.types";
+import { getProject } from "@/modules/workspace/api/workspace.api";
 import { HttpError } from "@/shared/api/http";
 
 const route = useRoute();
 const router = useRouter();
 const { logout } = useAuth();
+const projectId = computed(() => String(route.params.projectId ?? ""));
 const formId = computed(() => String(route.params.formId ?? ""));
-const returnPath = computed(() => {
-  const from = route.query.from;
-  return typeof from === "string" && from.startsWith("/") && !from.startsWith("//")
-    ? from
-    : "/forms";
-});
+const projectPath = computed(() => ({ name: "project-edit", params: { projectId: projectId.value } }));
+const formEditPath = computed(() => ({
+  name: "form-builder-edit",
+  params: { projectId: projectId.value, formId: formId.value }
+}));
 
 const form = ref<FormResponse | null>(null);
 const submissions = ref<FormSubmission[]>([]);
@@ -110,10 +111,16 @@ const load = async (): Promise<void> => {
   loading.value = true;
   error.value = "";
   try {
-    const [loadedForm, loadedSubmissions] = await Promise.all([
-      getForm(formId.value),
-      getFormSubmissions(formId.value)
-    ]);
+    const project = await getProject(projectId.value);
+    if (project.linked_form_id !== formId.value) {
+      throw new Error("這份表單沒有連結到目前專案");
+    }
+    const loadedForm = await getForm(formId.value);
+    if (loadedForm.status !== "published") {
+      await router.replace(projectPath.value);
+      return;
+    }
+    const loadedSubmissions = await getFormSubmissions(formId.value);
     form.value = loadedForm;
     submissions.value = loadedSubmissions;
     selectedId.value = loadedSubmissions[0]?.response_id ?? null;
@@ -129,18 +136,18 @@ const load = async (): Promise<void> => {
   }
 };
 
-watch(formId, () => void load(), { immediate: true });
+watch([projectId, formId], () => void load(), { immediate: true });
 </script>
 
 <template>
   <div class="responses-shell">
     <header class="responses-topbar">
-      <RouterLink class="back-link" :to="returnPath">← 返回表單</RouterLink>
+      <RouterLink class="back-link" :to="projectPath">← 返回專案</RouterLink>
       <strong>{{ form?.title || "表單回覆" }}</strong>
     </header>
 
     <nav class="tabs" aria-label="表單功能">
-      <RouterLink :to="returnPath">問題</RouterLink>
+      <RouterLink :to="formEditPath">問題</RouterLink>
       <span class="tabs__active">回覆 <b>{{ submissions.length }}</b></span>
     </nav>
 

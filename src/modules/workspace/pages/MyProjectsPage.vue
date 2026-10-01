@@ -7,7 +7,7 @@ import { useProjectStore } from "@/modules/workspace/store/project.store";
 import type { WorkspaceProject } from "@/modules/workspace/types/workspace.types";
 
 const projectStore = useProjectStore();
-const { projects, loading, error } = storeToRefs(projectStore);
+const { projectsWithForms: projects, loading, error } = storeToRefs(projectStore);
 
 const loadProjects = async (): Promise<void> => {
   await projectStore.ensureLoaded().catch(() => undefined);

@@ -29,6 +29,9 @@ const draft = reactive<ProjectPayload>({
   linked_form_id: null,
   stakeholders: []
 });
+const linkedForm = computed(() =>
+  forms.value.find((form) => form.form_id === draft.linked_form_id) ?? null
+);
 
 const hydrate = (project: WorkspaceProject): void => {
   draft.name = project.name;
@@ -98,15 +101,22 @@ const persist = async (): Promise<WorkspaceProject | null> => {
 const createAndLinkForm = async (): Promise<void> => {
   const project = await persist();
   if (!project) return;
-  await router.push({ name: "form-builder-new", query: { projectId: project.project_id } });
+  await router.push({ name: "form-builder-new", params: { projectId: project.project_id } });
 };
 
 const openLinkedForm = async (): Promise<void> => {
   if (!draft.linked_form_id) return;
   await router.push({
     name: "form-builder-edit",
-    params: { formId: draft.linked_form_id },
-    query: { projectId: projectId.value }
+    params: { projectId: projectId.value, formId: draft.linked_form_id }
+  });
+};
+
+const openResponses = async (): Promise<void> => {
+  if (!draft.linked_form_id) return;
+  await router.push({
+    name: "form-responses",
+    params: { projectId: projectId.value, formId: draft.linked_form_id }
   });
 };
 
@@ -196,8 +206,10 @@ onMounted(async () => {
             </select>
           </label>
           <button v-if="draft.linked_form_id" class="secondary-button" type="button" @click="openLinkedForm">編輯連結表單 →</button>
-          <button class="secondary-button" type="button" :disabled="saving" @click="createAndLinkForm">建立新表單並連結</button>
+          <button v-if="linkedForm?.status === 'published'" class="secondary-button" type="button" @click="openResponses">查看回覆與結果</button>
+          <button v-if="!draft.linked_form_id" class="secondary-button" type="button" :disabled="saving" @click="createAndLinkForm">建立新表單並連結</button>
         </div>
+        <p v-if="linkedForm?.status === 'draft'" class="form-hint">表單仍在編輯中，發布後才會開放填答與回覆結果。</p>
       </section>
     </template>
   </section>
@@ -231,7 +243,8 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .stakeholder-number { align-self: center; color: #999; font-size: 11px; }
 .remove-button { border-color: #ccc; }
 .empty-state { padding: 24px; background: #f7f7f7; color: #666; text-align: center; }
-.form-linker { display: grid; grid-template-columns: minmax(260px, 1fr) auto auto; align-items: end; gap: 12px; }
+.form-linker { display: grid; grid-template-columns: minmax(240px, 1fr) repeat(3, auto); align-items: end; gap: 12px; }
+.form-hint { margin: -10px 0 0; color: #7b647f; font-size: 11px; }
 @media (max-width: 900px) { .field-grid, .stakeholder-row, .form-linker { grid-template-columns: 1fr; } .stakeholder-number { display: none; } }
 @media (max-width: 600px) { .editor-header, .section-heading { align-items: stretch; flex-direction: column; } .editor-card { padding: 18px; } }
 </style>

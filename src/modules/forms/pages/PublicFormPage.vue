@@ -2,13 +2,14 @@
 import { computed, onMounted, reactive, ref } from "vue";
 import { useRoute } from "vue-router";
 
-import { getPublicForm, submitPublicForm } from "@/modules/forms/api/forms.api";
+import { checkPublicFormEmail, getPublicForm, submitPublicForm } from "@/modules/forms/api/forms.api";
 import type { AnswerPayload, PublicFormResponse, QuestionResponse } from "@/modules/forms/types/form.types";
 
 const route = useRoute();
 const form = ref<PublicFormResponse | null>(null);
 const loading = ref(true);
 const submitting = ref(false);
+const checkingEmail = ref(false);
 const submitted = ref(false);
 const emailVerified = ref(false);
 const error = ref("");
@@ -72,19 +73,31 @@ const hasAnswer = (question: QuestionResponse): boolean => {
   return value !== undefined;
 };
 
-const verifyEmail = (): void => {
+const verifyEmail = async (): Promise<void> => {
   email.value = email.value.trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.value)) {
     error.value = "請輸入有效的 Email";
     return;
   }
+  checkingEmail.value = true;
   error.value = "";
-  shuffledQuestions.value = seededShuffle(
-    allQuestions.value,
-    `${publicToken.value}:${email.value}`
-  );
-  emailVerified.value = true;
-  window.scrollTo({ top: 0, behavior: "smooth" });
+  try {
+    const availability = await checkPublicFormEmail(publicToken.value, email.value);
+    if (!availability.can_submit) {
+      error.value = "這個 Email 已填寫過此表單，不能重複填寫。";
+      return;
+    }
+    shuffledQuestions.value = seededShuffle(
+      allQuestions.value,
+      `${publicToken.value}:${email.value}`
+    );
+    emailVerified.value = true;
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  } catch (caught) {
+    error.value = caught instanceof Error ? caught.message : "無法驗證 Email，請稍後再試";
+  } finally {
+    checkingEmail.value = false;
+  }
 };
 
 const submit = async (): Promise<void> => {
@@ -136,9 +149,7 @@ onMounted(() => void load());
 
         <form v-if="!emailVerified" class="email-step" @submit.prevent="verifyEmail">
           <section class="answer-card respondent-card">
-            <p class="step-label">開始填寫前</p>
             <h2>請先驗證你的 Email <b>*</b></h2>
-            <p class="email-hint">Email 會和這次回覆一起保存，請確認格式正確。</p>
             <label class="sr-only" for="respondent-email">Email</label>
             <input
               id="respondent-email"
@@ -150,7 +161,9 @@ onMounted(() => void load());
             />
           </section>
           <p v-if="error" class="submit-error" role="alert">{{ error }}</p>
-          <button class="submit-button" type="submit">驗證並開始填寫</button>
+          <button class="submit-button" type="submit" :disabled="checkingEmail">
+            {{ checkingEmail ? "檢查中…" : "驗證並開始填寫" }}
+          </button>
         </form>
 
         <form v-else @submit.prevent="submit">

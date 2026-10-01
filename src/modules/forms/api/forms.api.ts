@@ -68,6 +68,14 @@ export const saveFormStructure = (
 export const getPublicForm = (publicToken: string): Promise<PublicFormResponse> =>
   httpClient.get<PublicFormResponse>(`/form/public/${publicToken}`);
 
+export const checkPublicFormEmail = (
+  publicToken: string,
+  respondentEmail: string
+): Promise<{ can_submit: boolean }> =>
+  httpClient.post(`/form/public/${publicToken}/responses/check-email`, {
+    respondent_email: respondentEmail
+  });
+
 export const submitPublicForm = (
   publicToken: string,
   respondentEmail: string,
