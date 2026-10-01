@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onMounted, ref } from "vue";
+import { computed, nextTick, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import { useAuth } from "@/modules/auth/composables/useAuth";
@@ -21,6 +21,8 @@ import type {
   QuestionPayload,
   QuestionResponse
 } from "@/modules/forms/types/form.types";
+import { useFormStore } from "@/modules/forms/store/form.store";
+import { useProjectStore } from "@/modules/workspace/store/project.store";
 import { HttpError } from "@/shared/api/http";
 
 type QuestionType = "description" | "text" | "scale" | "date" | "choice";
@@ -52,7 +54,10 @@ interface Block {
 const route = useRoute();
 const router = useRouter();
 const { isAuthenticated } = useAuth();
+const formStore = useFormStore();
+const projectStore = useProjectStore();
 const formId = ref("");
+const sourceProjectId = computed(() => typeof route.query.projectId === "string" ? route.query.projectId : "");
 const blocks = ref<Block[]>([]);
 const activeBlockId = ref("");
 const formTitle = ref("未命名表單");
@@ -150,7 +155,10 @@ const initializeForm = async (): Promise<void> => {
   try {
     const requestedFormId = String(route.params.formId ?? "");
     if (requestedFormId) {
-      hydrate(await getForm(requestedFormId));
+      const cachedForm = formStore.forms.find((item) => item.form_id === requestedFormId);
+      const form = cachedForm ?? await getForm(requestedFormId);
+      formStore.upsert(form);
+      hydrate(form);
       saved.value = true;
       return;
     }
@@ -161,9 +169,17 @@ const initializeForm = async (): Promise<void> => {
       status: "draft",
       pages: [{ title: "未命名區塊", content: "", position: 0, questions: [] }]
     });
+    formStore.upsert(created);
     hydrate(created);
+    if (sourceProjectId.value) {
+      await projectStore.update(sourceProjectId.value, { linked_form_id: created.form_id });
+    }
     saved.value = true;
-    await router.replace({ name: "form-builder-edit", params: { formId: created.form_id } });
+    await router.replace({
+      name: "form-builder-edit",
+      params: { formId: created.form_id },
+      query: sourceProjectId.value ? { projectId: sourceProjectId.value } : undefined
+    });
   } catch (error) {
     saveError.value = error instanceof Error ? error.message : "無法連接後端";
     if (error instanceof HttpError && error.status === 401) {
@@ -173,6 +189,14 @@ const initializeForm = async (): Promise<void> => {
   } finally {
     initializing.value = false;
   }
+};
+
+const goBack = async (): Promise<void> => {
+  if (sourceProjectId.value) {
+    await router.push({ name: "project-edit", params: { projectId: sourceProjectId.value } });
+    return;
+  }
+  await router.push("/forms");
 };
 
 const persistDraft = (): Promise<void> => {
@@ -196,12 +220,13 @@ const persistDraft = (): Promise<void> => {
           updateQuestion(question.id, toPayload(question, index))
         )
       ));
-      await saveFormStructure(formId.value, blocks.value.map((block) => ({
+      const structured = await saveFormStructure(formId.value, blocks.value.map((block) => ({
         page_id: block.id,
         question_ids: questions.value
           .filter((question) => question.pageId === block.id)
           .map((question) => question.id)
       })));
+      formStore.upsert(structured);
       saved.value = true;
     } catch (error) {
       saveError.value = error instanceof Error ? error.message : "儲存失敗";
@@ -423,7 +448,9 @@ const publish = async (): Promise<void> => {
       question_ids: questionsForBlock(block.id).map((question) => question.id)
     })));
     const published = await updateForm(formId.value, { status: "published" });
-    hydrate({ ...structured, status: published.status, public_token: published.public_token });
+    const publishedForm = { ...structured, status: published.status, public_token: published.public_token };
+    formStore.upsert(publishedForm);
+    hydrate(publishedForm);
     await copyPublishedLink();
     showToast.value = true;
     window.setTimeout(() => (showToast.value = false), 2400);
@@ -456,7 +483,7 @@ onMounted(() => void initializeForm());
   <div class="builder-shell">
     <header class="topbar">
       <div class="topbar__left">
-        <button class="icon-button icon-button--back" type="button" aria-label="返回" @click="router.push('/forms')">
+        <button class="icon-button icon-button--back" type="button" aria-label="返回" @click="goBack">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
         </button>
         <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>

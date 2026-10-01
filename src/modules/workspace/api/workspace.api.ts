@@ -7,8 +7,25 @@ import type {
   GroupRoleResponse,
   GroupUserSearchResponse,
   InviteMemberPayload,
-  ChangeRolePayload
+  ChangeRolePayload,
+  ProjectPayload,
+  WorkspaceProject
 } from "@/modules/workspace/types/workspace.types";
+
+export const getProjects = (): Promise<WorkspaceProject[]> =>
+  httpClient.get<WorkspaceProject[]>("/project");
+
+export const getProject = (projectId: string): Promise<WorkspaceProject> =>
+  httpClient.get<WorkspaceProject>(`/project/${encodeURIComponent(projectId)}`);
+
+export const createProject = (payload: ProjectPayload): Promise<WorkspaceProject> =>
+  httpClient.post<WorkspaceProject>("/project", payload);
+
+export const updateProject = (projectId: string, payload: Partial<ProjectPayload>): Promise<WorkspaceProject> =>
+  httpClient.patch<WorkspaceProject>(`/project/${encodeURIComponent(projectId)}`, payload);
+
+export const deleteProject = (projectId: string): Promise<void> =>
+  httpClient.delete(`/project/${encodeURIComponent(projectId)}`);
 
 export const getGroups = (): Promise<GroupListResponse> =>
   httpClient.get<GroupListResponse>("/user/my_group");
