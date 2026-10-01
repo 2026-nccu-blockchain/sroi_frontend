@@ -473,6 +473,19 @@ const publish = async (): Promise<void> => {
     const published = await updateForm(formId.value, { status: "published" });
     const publishedForm = { ...structured, status: published.status, public_token: published.public_token };
     formStore.upsert(publishedForm);
+    for (const project of [...projectStore.projects]) {
+      if (project.linked_form_id === publishedForm.form_id) {
+        projectStore.upsert({
+          ...project,
+          status: "published",
+          linked_form: {
+            form_id: publishedForm.form_id,
+            title: publishedForm.title,
+            status: publishedForm.status
+          }
+        });
+      }
+    }
     hydrate(publishedForm);
     await copyPublishedLink();
     showToast.value = true;
