@@ -6,7 +6,6 @@ import LoginPage from "@/modules/auth/pages/LoginPage.vue";
 import RegisterPage from "@/modules/auth/pages/RegisterPage.vue";
 import DashboardPage from "@/modules/dashboard/pages/DashboardPage.vue";
 import FormLayout from "@/layouts/FormLayout.vue";
-import FormDashboardPage from "@/modules/formdashboard/pages/FormDashboardPage.vue";
 import FormBuilderPage from "@/modules/forms/pages/FormBuilderPage.vue";
 import FormResponsesPage from "@/modules/forms/pages/FormResponsesPage.vue";
 import PublicFormPage from "@/modules/forms/pages/PublicFormPage.vue";
@@ -30,38 +29,39 @@ import { VERIFY_ROLES } from "@/modules/profile/constants";
 
 const routes: RouteRecordRaw[] = [
   {
-    path: "/forms",
+    path: "/workspace/projects/:projectId/form",
     component: FormLayout,
+    meta: { requiresAuth: true, roles: WORKSPACE_ROLES },
     children: [
-      {
-        path: "",
-        name: "form-dashboard",
-        component: FormDashboardPage
-      },
       {
         path: "new",
         name: "form-builder-new",
-        component: FormBuilderPage,
-        meta: { requiresAuth: true }
+        component: FormBuilderPage
       },
       {
         path: ":formId/edit",
         name: "form-builder-edit",
-        component: FormBuilderPage,
-        meta: { requiresAuth: true }
+        component: FormBuilderPage
       },
       {
         path: ":formId/responses",
         name: "form-responses",
-        component: FormResponsesPage,
-        meta: { requiresAuth: true }
-      },
-      {
-        path: ":publicToken",
-        name: "public-form",
-        component: PublicFormPage
+        component: FormResponsesPage
       }
     ]
+  },
+  {
+    path: "/forms",
+    redirect: { name: "my-projects" }
+  },
+  {
+    path: "/forms/new",
+    redirect: { name: "my-projects" }
+  },
+  {
+    path: "/forms/:publicToken",
+    name: "public-form",
+    component: PublicFormPage
   },
   {
     path: "/auth",
