@@ -5,6 +5,8 @@ import type { AuthUser, LoginPayload } from "@/modules/auth/types/auth.types";
 import { AUTH_TOKEN_COOKIE_NAME } from "@/shared/constants";
 import { getCookie, removeCookie, setCookie } from "@/shared/utils/cookie";
 import { decodeJwt, isJwtExpired, type JwtPayload } from "@/shared/utils/jwt";
+import { useFormStore } from "@/modules/forms/store/form.store";
+import { useProjectStore } from "@/modules/workspace/store/project.store";
 
 interface AuthJwtPayload extends JwtPayload {
   user_id: string;
@@ -34,6 +36,8 @@ export const useAuthStore = defineStore("auth", {
   actions: {
     async login(payload: LoginPayload): Promise<void> {
       const { token } = await loginRequest(payload);
+      useFormStore().clear();
+      useProjectStore().clear();
       setCookie(AUTH_TOKEN_COOKIE_NAME, token);
 
       const decoded = decodeJwt<AuthJwtPayload>(token);
@@ -51,6 +55,8 @@ export const useAuthStore = defineStore("auth", {
     logout(): void {
       this.user = null;
       removeCookie(AUTH_TOKEN_COOKIE_NAME);
+      useFormStore().clear();
+      useProjectStore().clear();
     }
   }
 });

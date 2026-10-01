@@ -3,7 +3,15 @@ import { computed, ref } from "vue";
 
 import type { WorkspaceProject } from "@/modules/workspace/types/workspace.types";
 
-const props = defineProps<{ projects: WorkspaceProject[] }>();
+const props = defineProps<{
+  projects: WorkspaceProject[];
+  loading?: boolean;
+  error?: string;
+}>();
+
+defineEmits<{
+  delete: [project: WorkspaceProject];
+}>();
 
 const search = ref("");
 const filteredProjects = computed(() => {
@@ -15,6 +23,9 @@ const filteredProjects = computed(() => {
       project.organization.toLowerCase().includes(keyword)
   );
 });
+
+const statusLabel = (status: WorkspaceProject["status"]): string =>
+  status === "published" ? "已發布" : "草稿";
 </script>
 
 <template>
@@ -24,7 +35,7 @@ const filteredProjects = computed(() => {
         <p class="projects__eyebrow">工作區</p>
         <h1>我的專案</h1>
       </div>
-      <RouterLink class="button button--primary" to="/forms/new">
+      <RouterLink class="button button--primary" to="/workspace/projects/new">
         <span>＋</span> 新增專案
       </RouterLink>
     </div>
@@ -33,22 +44,33 @@ const filteredProjects = computed(() => {
       <input v-model="search" type="search" placeholder="搜尋專案名稱或單位..." aria-label="搜尋我的專案" />
     </div>
 
-    <div class="project-list">
+    <p v-if="error" class="state-message state-message--error">{{ error }}</p>
+    <p v-if="loading" class="state-message">專案載入中…</p>
+
+    <div v-else class="project-list">
       <div class="project-list__header" aria-hidden="true">
         <span>專案名稱</span>
         <span>所屬單位</span>
         <span>年度</span>
-        <span>狀態</span>
+        <span>利害關係人</span>
+        <span>連結表單</span>
         <span>操作</span>
       </div>
 
-      <article v-for="project in filteredProjects" :key="project.id" class="project-row">
-        <span class="project-row__title">{{ project.name }}</span>
+      <article v-for="project in filteredProjects" :key="project.project_id" class="project-row">
+        <div>
+          <RouterLink class="project-row__title" :to="`/workspace/projects/${project.project_id}/edit`">
+            {{ project.name }}
+          </RouterLink>
+          <small class="project-row__status">{{ statusLabel(project.status) }}</small>
+        </div>
         <span data-label="所屬單位">{{ project.organization }}</span>
         <span data-label="年度">{{ project.year }}</span>
-        <span data-label="狀態" class="project-row__status">{{ project.status }}</span>
+        <span data-label="利害關係人">{{ project.stakeholders.length }} 位</span>
+        <span data-label="連結表單">{{ project.linked_form?.title || "尚未連結" }}</span>
         <div class="project-row__actions">
-          <button type="button">編輯</button>
+          <RouterLink :to="`/workspace/projects/${project.project_id}/edit`">編輯</RouterLink>
+          <button type="button" @click="$emit('delete', project)">刪除</button>
         </div>
       </article>
 
@@ -133,7 +155,7 @@ h1 {
 .project-list__header,
 .project-row {
   display: grid;
-  grid-template-columns: minmax(240px, 2fr) minmax(180px, 1fr) 80px 100px 130px;
+  grid-template-columns: minmax(190px, 1.6fr) minmax(140px, 1fr) 60px 90px minmax(140px, 1fr) 110px;
   gap: 20px;
   align-items: center;
 }
@@ -158,11 +180,17 @@ h1 {
 }
 
 .project-row__title {
+  display: block;
+  color: #000;
   font-size: 17px;
   font-weight: 650;
+  text-decoration: none;
 }
 
 .project-row__status {
+  display: block;
+  margin-top: 5px;
+  color: #666;
   font-size: 11px;
   text-transform: uppercase;
 }
@@ -170,9 +198,11 @@ h1 {
 .project-row__actions {
   display: flex;
   justify-content: flex-end;
+  gap: 12px;
 }
 
-.project-row__actions button {
+.project-row__actions button,
+.project-row__actions a {
   border: 0;
   border-bottom: 1px solid #000;
   padding: 2px 0;
@@ -180,8 +210,12 @@ h1 {
   color: #000;
   font: inherit;
   font-size: 12px;
+  text-decoration: none;
   cursor: pointer;
 }
+
+.state-message { margin: 0; padding: 14px 0; color: #555; }
+.state-message--error { color: #a12626; }
 
 .project-list__empty {
   margin: 0;

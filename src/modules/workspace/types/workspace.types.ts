@@ -1,11 +1,45 @@
 import type { ApiEnvelope } from "@/shared/api/http";
 
+export type ProjectStatus = "draft" | "published";
+
+export interface ProjectStakeholder {
+  stakeholder_id?: string;
+  name: string;
+  role: string;
+  email?: string | null;
+  notes: string;
+  position?: number;
+}
+
+export interface LinkedProjectForm {
+  form_id: string;
+  title?: string | null;
+  status: "draft" | "published" | "closed";
+}
+
 export interface WorkspaceProject {
-  id: number;
+  project_id: string;
+  owner_id: string;
   name: string;
   organization: string;
+  description: string;
   year: number;
-  status: "草稿" | "已發布";
+  status: ProjectStatus;
+  linked_form_id?: string | null;
+  linked_form?: LinkedProjectForm | null;
+  stakeholders: ProjectStakeholder[];
+  create_time?: string | null;
+  update_time?: string | null;
+}
+
+export interface ProjectPayload {
+  name: string;
+  organization: string;
+  description: string;
+  year: number;
+  status: ProjectStatus;
+  linked_form_id: string | null;
+  stakeholders: Array<Omit<ProjectStakeholder, "stakeholder_id" | "position">>;
 }
 
 // 後端 Group.status 的值

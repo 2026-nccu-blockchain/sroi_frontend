@@ -1,18 +1,18 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
+import { storeToRefs } from "pinia";
 import { useRouter } from "vue-router";
 
 import { useAuth } from "@/modules/auth/composables/useAuth";
-import { deleteForm, getForms } from "@/modules/forms/api/forms.api";
+import { useFormStore } from "@/modules/forms/store/form.store";
 import type { FormResponse, FormStatus } from "@/modules/forms/types/form.types";
 
 type StatusFilter = "all" | FormStatus;
 
 const router = useRouter();
 const { isAuthenticated, user } = useAuth();
-const forms = ref<FormResponse[]>([]);
-const loading = ref(false);
-const error = ref("");
+const formStore = useFormStore();
+const { forms, loading, error } = storeToRefs(formStore);
 const deletingId = ref("");
 const search = ref("");
 const statusFilter = ref<StatusFilter>("all");
@@ -38,15 +38,7 @@ const filteredForms = computed(() => {
 
 const loadForms = async (): Promise<void> => {
   if (!isAuthenticated.value) return;
-  loading.value = true;
-  error.value = "";
-  try {
-    forms.value = await getForms();
-  } catch (caught) {
-    error.value = caught instanceof Error ? caught.message : "無法載入表單";
-  } finally {
-    loading.value = false;
-  }
+  await formStore.ensureLoaded().catch(() => undefined);
 };
 
 const createNewForm = async (): Promise<void> => {
@@ -66,8 +58,7 @@ const removeForm = async (form: FormResponse): Promise<void> => {
   deletingId.value = form.form_id;
   error.value = "";
   try {
-    await deleteForm(form.form_id);
-    forms.value = forms.value.filter((item) => item.form_id !== form.form_id);
+    await formStore.remove(form.form_id);
   } catch (caught) {
     error.value = caught instanceof Error ? caught.message : "刪除表單失敗";
   } finally {
