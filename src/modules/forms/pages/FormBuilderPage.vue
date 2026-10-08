@@ -1079,6 +1079,29 @@ onMounted(() => void initializeForm());
 
 <template>
   <div class="builder-shell">
+  <div
+  v-if="showQuestionTypeMenu"
+  style="position: fixed; inset: 0; z-index: 9999; background: rgba(0,0,0,.35); display: flex; align-items: center; justify-content: center;"
+  @click.self="showQuestionTypeMenu = false"
+>
+  <div style="background: white; padding: 24px; border-radius: 12px; min-width: 300px;">
+    <h3>選擇題型</h3>
+
+    <button
+      v-for="type in questionTypes"
+      :key="type.value"
+      type="button"
+      style="display: block; width: 100%; padding: 12px; margin-top: 8px; cursor: pointer;"
+      @click="addQuestionOfType(type.value)"
+    >
+      {{ type.label }}
+    </button>
+
+    <button type="button" style="margin-top: 16px;" @click="showQuestionTypeMenu = false">
+      取消
+    </button>
+  </div>
+</div>
     <header class="topbar">
       <div class="topbar__left">
         <button class="icon-button icon-button--back" type="button" aria-label="返回" @click="goBack">

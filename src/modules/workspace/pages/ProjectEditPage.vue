@@ -98,10 +98,33 @@ const persist = async (): Promise<WorkspaceProject | null> => {
   }
 };
 
-const createAndLinkForm = async (): Promise<void> => {
+/*const createAndLinkForm = async (): Promise<void> => {
   const project = await persist();
   if (!project) return;
   await router.push({ name: "form-builder-new", params: { projectId: project.project_id } });
+};
+*/
+
+const createAndLinkForm = async (): Promise<void> => {
+  console.log("按鈕有被點擊");
+
+  try {
+    const project = await persist();
+    console.log("儲存專案結果：", project);
+
+    if (!project) {
+      alert("專案儲存沒有成功，請檢查必填欄位或 API");
+      return;
+    }
+
+    await router.push({
+      name: "form-builder-new",
+      params: { projectId: project.project_id }
+    });
+  } catch (error) {
+    console.error("建立表單失敗：", error);
+    alert("建立表單失敗，請查看 Console");
+  }
 };
 
 const openLinkedForm = async (): Promise<void> => {
