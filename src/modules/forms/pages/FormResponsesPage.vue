@@ -7,6 +7,7 @@ import { getForm, getFormSubmissions } from "@/modules/forms/api/forms.api";
 import type {
   FormResponse,
   FormSubmission,
+  PageResponse,
   QuestionResponse,
   SubmittedAnswer
 } from "@/modules/forms/types/form.types";
@@ -30,6 +31,8 @@ const selectedId = ref<string | null>(null);
 const viewMode = ref<"summary" | "individual">("summary");
 const loading = ref(true);
 const error = ref("");
+// 暫定門檻；正式採計規則確認後只需替換這個值或改由後端設定。
+const OUTCOME_ELIGIBILITY_THRESHOLD = 0.5;
 
 const selectedSubmission = computed(() =>
   submissions.value.find((item) => item.response_id === selectedId.value) ?? null
@@ -107,12 +110,35 @@ const scaleAverage = (question: QuestionResponse): string => {
   return (values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(1);
 };
 
+const outcomeAssessment = (page: PageResponse): {
+  status: "eligible" | "below" | "insufficient";
+  score: string;
+} => {
+  const normalizedScores = page.questions
+    .filter((question) => question.question_type === "SC")
+    .flatMap((question) => {
+      const begin = question.scale_begin ?? 1;
+      const end = question.scale_end ?? 5;
+      if (end <= begin) return [];
+      return answersForQuestion(question.question_id)
+        .map((answer) => answer.number_value)
+        .filter((value): value is number => value !== null)
+        .map((value) => (value - begin) / (end - begin));
+    });
+  if (!normalizedScores.length) return { status: "insufficient", score: "—" };
+  const average = normalizedScores.reduce((sum, value) => sum + value, 0) / normalizedScores.length;
+  return {
+    status: average > OUTCOME_ELIGIBILITY_THRESHOLD ? "eligible" : "below",
+    score: `${Math.round(average * 100)}%`
+  };
+};
+
 const load = async (): Promise<void> => {
   loading.value = true;
   error.value = "";
   try {
     const project = await getProject(projectId.value);
-    if (project.linked_form_id !== formId.value) {
+    if (!project.forms.some((form) => form.form_id === formId.value)) {
       throw new Error("這份表單沒有連結到目前專案");
     }
     const loadedForm = await getForm(formId.value);
@@ -178,9 +204,24 @@ watch([projectId, formId], () => void load(), { immediate: true });
           <div v-if="viewMode === 'summary'" class="block-summary-list">
             <section v-for="page in form?.pages" :key="page.page_id" class="block-summary">
               <header>
-                <p class="eyebrow">成果區塊</p>
-                <h2>{{ page.title || "未命名區塊" }}</h2>
+                <div class="outcome-heading">
+                  <div>
+                    <p class="eyebrow">成果區塊</p>
+                    <h2>{{ page.title || "未命名區塊" }}</h2>
+                  </div>
+                  <span
+                    class="assessment-badge"
+                    :class="`assessment-badge--${outcomeAssessment(page).status}`"
+                  >
+                    {{ outcomeAssessment(page).status === 'eligible'
+                      ? `暫定可採計 · ${outcomeAssessment(page).score}`
+                      : outcomeAssessment(page).status === 'below'
+                        ? `未達暫定標準 · ${outcomeAssessment(page).score}`
+                        : '尚無量表資料' }}
+                  </span>
+                </div>
                 <p v-if="page.content">{{ page.content }}</p>
+                <small class="assessment-note">目前暫以量表正規化平均高於中位數 50% 判定，正式採計標準之後可再調整。</small>
               </header>
 
               <article
@@ -193,7 +234,7 @@ watch([projectId, formId], () => void load(), { immediate: true });
                   <span>{{ answersForQuestion(question.question_id).length }} 筆回答</span>
                 </div>
 
-                <div v-if="question.question_type === 'SC'" class="choice-summary">
+                <div v-if="question.question_type === 'CQ'" class="choice-summary">
                   <div
                     class="pie-chart"
                     :style="{
@@ -218,7 +259,7 @@ watch([projectId, formId], () => void load(), { immediate: true });
                   </div>
                 </div>
 
-                <div v-else-if="question.question_type === 'CQ'" class="scale-summary">
+                <div v-else-if="question.question_type === 'SC'" class="scale-summary">
                   <p>平均分數 <b>{{ scaleAverage(question) }}</b></p>
                   <div class="bar-chart">
                     <div v-for="stat in scaleStats(question)" :key="stat.value" class="bar-row">
@@ -319,6 +360,11 @@ h1, h2, p { margin-top: 0; }
 .block-summary > header { padding: 24px 28px; border-bottom: 1px solid #eee8f1; background: #faf7fc; }
 .block-summary > header h2 { margin-bottom: 6px; }
 .block-summary > header p:last-child { margin-bottom: 0; color: #77707d; font-size: 12px; }
+.outcome-heading { display: flex; align-items: start; justify-content: space-between; gap: 18px; }
+.assessment-badge { flex: none; padding: 7px 10px; border-radius: 999px; background: #f1eef3; color: #716977; font-size: 10px; font-weight: 750; }
+.assessment-badge--eligible { background: #e5f3e8; color: #2f7140; }
+.assessment-badge--below { background: #fff0e2; color: #936020; }
+.assessment-note { display: block; margin-top: 10px; color: #938b98; font-size: 10px; line-height: 1.5; }
 .question-summary { padding: 25px 28px; border-bottom: 1px solid #eeeaf0; }
 .question-summary:last-child { border-bottom: 0; }
 .question-summary__heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
