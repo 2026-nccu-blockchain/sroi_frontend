@@ -74,16 +74,82 @@ const answersForQuestion = (questionId: string): SubmittedAnswer[] =>
     return answer ? [answer] : [];
   });
 
-const optionStats = (question: QuestionResponse): Array<{ label: string; count: number; percent: number }> => {
+// 高對比色，依選項順序固定配色。
+const pieColors = ["#E5484D", "#2563EB", "#16A34A", "#F59E0B", "#9333EA", "#0891B2", "#DB2777", "#65A30D"];
+
+type ChoiceStat = { id: string; label: string; count: number; percent: number; color: string };
+
+// 同時相容後端以 option_id、選項文字或 JSON 字串儲存答案的情況。
+// 無法對應的值不會被硬塞進某個選項。
+const selectedOptionIds = (question: QuestionResponse, answer: SubmittedAnswer): string[] => {
+  const options = question.options ?? [];
+  const resolve = (raw: unknown): string | null => {
+    if (raw === null || raw === undefined) return null;
+    if (typeof raw === "object") {
+      const obj = raw as Record<string, unknown>;
+      return resolve(obj.option_id ?? obj.id ?? obj.value ?? obj.label);
+    }
+    const value = String(raw).trim();
+    const match = options.find((option) =>
+      option.option_id === value || option.value === value || option.label.trim() === value
+    );
+    return match?.option_id ?? null;
+  };
+  const rawIds: unknown[] = Array.isArray(answer.option_ids) ? answer.option_ids : [];
+  const matched = rawIds.map(resolve).filter((id): id is string => id !== null);
+  if (matched.length > 0) return [...new Set(matched)];
+
+  const content = answer.content?.trim();
+  if (!content) return [];
+  let values: unknown[] = [content];
+  try {
+    const parsed: unknown = JSON.parse(content);
+    if (Array.isArray(parsed)) values = parsed;
+    else if (parsed && typeof parsed === "object") {
+      const obj = parsed as Record<string, unknown>;
+      const candidate = obj.option_ids ?? obj.options ?? obj.value ?? obj.label ?? obj.answer;
+      values = Array.isArray(candidate) ? candidate : [candidate];
+    } else values = [parsed];
+  } catch {
+    // 純文字也可能直接是選項名稱。
+  }
+  return [...new Set(values.map(resolve).filter((id): id is string => id !== null))];
+};
+
+const optionStats = (question: QuestionResponse): ChoiceStat[] => {
   const answers = answersForQuestion(question.question_id);
-  return question.options.map((option) => {
-    const count = answers.filter((answer) => answer.option_ids.includes(option.option_id)).length;
-    return {
-      label: option.label,
-      count,
-      percent: submissions.value.length ? Math.round((count / submissions.value.length) * 100) : 0
-    };
+  const selections = answers.map((answer) => selectedOptionIds(question, answer));
+  const counts = (question.options ?? []).map((option) =>
+    selections.filter((ids) => ids.includes(option.option_id)).length
+  );
+  // 單選題用有效填答人數作分母；複選題用總勾選次數，讓圓餅圖合計 100%。
+  const total = question.is_multiple
+    ? counts.reduce((sum, count) => sum + count, 0)
+    : selections.filter((ids) => ids.length > 0).length;
+  return (question.options ?? []).map((option, index) => ({
+    id: option.option_id,
+    label: option.label,
+    count: counts[index],
+    percent: total > 0 ? Math.round((counts[index] / total) * 100) : 0,
+    color: pieColors[index % pieColors.length]
+  }));
+};
+
+const unmatchedChoiceAnswers = (question: QuestionResponse): number =>
+  answersForQuestion(question.question_id)
+    .filter((answer) => selectedOptionIds(question, answer).length === 0).length;
+
+const pieBackground = (question: QuestionResponse): string => {
+  const stats = optionStats(question);
+  const total = stats.reduce((sum, stat) => sum + stat.count, 0);
+  if (total === 0) return "#EEE9F1";
+  let cumulative = 0;
+  const slices = stats.filter((stat) => stat.count > 0).map((stat) => {
+    const start = cumulative;
+    cumulative += (stat.count / total) * 100;
+    return `${stat.color} ${start}% ${cumulative}%`;
   });
+  return `conic-gradient(${slices.join(", ")})`;
 };
 
 const scaleStats = (question: QuestionResponse): Array<{ value: number; count: number; percent: number }> => {
@@ -194,27 +260,18 @@ watch([projectId, formId], () => void load(), { immediate: true });
                 </div>
 
                 <div v-if="question.question_type === 'SC'" class="choice-summary">
-                  <div
-                    class="pie-chart"
-                    :style="{
-                      background: `conic-gradient(${optionStats(question)
-                        .reduce((parts, stat, index, all) => {
-                          const palette = ['#765292', '#a77bbd', '#c7a8d7', '#5f8fc9', '#72b7a6', '#d79a68'];
-                          const start = all.slice(0, index).reduce((sum, item) => sum + item.percent, 0);
-                          const end = start + stat.percent;
-                          parts.push(`${palette[index % palette.length]} ${start}% ${end}%`);
-                          return parts;
-                        }, [] as string[])
-                        .join(', ') || '#eee9f1 0% 100%'})`
-                    }"
-                    aria-label="選擇題圓餅圖"
-                  ></div>
+                  <div class="pie-chart" :style="{ background: pieBackground(question) }" role="img" :aria-label="`${question.title || '選擇題'}的回答比例`"></div>
                   <div class="pie-legend">
-                    <div v-for="(stat, index) in optionStats(question)" :key="stat.label" class="pie-legend__row">
-                      <i :style="{ background: ['#765292', '#a77bbd', '#c7a8d7', '#5f8fc9', '#72b7a6', '#d79a68'][index % 6] }"></i>
+                    <div v-for="stat in optionStats(question)" :key="stat.id" class="pie-legend__row">
+                      <i :style="{ background: stat.color }"></i>
                       <span>{{ stat.label }}</span>
                       <b>{{ stat.count }} 人（{{ stat.percent }}%）</b>
                     </div>
+                    <p v-if="optionStats(question).every((stat) => stat.count === 0)" class="choice-note">尚無可統計的選項答案</p>
+                    <p v-if="unmatchedChoiceAnswers(question) > 0" class="choice-note">
+                      有 {{ unmatchedChoiceAnswers(question) }} 筆答案未能對應目前選項，請檢查回覆資料與選項 ID。
+                    </p>
+                    <p v-if="question.is_multiple" class="choice-note">複選題百分比以總勾選次數計算。</p>
                   </div>
                 </div>
 
@@ -329,7 +386,8 @@ h1, h2, p { margin-top: 0; }
 .pie-legend { display: grid; gap: 12px; }
 .pie-legend__row { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; align-items: center; gap: 10px; color: #625a67; font-size: 12px; }
 .pie-legend__row i { width: 10px; height: 10px; border-radius: 50%; }
-.pie-legend__row b { color: #6d6571; font-weight: 650; }
+.pie-legend__row b { color: #292631; font-weight: 700; }
+.choice-note { margin: 4px 0 0; color: #b45309; font-size: 12px; line-height: 1.6; }
 .bar-chart { display: grid; gap: 12px; }
 .bar-row { display: grid; grid-template-columns: minmax(80px, 140px) minmax(100px, 1fr) 90px; align-items: center; gap: 12px; font-size: 11px; }
 .bar-row > span { overflow-wrap: anywhere; }
