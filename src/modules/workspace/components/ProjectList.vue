@@ -25,11 +25,9 @@ const filteredProjects = computed(() => {
 });
 
 const statusLabel = (project: WorkspaceProject): string => {
-  const status = project.linked_form?.status ?? project.status;
-  return status === "published" ? "已發布" : status === "closed" ? "已關閉" : "草稿";
+  const status = project.forms.some((form) => form.status === "published") ? "published" : project.status;
+  return status === "published" ? "已發布" : "草稿";
 };
-const formStatusLabel = (project: WorkspaceProject): string =>
-  project.linked_form?.status === "published" ? "已發布" : "編輯中";
 </script>
 
 <template>
@@ -62,19 +60,22 @@ const formStatusLabel = (project: WorkspaceProject): string =>
       </div>
 
       <article v-for="project in filteredProjects" :key="project.project_id" class="project-row">
-        <div>
+        <div class="project-name-cell">
           <RouterLink class="project-row__title" :to="`/workspace/projects/${project.project_id}/edit`">
             {{ project.name }}
           </RouterLink>
           <small class="project-row__status">{{ statusLabel(project) }}</small>
+          <div v-if="project.outcomes.length" class="outcome-tags">
+            <span v-for="outcome in project.outcomes" :key="outcome.outcome_id">#{{ outcome.name }}</span>
+          </div>
         </div>
         <span data-label="所屬單位">{{ project.organization }}</span>
         <span data-label="年度">{{ project.year }}</span>
         <span data-label="利害關係人">{{ project.stakeholders.length }} 位</span>
-        <span v-if="project.linked_form" data-label="連結表單" class="linked-form">
-          {{ project.linked_form.title || "未命名表單" }}
-          <small :class="['form-badge', { 'form-badge--published': project.linked_form.status === 'published' }]">
-            {{ formStatusLabel(project) }}
+        <span v-if="project.forms.length" data-label="連結表單" class="linked-form">
+          {{ project.forms.length }} 份表單
+          <small :class="['form-badge', { 'form-badge--published': project.forms.some((form) => form.status === 'published') }]">
+            {{ project.forms.filter((form) => form.status === "published").length }} 已發布
           </small>
         </span>
         <span v-else data-label="連結表單">尚未連結</span>
@@ -205,6 +206,10 @@ h1 {
   text-transform: uppercase;
 }
 
+.project-name-cell { display: grid; gap: 5px; }
+.outcome-tags { display: flex; flex-wrap: wrap; gap: 5px; }
+.outcome-tags span { padding: 3px 7px; border-radius: 999px; background: #f0e8f4; color: #765292; font-size: 9px; font-weight: 700; }
+
 .linked-form { display: flex; align-items: center; gap: 7px; }
 .form-badge { display: inline-flex; padding: 4px 8px; border-radius: 999px; background: #f0e8f4; color: #765292; font-size: 10px; font-weight: 700; white-space: nowrap; }
 .form-badge--published { background: #e5f3e8; color: #2f7140; }
@@ -249,7 +254,7 @@ h1 {
     padding: 22px 0;
   }
 
-  .project-row__title {
+  .project-name-cell {
     grid-column: 1 / -1;
   }
 

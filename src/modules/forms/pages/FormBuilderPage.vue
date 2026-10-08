@@ -48,6 +48,7 @@ interface Question {
 
 interface Block {
   id: string;
+  outcomeId: string | null;
   title: string;
   content: string;
 }
@@ -145,6 +146,7 @@ const hydrate = (form: FormResponse): void => {
   formDescription.value = form.content ?? "";
   blocks.value = form.pages.map((page) => ({
     id: page.page_id,
+    outcomeId: page.project_outcome_id,
     title: page.title ?? "未命名區塊",
     content: page.content
   }));
@@ -173,7 +175,7 @@ const initializeForm = async (): Promise<void> => {
 
     const requestedFormId = String(route.params.formId ?? "");
     if (requestedFormId) {
-      if (project.linked_form_id !== requestedFormId) {
+      if (!project.forms.some((form) => form.form_id === requestedFormId)) {
         throw new Error("這份表單沒有連結到目前專案");
       }
       const cachedForm = formStore.forms.find((item) => item.form_id === requestedFormId);
@@ -184,25 +186,31 @@ const initializeForm = async (): Promise<void> => {
       return;
     }
 
-    if (project.linked_form_id) {
-      await router.replace({
-        name: "form-builder-edit",
-        params: { projectId: project.project_id, formId: project.linked_form_id }
-      });
-      return;
-    }
-
+    const defaultPages = project.outcomes.length
+      ? project.outcomes.map((outcome, index) => ({
+        project_outcome_id: outcome.outcome_id ?? null,
+        title: outcome.name,
+        content: "",
+        position: index,
+        questions: []
+      }))
+      : [{ project_outcome_id: null, title: "未命名區塊", content: "", position: 0, questions: [] }];
     const created = await createForm({
+      project_id: sourceProjectId.value,
       title: formTitle.value,
       content: formDescription.value,
       status: "draft",
-      pages: [{ title: "未命名區塊", content: "", position: 0, questions: [] }]
+      pages: defaultPages
     });
     formStore.upsert(created);
     hydrate(created);
-    if (sourceProjectId.value) {
-      await projectStore.update(sourceProjectId.value, { linked_form_id: created.form_id });
-    }
+    projectStore.upsert({
+      ...project,
+      forms: [
+        { form_id: created.form_id, title: created.title, status: created.status },
+        ...project.forms
+      ]
+    });
     saved.value = true;
     await router.replace({
       name: "form-builder-edit",
@@ -240,17 +248,49 @@ const persistDraft = (): Promise<void> => {
   activeSave = (async () => {
     try {
       await updateForm(formId.value, { title: formTitle.value, content: formDescription.value });
-      await Promise.all(blocks.value.map((block, index) =>
-        updatePage(block.id, { title: block.title, content: block.content, position: index })
-      ));
-      await Promise.all(blocks.value.flatMap((block) =>
-        questions.value.filter((question) => question.pageId === block.id).map((question, index) =>
-          updateQuestion(question.id, toPayload(question, index))
-        )
-      ));
-      const structured = await saveFormStructure(formId.value, blocks.value.map((block) => ({
+      const persistedBlocks: Block[] = [];
+      const persistedQuestions: Question[] = [];
+
+      for (const [blockIndex, block] of blocks.value.entries()) {
+        const originalBlockId = block.id;
+        const page = originalBlockId.startsWith("temp-block-")
+          ? await createPage(formId.value, {
+            project_outcome_id: block.outcomeId,
+            title: block.title,
+            content: block.content,
+            position: blockIndex,
+            questions: []
+          })
+          : await updatePage(originalBlockId, {
+            project_outcome_id: block.outcomeId,
+            title: block.title,
+            content: block.content,
+            position: blockIndex
+          });
+
+        persistedBlocks.push({
+          id: page.page_id,
+          outcomeId: page.project_outcome_id,
+          title: page.title ?? "",
+          content: page.content
+        });
+
+        const blockQuestions = questions.value.filter((question) => question.pageId === originalBlockId);
+        for (const [questionIndex, question] of blockQuestions.entries()) {
+          const response = question.id.startsWith("temp-")
+            ? await createQuestionApi(formId.value, page.page_id, toPayload(question, questionIndex))
+            : await updateQuestion(question.id, toPayload(question, questionIndex));
+          const persistedQuestion = fromResponse(response);
+          persistedQuestion.pageId = page.page_id;
+          persistedQuestions.push(persistedQuestion);
+        }
+      }
+
+      blocks.value = persistedBlocks;
+      questions.value = persistedQuestions;
+      const structured = await saveFormStructure(formId.value, persistedBlocks.map((block) => ({
         page_id: block.id,
-        question_ids: questions.value
+        question_ids: persistedQuestions
           .filter((question) => question.pageId === block.id)
           .map((question) => question.id)
       })));
@@ -295,6 +335,7 @@ if (!blockId) {
 
   const firstBlock: Block = {
     id: tempBlockId,
+    outcomeId: null,
     title: "",
     content: ""
   };
@@ -579,6 +620,7 @@ const addBlock = async (): Promise<void> => {
 
   const newBlock: Block = {
     id: tempBlockId,
+    outcomeId: null,
     title: `成果區塊 ${blocks.value.length + 1}`,
     content: ""
   };
@@ -606,7 +648,7 @@ const addBlock = async (): Promise<void> => {
 const removeBlock = async (blockId: string): Promise<void> => {
   if (blocks.value.length <= 1) return;
   try {
-    await deletePage(blockId);
+    if (!blockId.startsWith("temp-block-")) await deletePage(blockId);
     blocks.value = blocks.value.filter((block) => block.id !== blockId);
     questions.value = questions.value.filter((question) => question.pageId !== blockId);
     activeBlockId.value = blocks.value[0]?.id ?? "";
@@ -697,111 +739,27 @@ const publishIssues = (): string[] => {
 };
 
 const publish = async (): Promise<void> => {
+  validationIssues.value = publishIssues();
+  if (validationIssues.value.length) {
+    saveError.value = "發布前請先完成以下內容";
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    return;
+  }
+  window.clearTimeout(saveTimer);
   saveError.value = "";
-
   try {
-    // 1. 如果目前還沒有真正的 form，先建立
-    if (!formId.value) {
-      const created = await createForm({
-        title: formTitle.value || "未命名表單",
-        content: formDescription.value || "",
-        status: "draft",
-        pages: []
-      });
-
-      formId.value = created.form_id;
-    }
-
-    // 2. 先更新表單基本資料
-    await updateForm(formId.value, {
-      title: formTitle.value || "未命名表單",
-      content: formDescription.value || ""
-    });
-
-    // 3. 把目前前端的成果區塊與題目真正建立到後端
-    const realBlocks: Block[] = [];
-    const realQuestions: Question[] = [];
-
-    for (let blockIndex = 0; blockIndex < blocks.value.length; blockIndex++) {
-      const block = blocks.value[blockIndex];
-
-      const blockQuestions = questionsForBlock(block.id);
-
-      const page = await createPage(formId.value, {
-        title: block.title || `成果區塊 ${blockIndex + 1}`,
-        content: block.content || "",
-        position: blockIndex,
-        questions: blockQuestions.map((question, questionIndex) => ({
-          question_type: typeToApi[question.type],
-          title: question.title || "未命名問題",
-          content: "",
-          is_required: question.required,
-          position: questionIndex,
-
-          scale_begin:
-            question.type === "scale"
-              ? question.scaleBegin
-              : null,
-
-          scale_end:
-            question.type === "scale"
-              ? question.scaleEnd
-              : null,
-
-          is_multiple:
-            question.type === "choice"
-              ? question.isMultiple
-              : false,
-
-          options:
-            question.type === "choice"
-              ? question.options.map((option, optionIndex) => ({
-                  label: option.label,
-                  value: option.label,
-                  position: optionIndex
-                }))
-              : []
-        }))
-      });
-
-      realBlocks.push({
-        id: page.page_id,
-        title: page.title ?? "",
-        content: page.content
-      });
-
-      page.questions.forEach((question) => {
-        realQuestions.push(fromResponse(question));
-      });
-    }
-
-    // 4. 用後端真正 ID 取代 temp 資料
-    blocks.value = realBlocks;
-    questions.value = realQuestions;
-
-    // 5. 正式發布
+    await persistDraft();
+    if (!formId.value || saveError.value) return;
     const published = await updateForm(formId.value, {
       status: "published"
     });
-
-    // status.value = published.status;
-    // publicToken.value = published.public_token;
-
+    formStore.upsert(published);
+    hydrate(published);
     saved.value = true;
-    saveError.value = "";
-
-    // 6. 發布成功提示
     showToast.value = true;
-
-    window.setTimeout(() => {
-      showToast.value = false;
-    }, 2400);
-
+    window.setTimeout(() => (showToast.value = false), 2400);
   } catch (error) {
-    saveError.value =
-      error instanceof Error
-        ? error.message
-        : "發布失敗";
+    saveError.value = error instanceof Error ? error.message : "發布失敗";
   }
 };
 
@@ -1622,4 +1580,3 @@ svg { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: 
   background: #f5eff9;
 }
 </style>
-
