@@ -10,6 +10,8 @@ import type {
   ChangeRolePayload,
   ProjectPayload,
   ProjectInterviewFile,
+  ProjectSROI,
+  ProjectSROIPayload,
   WorkspaceProject
 } from "@/modules/workspace/types/workspace.types";
 
@@ -27,6 +29,12 @@ export const updateProject = (projectId: string, payload: Partial<ProjectPayload
 
 export const deleteProject = (projectId: string): Promise<void> =>
   httpClient.delete(`/project/${encodeURIComponent(projectId)}`);
+
+export const getProjectSROI = (projectId: string): Promise<ProjectSROI> =>
+  httpClient.get<ProjectSROI>(`/project/${encodeURIComponent(projectId)}/sroi`);
+
+export const saveProjectSROI = (projectId: string, payload: ProjectSROIPayload): Promise<ProjectSROI> =>
+  httpClient.put<ProjectSROI>(`/project/${encodeURIComponent(projectId)}/sroi`, payload);
 
 export const uploadProjectInterviewFile = (projectId: string, file: File): Promise<ProjectInterviewFile> => {
   const body = new FormData();

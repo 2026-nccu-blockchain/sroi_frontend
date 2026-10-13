@@ -206,10 +206,11 @@ watch([projectId, formId], () => void load(), { immediate: true });
               <header>
                 <div class="outcome-heading">
                   <div>
-                    <p class="eyebrow">成果區塊</p>
+                    <p class="eyebrow">{{ page.is_respondent_info ? '基本資料區段' : '成果區塊' }}</p>
                     <h2>{{ page.title || "未命名區塊" }}</h2>
                   </div>
                   <span
+                    v-if="!page.is_respondent_info"
                     class="assessment-badge"
                     :class="`assessment-badge--${outcomeAssessment(page).status}`"
                   >
@@ -221,7 +222,7 @@ watch([projectId, formId], () => void load(), { immediate: true });
                   </span>
                 </div>
                 <p v-if="page.content">{{ page.content }}</p>
-                <small class="assessment-note">目前暫以量表正規化平均高於中位數 50% 判定，正式採計標準之後可再調整。</small>
+                <small v-if="!page.is_respondent_info" class="assessment-note">目前暫以量表正規化平均高於中位數 50% 判定，正式採計標準之後可再調整。</small>
               </header>
 
               <article
