@@ -35,10 +35,13 @@ export const useProjectStore = defineStore("projects", {
     projectsWithForms(state): WorkspaceProject[] {
       const forms = useFormStore().forms;
       return state.projects.map((project) => {
-        const form = forms.find((item) => item.form_id === project.linked_form_id);
-        return form
-          ? { ...project, linked_form: { form_id: form.form_id, title: form.title, status: form.status } }
-          : project;
+        const currentForms = project.forms.map((linkedForm) => {
+          const cached = forms.find((item) => item.form_id === linkedForm.form_id);
+          return cached
+            ? { form_id: cached.form_id, title: cached.title, status: cached.status }
+            : linkedForm;
+        });
+        return { ...project, forms: currentForms };
       });
     }
   },

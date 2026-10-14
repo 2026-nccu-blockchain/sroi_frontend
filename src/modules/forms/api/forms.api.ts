@@ -49,12 +49,12 @@ export const deleteForm = (formId: string): Promise<void> =>
 
 export const createPage = (
   formId: string,
-  payload: { title?: string; content: string; position: number; questions: QuestionPayload[] }
+  payload: { project_outcome_id?: string | null; title?: string; content: string; position: number; questions: QuestionPayload[] }
 ): Promise<PageResponse> => httpClient.post<PageResponse>(`/form/${formId}/pages`, payload);
 
 export const updatePage = (
   pageId: string,
-  payload: { title?: string; content?: string; position?: number }
+  payload: { project_outcome_id?: string | null; title?: string; content?: string; position?: number }
 ): Promise<PageResponse> => httpClient.patch<PageResponse>(`/form/pages/${pageId}`, payload);
 
 export const deletePage = (pageId: string): Promise<void> =>

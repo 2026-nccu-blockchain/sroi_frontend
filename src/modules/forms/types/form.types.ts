@@ -39,6 +39,7 @@ export interface QuestionResponse extends QuestionPayload {
 
 export interface PageResponse {
   page_id: string;
+  project_outcome_id: string | null;
   title: string | null;
   content: string;
   position: number;
@@ -47,6 +48,7 @@ export interface PageResponse {
 
 export interface FormResponse {
   form_id: string;
+  project_id: string | null;
   public_token: string | null;
   author_id: string;
   title: string | null;
@@ -92,10 +94,12 @@ export interface FormSubmission {
 }
 
 export interface CreateFormPayload {
+  project_id: string;
   title: string;
   content: string;
   status: FormStatus;
   pages: Array<{
+    project_outcome_id?: string | null;
     title?: string;
     content: string;
     position: number;

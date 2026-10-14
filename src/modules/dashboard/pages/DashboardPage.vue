@@ -12,11 +12,9 @@ const { projectsWithForms: projects, loading, error } = storeToRefs(projectStore
 const selectedProject = ref<string | null>(null);
 
 const statusLabel = (project: WorkspaceProject): string => {
-  const status = project.linked_form?.status ?? project.status;
-  return status === "published" ? "已發布" : status === "closed" ? "已關閉" : "草稿";
+  const hasPublishedForm = project.forms.some((form) => form.status === "published");
+  return hasPublishedForm || project.status === "published" ? "已發布" : "草稿";
 };
-const formStatusLabel = (project: WorkspaceProject): string =>
-  project.linked_form?.status === "published" ? "表單已發布" : "表單編輯中";
 
 onMounted(async () => {
   if (!isAuthenticated.value) return;
@@ -51,14 +49,19 @@ onMounted(async () => {
         class="project-row"
         :class="{ 'project-row--open': selectedProject === project.project_id }"
       >
-        <button
-          class="project-row__title"
-          type="button"
-          :aria-expanded="selectedProject === project.project_id"
-          @click="selectedProject = selectedProject === project.project_id ? null : project.project_id"
-        >
-          {{ project.name }}
-        </button>
+        <div class="project-name-cell">
+          <button
+            class="project-row__title"
+            type="button"
+            :aria-expanded="selectedProject === project.project_id"
+            @click="selectedProject = selectedProject === project.project_id ? null : project.project_id"
+          >
+            {{ project.name }}
+          </button>
+          <div v-if="project.outcomes.length" class="outcome-tags">
+            <span v-for="outcome in project.outcomes" :key="outcome.outcome_id">#{{ outcome.name }}</span>
+          </div>
+        </div>
         <span data-label="所屬單位">{{ project.organization || "—" }}</span>
         <span data-label="年度">{{ project.year }}</span>
         <span data-label="狀態" class="project-row__status">{{ statusLabel(project) }}</span>
@@ -68,10 +71,11 @@ onMounted(async () => {
         <div v-if="selectedProject === project.project_id" class="project-row__detail">
           <span>{{ project.stakeholders.length }} 位利害關係人</span>
           <p>{{ project.description || "尚未填寫專案說明。" }}</p>
-          <span v-if="project.linked_form" class="form-summary">
-            表單：{{ project.linked_form.title || "未命名表單" }}
-            <small :class="['form-badge', { 'form-badge--published': project.linked_form.status === 'published' }]">
-              {{ formStatusLabel(project) }}
+          <span>實際投入：NT$ {{ Number(project.actual_input_cost || 0).toLocaleString('zh-TW') }}</span>
+          <span v-if="project.forms.length" class="form-summary">
+            表單：{{ project.forms.length }} 份
+            <small :class="['form-badge', { 'form-badge--published': project.forms.some((form) => form.status === 'published') }]">
+              {{ project.forms.filter((form) => form.status === "published").length }} 已發布
             </small>
           </span>
           <span v-else>表單：尚未連結</span>
@@ -99,6 +103,9 @@ h1 { margin: 0; font-size: 26px; font-weight: 500; line-height: 1; letter-spacin
 .project-row { min-height: 82px; border-bottom: 1px solid #000; font-size: 13px; }
 .project-row__title { border: 0; padding: 0; background: transparent; color: #000; font: inherit; font-size: 17px; font-weight: 650; text-align: left; cursor: pointer; }
 .project-row__title:hover { text-decoration: underline; text-underline-offset: 4px; }
+.project-name-cell { display: grid; gap: 7px; }
+.outcome-tags { display: flex; flex-wrap: wrap; gap: 5px; }
+.outcome-tags span { padding: 3px 7px; border-radius: 999px; background: #f0e8f4; color: #765292; font-size: 9px; font-weight: 700; }
 .project-row__status { font-size: 11px; text-transform: uppercase; }
 .project-row__actions { display: flex; justify-content: flex-end; }
 .project-row__actions a { border-bottom: 1px solid #000; color: #000; font-size: 12px; text-decoration: none; }
@@ -111,7 +118,7 @@ h1 { margin: 0; font-size: 26px; font-weight: 500; line-height: 1; letter-spacin
 @media (max-width: 840px) {
   .project-list__header { display: none; }
   .project-row { grid-template-columns: 1fr auto; gap: 12px 20px; padding: 22px 0; }
-  .project-row__title { grid-column: 1 / -1; }
+  .project-name-cell { grid-column: 1 / -1; }
   .project-row > span::before { content: attr(data-label) " — "; color: #777; }
   .project-row__actions { grid-column: 2; grid-row: 2 / span 2; }
   .project-row__detail { grid-template-columns: 1fr; }

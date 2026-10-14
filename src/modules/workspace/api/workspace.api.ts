@@ -9,6 +9,7 @@ import type {
   InviteMemberPayload,
   ChangeRolePayload,
   ProjectPayload,
+  ProjectInterviewFile,
   WorkspaceProject
 } from "@/modules/workspace/types/workspace.types";
 
@@ -26,6 +27,25 @@ export const updateProject = (projectId: string, payload: Partial<ProjectPayload
 
 export const deleteProject = (projectId: string): Promise<void> =>
   httpClient.delete(`/project/${encodeURIComponent(projectId)}`);
+
+export const uploadProjectInterviewFile = (projectId: string, file: File): Promise<ProjectInterviewFile> => {
+  const body = new FormData();
+  body.append("file", file);
+  return httpClient.post<ProjectInterviewFile>(
+    `/project/${encodeURIComponent(projectId)}/interview-files`,
+    body
+  );
+};
+
+export const downloadProjectInterviewFile = (projectId: string, fileId: string): Promise<Blob> =>
+  httpClient.getBlob(
+    `/project/${encodeURIComponent(projectId)}/interview-files/${encodeURIComponent(fileId)}`
+  );
+
+export const deleteProjectInterviewFile = (projectId: string, fileId: string): Promise<void> =>
+  httpClient.delete(
+    `/project/${encodeURIComponent(projectId)}/interview-files/${encodeURIComponent(fileId)}`
+  );
 
 export const getGroups = (): Promise<GroupListResponse> =>
   httpClient.get<GroupListResponse>("/user/my_group");

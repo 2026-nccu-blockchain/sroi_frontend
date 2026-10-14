@@ -11,6 +11,20 @@ export interface ProjectStakeholder {
   position?: number;
 }
 
+export interface ProjectOutcome {
+  outcome_id?: string;
+  name: string;
+  position?: number;
+}
+
+export interface ProjectInterviewFile {
+  file_id: string;
+  original_name: string;
+  content_type: string;
+  size_bytes: number;
+  create_time: string | null;
+}
+
 export interface LinkedProjectForm {
   form_id: string;
   title?: string | null;
@@ -23,11 +37,15 @@ export interface WorkspaceProject {
   name: string;
   organization: string;
   description: string;
+  actual_input_cost: number;
   year: number;
   status: ProjectStatus;
   linked_form_id?: string | null;
   linked_form?: LinkedProjectForm | null;
+  forms: LinkedProjectForm[];
   stakeholders: ProjectStakeholder[];
+  outcomes: ProjectOutcome[];
+  interview_files: ProjectInterviewFile[];
   create_time?: string | null;
   update_time?: string | null;
 }
@@ -36,10 +54,11 @@ export interface ProjectPayload {
   name: string;
   organization: string;
   description: string;
+  actual_input_cost: number;
   year: number;
   status: ProjectStatus;
-  linked_form_id: string | null;
   stakeholders: Array<Omit<ProjectStakeholder, "stakeholder_id" | "position">>;
+  outcomes: Array<Omit<ProjectOutcome, "position">>;
 }
 
 // 後端 Group.status 的值
