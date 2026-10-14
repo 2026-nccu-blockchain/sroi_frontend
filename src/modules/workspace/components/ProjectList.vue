@@ -2,6 +2,7 @@
 import { computed, ref } from "vue";
 
 import type { WorkspaceProject } from "@/modules/workspace/types/workspace.types";
+import { formatProjectPeriod } from "@/shared/utils/date";
 
 const props = defineProps<{
   projects: WorkspaceProject[];
@@ -53,7 +54,7 @@ const statusLabel = (project: WorkspaceProject): string => {
       <div class="project-list__header" aria-hidden="true">
         <span>專案名稱</span>
         <span>所屬單位</span>
-        <span>年度</span>
+        <span>專案期間</span>
         <span>利害關係人</span>
         <span>連結表單</span>
         <span>操作</span>
@@ -70,7 +71,7 @@ const statusLabel = (project: WorkspaceProject): string => {
           </div>
         </div>
         <span data-label="所屬單位">{{ project.organization }}</span>
-        <span data-label="年度">{{ project.year }}</span>
+        <span data-label="專案期間">{{ formatProjectPeriod(project.begin, project.end) }}</span>
         <span data-label="利害關係人">{{ project.stakeholders.length }} 位</span>
         <span v-if="project.forms.length" data-label="連結表單" class="linked-form">
           {{ project.forms.length }} 份表單
