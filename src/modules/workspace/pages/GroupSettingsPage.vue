@@ -12,6 +12,7 @@ import {
 } from "@/modules/workspace/api/workspace.api";
 import ConfirmDialog from "@/modules/workspace/components/ConfirmDialog.vue";
 import MemberTable from "@/modules/workspace/components/MemberTable.vue";
+import { GROUP_ROLE_LABELS, GROUP_ROLES } from "@/modules/workspace/constants";
 import type { GroupInfo, GroupMember, GroupRole, GroupUser } from "@/modules/workspace/types/workspace.types";
 import { ApiError, toErrorMessage } from "@/shared/api/error-handler";
 
@@ -25,11 +26,6 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: "remove", label: "刪除成員" }
 ];
 
-const ROLE_LABELS: Record<GroupRole, string> = {
-  leader: "組長",
-  member: "組員"
-};
-
 const GROUP_SETTINGS_ERROR_MESSAGES: Record<string, string> = {
   "10001": "找不到使用者，或該使用者尚未通過驗證",
   "10008": "權限不足，只有組長可以進入群組設定",
@@ -37,7 +33,8 @@ const GROUP_SETTINGS_ERROR_MESSAGES: Record<string, string> = {
   "10014": "該使用者已經是群組成員",
   "10015": "無法更改自己的權限",
   "10016": "群組至少需要一位組長",
-  "10017": "權限沒有變更"
+  "10017": "權限沒有變更",
+  "10022": "請選擇要變更的權限"
 };
 
 const toMessage = (err: unknown): string =>
@@ -59,7 +56,7 @@ const members = computed<GroupMember[]>(() => {
 
   return [
     ...group.value.group_leaders.map((user) => ({ ...user, role: "leader" as const })),
-    ...group.value.group_members.map((user) => ({ ...user, role: "member" as const }))
+    ...group.value.group_members.map((user) => ({ ...user, role: user.group_role ?? ("viewer" as const) }))
   ];
 });
 
@@ -110,7 +107,7 @@ const handleRoleChange = async (member: GroupMember, event: Event): Promise<void
   actionError.value = "";
 
   try {
-    await changeMemberRole(props.groupId, { user_id: member.user_id, is_leader: role === "leader" });
+    await changeMemberRole(props.groupId, { user_id: member.user_id, group_role: role });
     await refreshGroup();
   } catch (err) {
     select.value = member.role;
@@ -125,6 +122,7 @@ const keyword = ref("");
 const searchResults = ref<GroupUser[]>([]);
 const searching = ref(false);
 const searched = ref(false);
+const inviteRole = ref<GroupRole>("viewer");
 
 const handleSearch = async (): Promise<void> => {
   const search = keyword.value.trim();
@@ -155,7 +153,11 @@ const confirmDialog = computed(() => {
   const who = `${user.name}（${user.campus_id}）`;
 
   return type === "add"
-    ? { title: "加入成員", message: `確定要將 ${who} 加入群組嗎？`, confirmText: "加入" }
+    ? {
+        title: "加入成員",
+        message: `確定要將 ${who} 以「${GROUP_ROLE_LABELS[inviteRole.value]}」身分加入群組嗎？`,
+        confirmText: "加入"
+      }
     : { title: "刪除成員", message: `確定要將 ${who} 移出群組嗎？`, confirmText: "刪除" };
 });
 
@@ -168,7 +170,7 @@ const handleConfirm = async (): Promise<void> => {
 
   try {
     if (type === "add") {
-      await inviteGroupMember(props.groupId, { user_id: user.user_id });
+      await inviteGroupMember(props.groupId, { user_id: user.user_id, group_role: inviteRole.value });
     } else {
       await deleteGroupMember(props.groupId, user.user_id);
     }
@@ -223,8 +225,7 @@ const handleConfirm = async (): Promise<void> => {
             :aria-label="`${user.name} 的權限`"
             @change="handleRoleChange(user, $event)"
           >
-            <option value="leader">組長</option>
-            <option value="member">組員</option>
+            <option v-for="role in GROUP_ROLES" :key="role" :value="role">{{ GROUP_ROLE_LABELS[role] }}</option>
           </select>
         </template>
       </MemberTable>
@@ -232,6 +233,9 @@ const handleConfirm = async (): Promise<void> => {
       <div v-else-if="activeTab === 'add'" class="add-panel">
         <form class="search-form" @submit.prevent="handleSearch">
           <input v-model="keyword" type="search" placeholder="輸入姓名或學號" aria-label="搜尋使用者" />
+          <select v-model="inviteRole" class="role-select" aria-label="加入身分">
+            <option v-for="role in GROUP_ROLES" :key="role" :value="role">{{ GROUP_ROLE_LABELS[role] }}</option>
+          </select>
           <button class="button button--primary" type="submit" :disabled="searching || !keyword.trim()">
             {{ searching ? "搜尋中..." : "搜尋" }}
           </button>
@@ -247,7 +251,7 @@ const handleConfirm = async (): Promise<void> => {
 
       <MemberTable v-else :users="members" searchable>
         <template #action="{ user }">
-          <span class="muted">{{ ROLE_LABELS[user.role] }}</span>
+          <span class="muted">{{ GROUP_ROLE_LABELS[user.role] }}</span>
           <button
             class="button button--danger"
             type="button"
