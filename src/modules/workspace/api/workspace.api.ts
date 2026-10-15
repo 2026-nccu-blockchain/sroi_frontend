@@ -8,6 +8,7 @@ import type {
   GroupUserSearchResponse,
   InviteMemberPayload,
   ChangeRolePayload,
+  ProjectCreatePayload,
   ProjectPayload,
   ProjectInterviewFile,
   ProjectSROI,
@@ -21,7 +22,7 @@ export const getProjects = (): Promise<WorkspaceProject[]> =>
 export const getProject = (projectId: string): Promise<WorkspaceProject> =>
   httpClient.get<WorkspaceProject>(`/project/${encodeURIComponent(projectId)}`);
 
-export const createProject = (payload: ProjectPayload): Promise<WorkspaceProject> =>
+export const createProject = (payload: ProjectCreatePayload): Promise<WorkspaceProject> =>
   httpClient.post<WorkspaceProject>("/project", payload);
 
 export const updateProject = (projectId: string, payload: Partial<ProjectPayload>): Promise<WorkspaceProject> =>

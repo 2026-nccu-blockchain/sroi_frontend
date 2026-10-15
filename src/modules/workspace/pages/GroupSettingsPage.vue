@@ -150,7 +150,7 @@ const confirmDialog = computed(() => {
   if (!pending.value) return { title: "", message: "", confirmText: "" };
 
   const { type, user } = pending.value;
-  const who = `${user.name}（${user.campus_id}）`;
+  const who = user.campus_id ? `${user.name}（${user.campus_id}）` : user.name;
 
   return type === "add"
     ? {

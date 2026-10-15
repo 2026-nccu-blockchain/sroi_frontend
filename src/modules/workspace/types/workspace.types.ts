@@ -105,6 +105,12 @@ export interface ProjectSROIPayload {
   >>;
 }
 
+// 只有建立時能指定專案位置，建立後不能在個人 / 群組之間移動
+export interface ProjectCreatePayload extends ProjectPayload {
+  // 不帶就是個人專案
+  group_id?: string | null;
+}
+
 // 後端 Group.status 的值
 export type GroupReviewStatus = "verified" | "in_progress" | "unverified";
 
@@ -141,7 +147,8 @@ export interface GroupPayload {
 
 export interface GroupUser {
   user_id: string;
-  campus_id: string;
+  // 資料庫允許空值，舊帳號可能沒有學號
+  campus_id: string | null;
   name: string;
 }
 
@@ -161,7 +168,8 @@ export interface GroupInfo extends Group {
 export interface GroupInfoResponse extends ApiEnvelope, GroupInfo {}
 
 export interface GroupRoleResponse extends ApiEnvelope {
-  group_role: GroupRole;
+  // 管理員查自己不在的群組時不會帶
+  group_role?: GroupRole | null;
 }
 
 export interface GroupMember extends GroupUser {

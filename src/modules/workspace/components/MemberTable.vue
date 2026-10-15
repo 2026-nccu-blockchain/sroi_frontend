@@ -21,7 +21,7 @@ const filteredUsers = computed(() => {
   if (!keyword) return props.users;
 
   return props.users.filter(
-    (user) => user.name.toLowerCase().includes(keyword) || user.campus_id.toLowerCase().includes(keyword)
+    (user) => user.name.toLowerCase().includes(keyword) || (user.campus_id ?? "").toLowerCase().includes(keyword)
   );
 });
 </script>
