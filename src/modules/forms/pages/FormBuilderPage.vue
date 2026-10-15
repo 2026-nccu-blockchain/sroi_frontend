@@ -80,6 +80,7 @@ const dragOverQuestionId = ref<string | null>(null);
 let saveTimer: number | undefined;
 let activeSave: Promise<void> | null = null;
 let pendingSave = false;
+let editRevision = 0;
 
 const activeTab = ref<"questions" | "responses" | "settings">("questions");
 const showThemePanel = ref(false);
@@ -183,8 +184,8 @@ const initializeForm = async (): Promise<void> => {
       await router.replace({ name: "my-projects" });
       return;
     }
-    const cachedProject = projectStore.projects.find((item) => item.project_id === sourceProjectId.value);
-    const project = cachedProject ?? await getProject(sourceProjectId.value);
+    // 編輯器必須以後端最新結構為準，避免 Pinia 舊快取蓋掉剛儲存的區段。
+    const project = await getProject(sourceProjectId.value);
     projectStore.upsert(project);
 
     const requestedFormId = String(route.params.formId ?? "");
@@ -192,8 +193,7 @@ const initializeForm = async (): Promise<void> => {
       if (!project.forms.some((form) => form.form_id === requestedFormId)) {
         throw new Error("這份表單沒有連結到目前專案");
       }
-      const cachedForm = formStore.forms.find((item) => item.form_id === requestedFormId);
-      const form = cachedForm ?? await getForm(requestedFormId);
+      const form = await getForm(requestedFormId);
       formStore.upsert(form);
       hydrate(form);
       saved.value = true;
@@ -270,13 +270,23 @@ const persistDraft = (): Promise<void> => {
   pendingSave = false;
   saving.value = true;
   saveError.value = "";
+  const revisionAtStart = editRevision;
+  const titleSnapshot = formTitle.value;
+  const descriptionSnapshot = formDescription.value;
+  const blockSnapshot = blocks.value.map((block) => ({ ...block }));
+  const questionSnapshot = questions.value.map((question) => ({
+    ...question,
+    options: question.options.map((option) => ({ ...option }))
+  }));
   activeSave = (async () => {
     try {
-      await updateForm(formId.value, { title: formTitle.value, content: formDescription.value });
+      await updateForm(formId.value, { title: titleSnapshot, content: descriptionSnapshot });
       const persistedBlocks: Block[] = [];
       const persistedQuestions: Question[] = [];
+      const persistedBlockByOriginalId = new Map<string, Block>();
+      const persistedQuestionByOriginalId = new Map<string, Question>();
 
-      for (const [blockIndex, block] of blocks.value.entries()) {
+      for (const [blockIndex, block] of blockSnapshot.entries()) {
         const originalBlockId = block.id;
         const page = originalBlockId.startsWith("temp-block-")
           ? await createPage(formId.value, {
@@ -295,15 +305,17 @@ const persistDraft = (): Promise<void> => {
             position: blockIndex
           });
 
-        persistedBlocks.push({
+        const persistedBlock: Block = {
           id: page.page_id,
           outcomeId: page.project_outcome_id,
           isRespondentInfo: page.is_respondent_info,
           title: page.title ?? "",
           content: page.content
-        });
+        };
+        persistedBlocks.push(persistedBlock);
+        persistedBlockByOriginalId.set(originalBlockId, persistedBlock);
 
-        const blockQuestions = questions.value.filter((question) => question.pageId === originalBlockId);
+        const blockQuestions = questionSnapshot.filter((question) => question.pageId === originalBlockId);
         for (const [questionIndex, question] of blockQuestions.entries()) {
           const response = question.id.startsWith("temp-")
             ? await createQuestionApi(formId.value, page.page_id, toPayload(question, questionIndex))
@@ -311,19 +323,54 @@ const persistDraft = (): Promise<void> => {
           const persistedQuestion = fromResponse(response);
           persistedQuestion.pageId = page.page_id;
           persistedQuestions.push(persistedQuestion);
+          persistedQuestionByOriginalId.set(question.id, persistedQuestion);
         }
       }
 
-      blocks.value = persistedBlocks;
-      questions.value = persistedQuestions;
       const structured = await saveFormStructure(formId.value, persistedBlocks.map((block) => ({
         page_id: block.id,
         question_ids: persistedQuestions
           .filter((question) => question.pageId === block.id)
           .map((question) => question.id)
       })));
+
+      const blockIdMap = new Map(
+        [...persistedBlockByOriginalId].map(([originalId, block]) => [originalId, block.id])
+      );
+      const questionIdMap = new Map(
+        [...persistedQuestionByOriginalId].map(([originalId, question]) => [originalId, question.id])
+      );
+
+      activeBlockId.value = blockIdMap.get(activeBlockId.value) ?? activeBlockId.value;
+      activeQuestionId.value = questionIdMap.get(activeQuestionId.value) ?? activeQuestionId.value;
+
+      if (editRevision === revisionAtStart) {
+        blocks.value = persistedBlocks;
+        questions.value = persistedQuestions;
+      } else {
+        // 儲存請求期間可能又新增題目或繼續輸入；只回填後端 ID，保留較新的畫面狀態。
+        blocks.value = blocks.value.map((block) => {
+          const persisted = persistedBlockByOriginalId.get(block.id);
+          return persisted ? { ...block, id: persisted.id } : block;
+        });
+        questions.value = questions.value.map((question) => {
+          const persisted = persistedQuestionByOriginalId.get(question.id);
+          const pageId = blockIdMap.get(question.pageId) ?? question.pageId;
+          if (!persisted) return pageId === question.pageId ? question : { ...question, pageId };
+          return {
+            ...question,
+            id: persisted.id,
+            pageId: persisted.pageId,
+            isTemp: persisted.isTemp,
+            options: question.options.map((option, index) => ({
+              ...option,
+              id: option.id ?? persisted.options[index]?.id
+            }))
+          };
+        });
+      }
       formStore.upsert(structured);
-      saved.value = true;
+      saved.value = editRevision === revisionAtStart;
     } catch (error) {
       saveError.value = error instanceof Error ? error.message : "儲存失敗";
       saved.value = false;
@@ -336,6 +383,7 @@ const persistDraft = (): Promise<void> => {
 };
 
 const touch = (): void => {
+  editRevision += 1;
   saved.value = false;
   pendingSave = true;
   saveError.value = "";
@@ -653,6 +701,8 @@ const addRespondentInfoBlock = async (): Promise<void> => {
   touch();
   await nextTick();
   document.getElementById(`block-${tempBlockId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  window.clearTimeout(saveTimer);
+  await persistDraft();
 };
 
 const removeBlock = async (blockId: string): Promise<void> => {
@@ -762,8 +812,8 @@ const publish = async (): Promise<void> => {
   window.clearTimeout(saveTimer);
   saveError.value = "";
   try {
-    await persistDraft();
-    if (!formId.value || saveError.value) return;
+    if (!saved.value) await persistDraft();
+    if (!formId.value || saveError.value || !saved.value) return;
     const published = await updateForm(formId.value, {
       status: "published"
     });
@@ -1082,29 +1132,6 @@ onMounted(() => void initializeForm());
 
 <template>
   <div class="builder-shell">
-  <div
-  v-if="showQuestionTypeMenu"
-  style="position: fixed; inset: 0; z-index: 9999; background: rgba(0,0,0,.35); display: flex; align-items: center; justify-content: center;"
-  @click.self="showQuestionTypeMenu = false"
->
-  <div style="background: white; padding: 24px; border-radius: 12px; min-width: 300px;">
-    <h3>選擇題型</h3>
-
-    <button
-      v-for="type in questionTypes"
-      :key="type.value"
-      type="button"
-      style="display: block; width: 100%; padding: 12px; margin-top: 8px; cursor: pointer;"
-      @click="addQuestionOfType(type.value)"
-    >
-      {{ type.label }}
-    </button>
-
-    <button type="button" style="margin-top: 16px;" @click="showQuestionTypeMenu = false">
-      取消
-    </button>
-  </div>
-</div>
     <header class="topbar">
       <div class="topbar__left">
         <button class="icon-button icon-button--back" type="button" aria-label="返回" @click="goBack">
