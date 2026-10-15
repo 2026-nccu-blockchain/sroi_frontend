@@ -5,6 +5,7 @@ import { storeToRefs } from "pinia";
 import { useAuth } from "@/modules/auth/composables/useAuth";
 import { useProjectStore } from "@/modules/workspace/store/project.store";
 import type { WorkspaceProject } from "@/modules/workspace/types/workspace.types";
+import { formatProjectPeriod } from "@/shared/utils/date";
 
 const { isAuthenticated } = useAuth();
 const projectStore = useProjectStore();
@@ -40,7 +41,7 @@ onMounted(async () => {
 
     <div v-else class="project-list">
       <div class="project-list__header" aria-hidden="true">
-        <span>專案名稱</span><span>所屬單位</span><span>年度</span><span>狀態</span><span>操作</span>
+        <span>專案名稱</span><span>所屬單位</span><span>專案期間</span><span>狀態</span><span>操作</span>
       </div>
 
       <article
@@ -63,7 +64,7 @@ onMounted(async () => {
           </div>
         </div>
         <span data-label="所屬單位">{{ project.organization || "—" }}</span>
-        <span data-label="年度">{{ project.year }}</span>
+        <span data-label="專案期間">{{ formatProjectPeriod(project.begin, project.end) }}</span>
         <span data-label="狀態" class="project-row__status">{{ statusLabel(project) }}</span>
         <div class="project-row__actions">
           <RouterLink :to="`/workspace/projects/${project.project_id}/edit`">編輯</RouterLink>
