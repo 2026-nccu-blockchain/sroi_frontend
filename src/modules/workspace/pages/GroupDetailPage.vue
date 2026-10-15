@@ -87,7 +87,7 @@ watch(() => props.groupId, loadGroup, { immediate: true });
             class="group-projects__new"
             :to="{ name: 'project-new', query: { group: groupId } }"
           >
-            ＋ 新增群組專案
+            <span aria-hidden="true">＋</span> 新增群組專案
           </RouterLink>
         </h2>
         <ul v-if="groupProjects.length" class="group-projects__list">
@@ -174,11 +174,22 @@ watch(() => props.groupId, loadGroup, { immediate: true });
 }
 
 .group-projects__new {
-  border-bottom: 1px solid #000;
-  color: #000;
-  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 8px 14px;
+  border: 1px solid #000;
+  background: #000;
+  color: #fff;
+  font-size: 13px;
   letter-spacing: 0;
   text-decoration: none;
+}
+
+.group-projects__new:hover {
+  background: #fff;
+  color: #000;
 }
 
 .group-projects__list {
