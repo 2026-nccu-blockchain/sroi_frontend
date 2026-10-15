@@ -6,8 +6,9 @@ export interface ProjectStakeholder {
   stakeholder_id?: string;
   name: string;
   role: string;
-  email?: string | null;
   notes: string;
+  pre_form_id?: string | null;
+  post_form_id?: string | null;
   position?: number;
 }
 
@@ -19,6 +20,7 @@ export interface ProjectOutcome {
 
 export interface ProjectInterviewFile {
   file_id: string;
+  stakeholder_id: string;
   original_name: string;
   content_type: string;
   size_bytes: number;
@@ -42,10 +44,9 @@ export interface WorkspaceProject {
   organization: string;
   description: string;
   actual_input_cost: number;
-  year: number;
+  begin: string;
+  end: string;
   status: ProjectStatus;
-  linked_form_id?: string | null;
-  linked_form?: LinkedProjectForm | null;
   forms: LinkedProjectForm[];
   stakeholders: ProjectStakeholder[];
   outcomes: ProjectOutcome[];
@@ -59,10 +60,49 @@ export interface ProjectPayload {
   organization: string;
   description: string;
   actual_input_cost: number;
-  year: number;
+  begin: string;
+  end: string;
   status: ProjectStatus;
-  stakeholders: Array<Omit<ProjectStakeholder, "stakeholder_id" | "position">>;
+  stakeholders: Array<Omit<ProjectStakeholder, "position">>;
   outcomes: Array<Omit<ProjectOutcome, "position">>;
+}
+
+export interface OutcomeValuation {
+  outcome_id: string;
+  outcome_name: string;
+  position: number;
+  quantity: number;
+  financial_proxy_value: number;
+  deadweight_rate: number;
+  attribution_rate: number;
+  displacement_rate: number;
+  duration_years: number;
+  dropoff_rate: number;
+  is_included: boolean;
+  scale_score: number | null;
+  scale_answer_count: number;
+  suggested_eligible: boolean | null;
+  calculated_value: number;
+}
+
+export interface ProjectSROI {
+  project_id: string;
+  project_name: string;
+  actual_input_cost: number;
+  discount_rate: number;
+  outcomes: OutcomeValuation[];
+  total_social_value: number;
+  sroi_ratio: number | null;
+}
+
+export interface ProjectSROIPayload {
+  actual_input_cost: number;
+  discount_rate: number;
+  outcomes: Array<Pick<OutcomeValuation,
+    "outcome_id" | "quantity" | "financial_proxy_value" | "deadweight_rate" |
+    "attribution_rate" | "displacement_rate" | "duration_years" | "dropoff_rate" |
+    "is_included"
+  >>;
 }
 
 // 後端 Group.status 的值
