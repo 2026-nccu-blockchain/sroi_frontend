@@ -37,6 +37,7 @@ interface Question {
   id: string;
   pageId: string;
   title: string;
+  description: string;
   type: QuestionType;
   required: boolean;
   options: QuestionOption[];
@@ -49,6 +50,7 @@ interface Question {
 interface Block {
   id: string;
   outcomeId: string | null;
+  isRespondentInfo: boolean;
   title: string;
   content: string;
 }
@@ -85,14 +87,24 @@ const showSettingsPanel = ref(false);
 const showQuestionTypeMenu = ref(false);
 
 const questionTypes: { value: QuestionType; label: string; icon: string }[] = [
-  { value: "description", label: "題目敘述", icon: "T" },
+  { value: "description", label: "說明", icon: "T" },
   { value: "text", label: "問答題", icon: "☰" },
   { value: "scale", label: "量表", icon: "⌁" },
   { value: "date", label: "日期", icon: "□" },
   { value: "choice", label: "選擇題", icon: "◉" }
 ];
 
+const scaleSizes = [3, 5, 7, 9] as const;
+
+const normalizeScaleSize = (value: number | null | undefined): number => {
+  if (value && scaleSizes.includes(value as (typeof scaleSizes)[number])) return value;
+  return scaleSizes.reduce((closest, size) =>
+    Math.abs(size - (value ?? 5)) < Math.abs(closest - (value ?? 5)) ? size : closest
+  );
+};
+
 const questions = ref<Question[]>([]);
+const respondentBlock = computed(() => blocks.value.find((block) => block.isRespondentInfo) ?? null);
 const userInitial = computed(() => (user.value?.name || user.value?.email || "U").charAt(0).toUpperCase());
 const canViewResponses = computed(() => formStatus.value === "published" && Boolean(formId.value));
 
@@ -114,8 +126,8 @@ const apiToType: Record<ApiQuestionType, QuestionType> = {
 
 const toPayload = (question: Question, position: number): QuestionPayload => ({
   question_type: typeToApi[question.type],
-  title: question.type === "description" ? null : question.title,
-  content: question.type === "description" ? question.title : "",
+  title: question.title,
+  content: question.type === "description" ? question.description : "",
   is_required: question.type === "description" ? false : question.required,
   position,
   scale_begin: question.type === "scale" ? question.scaleBegin : null,
@@ -129,12 +141,13 @@ const toPayload = (question: Question, position: number): QuestionPayload => ({
 const fromResponse = (question: QuestionResponse): Question => ({
   id: question.question_id,
   pageId: question.page_id,
-  title: question.question_type === "DS" ? question.content : question.title ?? "",
+  title: question.question_type === "DS" ? question.title ?? question.content : question.title ?? "",
+  description: question.question_type === "DS" && question.title ? question.content : "",
   type: apiToType[question.question_type],
   required: question.is_required,
   options: question.options.map((option) => ({ id: option.option_id, label: option.label })),
-  scaleBegin: question.scale_begin ?? 1,
-  scaleEnd: question.scale_end ?? 5,
+  scaleBegin: 1,
+  scaleEnd: normalizeScaleSize(question.scale_end),
   isMultiple: question.is_multiple,
   isTemp: question.is_temp
 });
@@ -147,6 +160,7 @@ const hydrate = (form: FormResponse): void => {
   blocks.value = form.pages.map((page) => ({
     id: page.page_id,
     outcomeId: page.project_outcome_id,
+    isRespondentInfo: page.is_respondent_info,
     title: page.title ?? "未命名區塊",
     content: page.content
   }));
@@ -186,21 +200,32 @@ const initializeForm = async (): Promise<void> => {
       return;
     }
 
-    const defaultPages = project.outcomes.length
+    const outcomePages = project.outcomes.length
       ? project.outcomes.map((outcome, index) => ({
         project_outcome_id: outcome.outcome_id ?? null,
+        is_respondent_info: false,
         title: outcome.name,
         content: "",
-        position: index,
+        position: index + 1,
         questions: []
       }))
-      : [{ project_outcome_id: null, title: "未命名區塊", content: "", position: 0, questions: [] }];
+      : [{ project_outcome_id: null, is_respondent_info: false, title: "未命名區塊", content: "", position: 1, questions: [] }];
     const created = await createForm({
       project_id: sourceProjectId.value,
       title: formTitle.value,
       content: formDescription.value,
       status: "draft",
-      pages: defaultPages
+      pages: [
+        {
+          project_outcome_id: null,
+          is_respondent_info: true,
+          title: "基本資料",
+          content: "請填寫以下基本資料，Email 將用於確認每人只填寫一次。",
+          position: 0,
+          questions: []
+        },
+        ...outcomePages
+      ]
     });
     formStore.upsert(created);
     hydrate(created);
@@ -256,6 +281,7 @@ const persistDraft = (): Promise<void> => {
         const page = originalBlockId.startsWith("temp-block-")
           ? await createPage(formId.value, {
             project_outcome_id: block.outcomeId,
+            is_respondent_info: block.isRespondentInfo,
             title: block.title,
             content: block.content,
             position: blockIndex,
@@ -263,6 +289,7 @@ const persistDraft = (): Promise<void> => {
           })
           : await updatePage(originalBlockId, {
             project_outcome_id: block.outcomeId,
+            is_respondent_info: block.isRespondentInfo,
             title: block.title,
             content: block.content,
             position: blockIndex
@@ -271,6 +298,7 @@ const persistDraft = (): Promise<void> => {
         persistedBlocks.push({
           id: page.page_id,
           outcomeId: page.project_outcome_id,
+          isRespondentInfo: page.is_respondent_info,
           title: page.title ?? "",
           content: page.content
         });
@@ -322,11 +350,6 @@ const questionsForBlock = (blockId: string): Question[] =>
 const addQuestionOfType = async (type: QuestionType): Promise<void> => {
   showQuestionTypeMenu.value = false;
 
-  if (type === "description") {
-    await addDescription();
-    return;
-  }
-
   let blockId = activeBlockId.value || blocks.value[0]?.id || "";
 
 // 如果目前完全沒有成果區塊，就先在前端自動建立第一個區塊
@@ -336,6 +359,7 @@ if (!blockId) {
   const firstBlock: Block = {
     id: tempBlockId,
     outcomeId: null,
+    isRespondentInfo: false,
     title: "",
     content: ""
   };
@@ -352,7 +376,8 @@ if (!blockId) {
   const question: Question = {
     id: tempId,
     pageId: blockId,
-    title: "未命名問題",
+    title: type === "description" ? "說明標題" : "未命名問題",
+    description: "",
     type: type,
     required: false,
 
@@ -377,6 +402,7 @@ if (!blockId) {
 
   saved.value = false;
   saveError.value = "";
+  touch();
 
   await nextTick();
 
@@ -386,45 +412,6 @@ if (!blockId) {
       behavior: "smooth",
       block: "center"
     });
-};
-
-const addDescription = async (blockId = activeBlockId.value): Promise<void> => {
-  if (!formId.value || !blockId) return;
-
-  try {
-    const position = questionsForBlock(blockId).length;
-
-    const response = await createQuestionApi(formId.value, blockId, {
-      question_type: "DS",
-      title: null,
-      content: "標題與說明",
-      is_required: false,
-      position,
-      scale_begin: null,
-      scale_end: null,
-      is_multiple: false,
-      options: []
-    });
-
-    const question = fromResponse(response);
-
-    questions.value.push(question);
-    activeBlockId.value = blockId;
-    activeQuestionId.value = question.id;
-    saved.value = true;
-
-    await nextTick();
-
-    document
-      .getElementById(`question-${question.id}`)
-      ?.scrollIntoView({
-        behavior: "smooth",
-        block: "center"
-      });
-  } catch (error) {
-    saveError.value =
-      error instanceof Error ? error.message : "新增標題失敗";
-  }
 };
 
 
@@ -451,7 +438,10 @@ const previewForm = async (): Promise<void> => {
 
     const renderQuestion = (question: Question): string => {
       if (question.type === "description") {
-        return `<div class="description">${esc(question.title)}</div>`;
+        const description = question.description
+          ? `<p>${esc(question.description)}</p>`
+          : "";
+        return `<section class="description"><h2>${esc(question.title)}</h2>${description}</section>`;
       }
       const required = question.required ? '<span class="required">*</span>' : "";
       let answer = "";
@@ -490,7 +480,7 @@ header{border-top:9px solid #765292}h1{margin:0 0 10px}h2{color:#684884}
 p{color:#756b79}.q{padding:22px 0;border-top:1px solid #eeeaf0}.q h3{font-size:15px}
 textarea,input[type=date]{box-sizing:border-box;width:100%;padding:12px;border:1px solid #ddd7e1;border-radius:8px}
 .choice{display:flex;gap:10px;margin:12px 0}.scale{display:flex;gap:18px;flex-wrap:wrap}
-.scale label{display:grid;justify-items:center;gap:6px}.required{color:#b1485c}.description{padding:14px;border-left:3px solid #aa8dbd;background:#f8f4fa}
+.scale label{display:grid;justify-items:center;gap:6px}.required{color:#b1485c}.description{padding:22px;border:1px solid #e2dde5;border-radius:10px;background:#fff}.description h2{margin:0;color:#403a44;font-size:16px}.description p{margin:24px 0 0;color:#5f5863;font-size:13px;line-height:1.8;white-space:pre-wrap}
 .badge{display:inline-block;margin-bottom:12px;padding:5px 9px;border-radius:999px;background:#eee7f3;color:#684884;font-size:12px}
 </style></head><body><main><header><span class="badge">預覽模式</span><h1>${esc(formTitle.value)}</h1><p>${esc(formDescription.value)}</p></header>${body}</main></body></html>`);
     previewWindow.document.close();
@@ -507,13 +497,8 @@ const confirmRemoveQuestion = async (id: string): Promise<void> => {
 
 
 const normalizeScale = (question: Question): void => {
-  if (question.scaleBegin < 0) question.scaleBegin = 0;
-  if (question.scaleEnd > 10) question.scaleEnd = 10;
-
-  if (question.scaleEnd <= question.scaleBegin) {
-    question.scaleEnd = Math.min(question.scaleBegin + 1, 10);
-  }
-
+  question.scaleBegin = 1;
+  question.scaleEnd = normalizeScaleSize(question.scaleEnd);
   touch();
 };
 
@@ -602,6 +587,10 @@ const changeType = (question: Question): void => {
   if (question.type === "choice" && question.options.length === 0) {
     question.options = [{ label: "選項 1" }, { label: "選項 2" }];
   }
+  if (question.type === "scale") {
+    question.scaleBegin = 1;
+    question.scaleEnd = normalizeScaleSize(question.scaleEnd);
+  }
   if (question.type !== "choice") {
     question.options = [];
     question.isMultiple = false;
@@ -621,6 +610,7 @@ const addBlock = async (): Promise<void> => {
   const newBlock: Block = {
     id: tempBlockId,
     outcomeId: null,
+    isRespondentInfo: false,
     title: `成果區塊 ${blocks.value.length + 1}`,
     content: ""
   };
@@ -645,7 +635,28 @@ const addBlock = async (): Promise<void> => {
     });
 };
 
+const addRespondentInfoBlock = async (): Promise<void> => {
+  if (respondentBlock.value) {
+    activeBlockId.value = respondentBlock.value.id;
+    return;
+  }
+  const tempBlockId = `temp-block-${Date.now()}`;
+  blocks.value.unshift({
+    id: tempBlockId,
+    outcomeId: null,
+    isRespondentInfo: true,
+    title: "基本資料",
+    content: "請填寫以下基本資料，Email 將用於確認每人只填寫一次。"
+  });
+  activeBlockId.value = tempBlockId;
+  activeQuestionId.value = "";
+  touch();
+  await nextTick();
+  document.getElementById(`block-${tempBlockId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+};
+
 const removeBlock = async (blockId: string): Promise<void> => {
+  if (blocks.value.find((block) => block.id === blockId)?.isRespondentInfo) return;
   if (blocks.value.length <= 1) return;
   try {
     if (!blockId.startsWith("temp-block-")) await deletePage(blockId);
@@ -713,14 +724,17 @@ const publishIssues = (): string[] => {
   if (!formTitle.value.trim() || formTitle.value.trim() === "未命名表單") {
     issues.push("請完成表單名稱");
   }
+  if (!respondentBlock.value) {
+    issues.push("請新增基本資料區段");
+  }
   for (const [blockIndex, block] of blocks.value.entries()) {
     const blockName = block.title.trim();
     const blockLabel = blockName || `區塊 ${blockIndex + 1}`;
     if (!blockName || blockName === "未命名區塊" || /^區塊 \d+$/.test(blockName)) {
-      issues.push(`請完成第 ${blockIndex + 1} 個關鍵精神區塊的名稱`);
+      issues.push(block.isRespondentInfo ? "請完成基本資料區段名稱" : `請完成第 ${blockIndex + 1} 個關鍵精神區塊的名稱`);
     }
     const blockQuestions = questionsForBlock(block.id);
-    if (!blockQuestions.some((question) => question.type !== "description")) {
+    if (!block.isRespondentInfo && !blockQuestions.some((question) => question.type !== "description")) {
       issues.push(`「${blockLabel}」至少需要一個可填答的問題`);
     }
     for (const [questionIndex, question] of blockQuestions.entries()) {
@@ -787,6 +801,18 @@ const exportWorksheet = (): void => {
   const questionHtml = allQuestions
     .map((question, index) => {
       const title = escapeHtml(question.title || "未命名問題");
+
+      if (question.type === "description") {
+        const description = question.description
+          ? `<div class="heading-description">${escapeHtml(question.description)}</div>`
+          : "";
+        return `
+          <div class="section-heading">
+            <div class="section-heading-title">${title}</div>
+            ${description}
+          </div>
+        `;
+      }
 
       // 問答題
       if (question.type === "text") {
@@ -919,6 +945,25 @@ const exportWorksheet = (): void => {
           font-weight: 600;
           font-size: 17px;
           margin-bottom: 12px;
+        }
+
+        .section-heading {
+          margin: 30px 0 20px;
+          padding-bottom: 10px;
+          border-bottom: 1px solid #bbb;
+          page-break-inside: avoid;
+        }
+
+        .section-heading-title {
+          font-size: 20px;
+          font-weight: 700;
+        }
+
+        .heading-description {
+          margin-top: 14px;
+          color: #555;
+          font-size: 14px;
+          white-space: pre-wrap;
         }
 
         .answer-line {
@@ -1144,8 +1189,17 @@ onMounted(() => void initializeForm());
           </label>
         </section>
 
+        <section v-if="!respondentBlock" class="respondent-block-reminder">
+          <div>
+            <strong>尚未建立基本資料區段</strong>
+            <p>這個區段會顯示給填答者，Email 會放在其中，也可新增姓名、電話或身分別等題目。</p>
+          </div>
+          <button type="button" @click="addRespondentInfoBlock">＋ 新增基本資料區段</button>
+        </section>
+
         <section
           v-for="(block, blockIndex) in blocks"
+          :id="`block-${block.id}`"
           :key="block.id"
           class="block-editor"
           :class="{ 'block-editor--active': activeBlockId === block.id }"
@@ -1153,12 +1207,21 @@ onMounted(() => void initializeForm());
         >
           <header class="block-editor__header">
             <div>
-              <span>成果區塊 {{ blockIndex + 1 }}</span>
+              <span>{{ block.isRespondentInfo ? '基本資料區段' : `成果區塊 ${blocks.slice(0, blockIndex + 1).filter((item) => !item.isRespondentInfo).length}` }}</span>
               <input v-model="block.title" aria-label="區塊名稱" placeholder="例如：同理心" @input="touch" />
               <textarea v-model="block.content" rows="1" aria-label="區塊說明" placeholder="說明這個區塊評估的能力" @input="touch"></textarea>
             </div>
-            <button type="button" :disabled="blocks.length === 1" @click.stop="removeBlock(block.id)">刪除區塊</button>
+            <button v-if="!block.isRespondentInfo" type="button" :disabled="blocks.filter((item) => !item.isRespondentInfo).length === 1" @click.stop="removeBlock(block.id)">刪除區塊</button>
           </header>
+
+          <section v-if="block.isRespondentInfo" class="system-email-field">
+            <div>
+              <span>系統必填欄位</span>
+              <strong>電子郵件 Email <b>*</b></strong>
+              <small>用於防止同一人重複填寫，此欄位無法刪除。</small>
+            </div>
+            <div class="system-email-field__preview">name@example.com</div>
+          </section>
 
         <section
           v-for="(question, index) in questionsForBlock(block.id)"
@@ -1185,7 +1248,25 @@ onMounted(() => void initializeForm());
             @dragend="endQuestionDrag"
           >⠿</button>
 
-          <div class="question-card__top">
+          <div v-if="question.type === 'description'" class="heading-editor">
+            <input
+              v-model="question.title"
+              class="heading-editor__title"
+              aria-label="說明標題"
+              placeholder="說明標題"
+              @input="touch"
+            />
+            <textarea
+              v-model="question.description"
+              class="heading-editor__description"
+              rows="3"
+              aria-label="說明內容"
+              placeholder="輸入說明內容"
+              @input="touch"
+            ></textarea>
+          </div>
+
+          <div v-else class="question-card__top">
             <div class="question-title-wrap">
               <span class="question-number">{{ index + 1 }}.</span>
               <input v-model="question.title" class="question-title" aria-label="問題標題" @input="touch" />
@@ -1201,43 +1282,22 @@ onMounted(() => void initializeForm());
             </label>
           </div>
 
-          <div class="answer-area">
-            <div v-if="question.type === 'description'" class="description-preview">
-              此區塊只顯示說明文字，不需要填答者回答。
-            </div>
-            <div v-else-if="question.type === 'text'" class="text-preview">填答者的文字回答</div>
+          <div v-if="question.type !== 'description'" class="answer-area">
+            <div v-if="question.type === 'text'" class="text-preview">填答者的文字回答</div>
             <div v-else-if="question.type === 'scale'">
   <div class="scale-settings">
     <label>
-      <span>起始值</span>
-      <select
-        v-model.number="question.scaleBegin"
-        @change="normalizeScale(question)"
-      >
-        <option
-          v-for="value in 10"
-          :key="`begin-${value - 1}`"
-          :value="value - 1"
-        >
-          {{ value - 1 }}
-        </option>
-      </select>
-    </label>
-
-    <span class="scale-settings__separator">～</span>
-
-    <label>
-      <span>結束值</span>
+      <span>量表選項數</span>
       <select
         v-model.number="question.scaleEnd"
         @change="normalizeScale(question)"
       >
         <option
-          v-for="value in 10"
-          :key="`end-${value + 1}`"
-          :value="value + 1"
+          v-for="size in scaleSizes"
+          :key="`scale-size-${size}`"
+          :value="size"
         >
-          {{ value + 1 }}
+          {{ size }} 點（1～{{ size }}）
         </option>
       </select>
     </label>
@@ -1303,6 +1363,16 @@ onMounted(() => void initializeForm());
 
 
     </main>
+
+    <div v-if="showQuestionTypeMenu" class="question-type-backdrop" @click="showQuestionTypeMenu = false">
+      <section class="question-type-menu" role="dialog" aria-modal="true" aria-label="選擇題型" @click.stop>
+        <strong>新增問題</strong>
+        <button v-for="type in questionTypes" :key="type.value" type="button" @click="addQuestionOfType(type.value)">
+          <span>{{ type.icon }}</span>{{ type.label }}
+        </button>
+        <button type="button" class="question-type-menu__cancel" @click="showQuestionTypeMenu = false">取消</button>
+      </section>
+    </div>
 
     <Transition name="toast">
       <div v-if="showToast" class="toast">表單已發布！分享連結已建立。</div>
@@ -1451,6 +1521,18 @@ svg { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: 
 .block-editor__header input:focus, .block-editor__header textarea:focus { border-bottom-color: #9879ad; }
 .block-editor__header > button { border: 0; background: transparent; color: #9a5160; font-size: 10px; }
 .block-editor__header > button:disabled { opacity: .35; }
+.respondent-block-reminder { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 20px 22px; border: 1px dashed #9e80b2; border-radius: 12px; background: #faf6fc; }
+.respondent-block-reminder div { display: grid; gap: 6px; }
+.respondent-block-reminder strong { color: #684884; font-size: 13px; }
+.respondent-block-reminder p { margin: 0; color: #756b79; font-size: 11px; line-height: 1.6; }
+.respondent-block-reminder button { flex: 0 0 auto; min-height: 40px; border: 0; border-radius: 8px; padding: 0 15px; background: #765292; color: #fff; font-size: 11px; font-weight: 700; }
+.system-email-field { display: grid; grid-template-columns: 1fr minmax(180px, .7fr); align-items: center; gap: 22px; padding: 20px 22px; border: 1px solid #dfd4e5; border-radius: 11px; background: #fff; }
+.system-email-field > div:first-child { display: grid; gap: 5px; }
+.system-email-field span { color: #806493; font-size: 9px; font-weight: 750; letter-spacing: .1em; }
+.system-email-field strong { color: #382f3e; font-size: 14px; }
+.system-email-field strong b { color: #b1485c; }
+.system-email-field small { color: #8a818e; font-size: 10px; line-height: 1.5; }
+.system-email-field__preview { padding: 10px 2px; border-bottom: 1px solid #bcb5c0; color: #aaa4ad; font-size: 12px; }
 .empty-questions { display: grid; justify-items: center; gap: 8px; padding: 42px 24px; border: 1px dashed #c9b8d3; border-radius: 12px; background: #fdfbfe; color: #5f5664; text-align: center; }
 .empty-questions p { margin: 0; color: #8a818e; font-size: 12px; }
 .empty-questions button { min-height: 40px; margin-top: 8px; padding: 0 18px; border: 0; border-radius: 8px; background: #765292; color: #fff; font-weight: 650; }
@@ -1481,6 +1563,13 @@ svg { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: 
 .question-title { min-width: 0; width: 100%; padding: 4px 0 12px; border: 0; outline: 0; color: #353039; background: transparent; font-size: 14px; font-weight: 600; }
 .required-mark { color: #b1485c; font-size: 13px; }
 
+.heading-editor { display: grid; gap: 24px; padding: 5px 2px 28px; }
+.heading-editor input, .heading-editor textarea { box-sizing: border-box; width: 100%; resize: vertical; border: 0; border-bottom: 1px solid transparent; outline: 0; background: transparent; color: #4d4651; }
+.heading-editor__title { padding: 5px 0 9px; font-size: 16px; font-weight: 650; line-height: 1.45; }
+.heading-editor__description { min-height: 70px; padding: 5px 0 9px; font: inherit; font-size: 13px; line-height: 1.75; }
+.question-card--active .heading-editor input, .question-card--active .heading-editor textarea { border-bottom-color: #e1dce4; }
+.heading-editor input:focus, .heading-editor textarea:focus { border-bottom-color: #765292 !important; }
+
 .type-select { position: relative; display: flex; align-items: center; height: 42px; border: 1px solid #ddd7e1; border-radius: 8px; background: #fff; color: #645e69; }
 .type-select__icon { width: 40px; color: #706179; text-align: center; font-size: 16px; }
 .type-select select { width: 100%; height: 100%; appearance: none; border: 0; outline: 0; background: transparent; color: inherit; font-size: 12px; cursor: pointer; }
@@ -1488,7 +1577,6 @@ svg { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: 
 .answer-area { min-height: 78px; padding: 27px 0 25px 26px; }
 .text-preview { width: 100%; padding: 0 0 22px; border-bottom: 1px dotted #bbb5be; color: #aaa4ad; font-size: 12px; }
 .text-preview--short { width: 58%; }
-.description-preview { padding: 15px 17px; border-left: 3px solid #aa8dbd; border-radius: 0 7px 7px 0; background: #f8f4fa; color: #77707b; font-size: 12px; line-height: 1.7; }
 .scale-settings {
   display: flex;
   align-items: flex-end;
@@ -1580,13 +1668,17 @@ svg { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: 
   .type-select { width: 100%; }
   .answer-area { padding-left: 2px; }
   .text-preview--short { width: 80%; }
+  .respondent-block-reminder { align-items: stretch; flex-direction: column; }
+  .system-email-field { grid-template-columns: 1fr; }
 }
 
-.question-type-menu { position: absolute; top: 0; right: 64px; width: 170px; padding: 10px; border: 1px solid #e3dbe8; border-radius: 12px; background: #fff; box-shadow: 0 10px 30px rgba(48,32,58,.14); z-index: 20; }
+.question-type-backdrop { position: fixed; z-index: 80; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(37, 25, 44, .28); backdrop-filter: blur(2px); }
+.question-type-menu { width: min(320px, 100%); padding: 14px; border: 1px solid #e3dbe8; border-radius: 14px; background: #fff; box-shadow: 0 18px 50px rgba(48,32,58,.2); }
 .question-type-menu strong { display: block; padding: 7px 9px 9px; color: #684884; font-size: 12px; }
 .question-type-menu button { display: flex !important; align-items: center; justify-content: flex-start !important; gap: 10px; width: 100% !important; height: 38px !important; padding: 0 10px !important; border: 0 !important; border-radius: 8px !important; background: transparent !important; color: #39333e !important; font-size: 12px !important; }
 .question-type-menu button:hover { background: #f6f1f8 !important; }
 .question-type-menu button span { width: 20px; color: #765292; text-align: center; }
+.question-type-menu .question-type-menu__cancel { justify-content: center !important; margin-top: 6px; border-top: 1px solid #eee8f1 !important; border-radius: 0 !important; color: #7e7582 !important; }
 .worksheet-export-btn {
   border: 1px solid #74459a;
   background: #ffffff;

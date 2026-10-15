@@ -63,6 +63,44 @@ export interface ProjectPayload {
   outcomes: Array<Omit<ProjectOutcome, "position">>;
 }
 
+export interface OutcomeValuation {
+  outcome_id: string;
+  outcome_name: string;
+  position: number;
+  quantity: number;
+  financial_proxy_value: number;
+  deadweight_rate: number;
+  attribution_rate: number;
+  displacement_rate: number;
+  duration_years: number;
+  dropoff_rate: number;
+  is_included: boolean;
+  scale_score: number | null;
+  scale_answer_count: number;
+  suggested_eligible: boolean | null;
+  calculated_value: number;
+}
+
+export interface ProjectSROI {
+  project_id: string;
+  project_name: string;
+  actual_input_cost: number;
+  discount_rate: number;
+  outcomes: OutcomeValuation[];
+  total_social_value: number;
+  sroi_ratio: number | null;
+}
+
+export interface ProjectSROIPayload {
+  actual_input_cost: number;
+  discount_rate: number;
+  outcomes: Array<Pick<OutcomeValuation,
+    "outcome_id" | "quantity" | "financial_proxy_value" | "deadweight_rate" |
+    "attribution_rate" | "displacement_rate" | "duration_years" | "dropoff_rate" |
+    "is_included"
+  >>;
+}
+
 // 後端 Group.status 的值
 export type GroupReviewStatus = "verified" | "in_progress" | "unverified";
 

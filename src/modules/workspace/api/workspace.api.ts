@@ -10,6 +10,8 @@ import type {
   ChangeRolePayload,
   ProjectPayload,
   ProjectInterviewFile,
+  ProjectSROI,
+  ProjectSROIPayload,
   WorkspaceProject
 } from "@/modules/workspace/types/workspace.types";
 
