@@ -216,7 +216,7 @@ const createProjectForm = async (): Promise<void> => {
   if (!project) return;
   await router.push({ name: "form-builder-new", params: { projectId: project.project_id } });
 };
-*/
+
 
 const createAndLinkForm = async (): Promise<void> => {
   console.log("按鈕有被點擊");
@@ -280,9 +280,16 @@ onMounted(async () => {
         <p class="eyebrow">PROJECT WORKSPACE</p>
         <h1>{{ isNew ? "新增專案" : "編輯專案" }}</h1>
       </div>
-      <button class="primary-button" type="button" :disabled="saving || loading" @click="persist">
-        {{ saving ? "儲存中…" : "儲存專案" }}
-      </button>
+      <div class="editor-header__actions">
+        <RouterLink
+          v-if="!isNew"
+          class="secondary-button"
+          :to="{ name: 'project-sroi', params: { projectId } }"
+        >SROI 計算 →</RouterLink>
+        <button class="primary-button" type="button" :disabled="saving || loading" @click="persist">
+          {{ saving ? "儲存中…" : "儲存專案" }}
+        </button>
+      </div>
     </header>
 
     <p v-if="error" class="message message--error">{{ error }}</p>
@@ -451,12 +458,14 @@ onMounted(async () => {
 <style scoped>
 .project-editor { display: grid; gap: 24px; color: #161616; }
 .editor-header { display: flex; align-items: end; justify-content: space-between; gap: 20px; padding-bottom: 22px; border-bottom: 2px solid #111; }
+.editor-header__actions { display: flex; align-items: center; gap: 10px; }
 .back-link { display: inline-block; margin-bottom: 24px; color: #555; font-size: 12px; text-decoration: none; }
 .eyebrow { margin: 0 0 8px; font-size: 11px; font-weight: 800; letter-spacing: .15em; }
 h1, h2, h3, p { margin: 0; }
 h1 { font-size: clamp(30px, 4vw, 48px); letter-spacing: -.05em; }
 h2 { font-size: 20px; }
 .primary-button, .secondary-button, .remove-button { min-height: 40px; border: 1px solid #111; padding: 8px 14px; background: #fff; color: #111; font: inherit; font-size: 12px; font-weight: 750; cursor: pointer; }
+.editor-header__actions .secondary-button { display: inline-flex; align-items: center; text-decoration: none; }
 .primary-button { background: #111; color: #fff; }
 button:disabled { cursor: not-allowed; opacity: .5; }
 .message { padding: 12px 14px; border: 1px solid #ccc; }
@@ -512,5 +521,5 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .form-hint { margin: -10px 0 0; color: #7b647f; font-size: 11px; }
 @media (max-width: 900px) { .field-grid, .stakeholder-row { grid-template-columns: 1fr; } .stakeholder-number { display: none; } }
 @media (max-width: 700px) { .linked-form-card, .form-linker, .form-actions { align-items: stretch; flex-direction: column; } }
-@media (max-width: 600px) { .editor-header, .section-heading { align-items: stretch; flex-direction: column; } .editor-card { padding: 18px; } .outcome-composer { grid-template-columns: 1fr; } }
+@media (max-width: 600px) { .editor-header, .section-heading { align-items: stretch; flex-direction: column; } .editor-header__actions { align-items: stretch; flex-direction: column; } .editor-header__actions .secondary-button { justify-content: center; } .editor-card { padding: 18px; } .outcome-composer { grid-template-columns: 1fr; } }
 </style>
