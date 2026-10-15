@@ -6,8 +6,9 @@ export interface ProjectStakeholder {
   stakeholder_id?: string;
   name: string;
   role: string;
-  email?: string | null;
   notes: string;
+  pre_form_id?: string | null;
+  post_form_id?: string | null;
   position?: number;
 }
 
@@ -19,6 +20,7 @@ export interface ProjectOutcome {
 
 export interface ProjectInterviewFile {
   file_id: string;
+  stakeholder_id: string;
   original_name: string;
   content_type: string;
   size_bytes: number;
@@ -38,10 +40,9 @@ export interface WorkspaceProject {
   organization: string;
   description: string;
   actual_input_cost: number;
-  year: number;
+  begin: string;
+  end: string;
   status: ProjectStatus;
-  linked_form_id?: string | null;
-  linked_form?: LinkedProjectForm | null;
   forms: LinkedProjectForm[];
   stakeholders: ProjectStakeholder[];
   outcomes: ProjectOutcome[];
@@ -55,9 +56,10 @@ export interface ProjectPayload {
   organization: string;
   description: string;
   actual_input_cost: number;
-  year: number;
+  begin: string;
+  end: string;
   status: ProjectStatus;
-  stakeholders: Array<Omit<ProjectStakeholder, "stakeholder_id" | "position">>;
+  stakeholders: Array<Omit<ProjectStakeholder, "position">>;
   outcomes: Array<Omit<ProjectOutcome, "position">>;
 }
 

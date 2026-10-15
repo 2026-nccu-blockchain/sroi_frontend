@@ -30,14 +30,13 @@ export const updateProject = (projectId: string, payload: Partial<ProjectPayload
 export const deleteProject = (projectId: string): Promise<void> =>
   httpClient.delete(`/project/${encodeURIComponent(projectId)}`);
 
-export const getProjectSROI = (projectId: string): Promise<ProjectSROI> =>
-  httpClient.get<ProjectSROI>(`/project/${encodeURIComponent(projectId)}/sroi`);
-
-export const saveProjectSROI = (projectId: string, payload: ProjectSROIPayload): Promise<ProjectSROI> =>
-  httpClient.put<ProjectSROI>(`/project/${encodeURIComponent(projectId)}/sroi`, payload);
-
-export const uploadProjectInterviewFile = (projectId: string, file: File): Promise<ProjectInterviewFile> => {
+export const uploadProjectInterviewFile = (
+  projectId: string,
+  stakeholderId: string,
+  file: File
+): Promise<ProjectInterviewFile> => {
   const body = new FormData();
+  body.append("stakeholder_id", stakeholderId);
   body.append("file", file);
   return httpClient.post<ProjectInterviewFile>(
     `/project/${encodeURIComponent(projectId)}/interview-files`,

@@ -15,6 +15,7 @@ import type {
   ProjectPayload,
   WorkspaceProject
 } from "@/modules/workspace/types/workspace.types";
+import { monthEndIso, monthStartIso, toMonthValue } from "@/shared/utils/date";
 
 const route = useRoute();
 const router = useRouter();
@@ -29,34 +30,49 @@ const uploadingInterviewFile = ref(false);
 const interviewFiles = ref<ProjectInterviewFile[]>([]);
 const projectForms = ref<LinkedProjectForm[]>([]);
 const newOutcomeName = ref("");
+const uploadStakeholderId = ref("");
+const currentYear = new Date().getFullYear();
+const beginMonth = ref(`${currentYear}-01`);
+const endMonth = ref(`${currentYear}-12`);
 
-const draft = reactive<ProjectPayload>({
+const draft = reactive<Omit<ProjectPayload, "begin" | "end">>({
   name: "",
   organization: "",
   description: "",
   actual_input_cost: 0,
-  year: new Date().getFullYear(),
   status: "draft",
   stakeholders: [],
   outcomes: []
 });
+
+// 已儲存（有 stakeholder_id）的利害關係人才能上傳檔案
+const savedStakeholders = computed(() => draft.stakeholders.filter((item) => item.stakeholder_id));
+
+const stakeholderName = (stakeholderId: string): string =>
+  draft.stakeholders.find((item) => item.stakeholder_id === stakeholderId)?.name || "未指定";
 
 const hydrate = (project: WorkspaceProject): void => {
   draft.name = project.name;
   draft.organization = project.organization;
   draft.description = project.description;
   draft.actual_input_cost = Number(project.actual_input_cost ?? 0);
-  draft.year = project.year;
+  beginMonth.value = toMonthValue(project.begin);
+  endMonth.value = toMonthValue(project.end);
   draft.status = project.status;
-  draft.stakeholders = project.stakeholders.map(({ name, role, email, notes }) => ({
+  draft.stakeholders = project.stakeholders.map(({ stakeholder_id, name, role, notes, pre_form_id, post_form_id }) => ({
+    stakeholder_id,
     name,
     role,
-    email: email ?? "",
-    notes
+    notes,
+    pre_form_id: pre_form_id ?? null,
+    post_form_id: post_form_id ?? null
   }));
   draft.outcomes = project.outcomes.map(({ outcome_id, name }) => ({ outcome_id, name }));
   interviewFiles.value = project.interview_files ?? [];
   projectForms.value = project.forms ?? [];
+  if (!savedStakeholders.value.some((item) => item.stakeholder_id === uploadStakeholderId.value)) {
+    uploadStakeholderId.value = savedStakeholders.value[0]?.stakeholder_id ?? "";
+  }
 };
 
 const confirmOutcome = async (): Promise<void> => {
@@ -84,13 +100,15 @@ const uploadInterviewFile = async (event: Event): Promise<void> => {
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0];
   if (!file) return;
+  if (!projectId.value || !uploadStakeholderId.value) {
+    error.value = "請先選擇要上傳給哪位利害關係人";
+    input.value = "";
+    return;
+  }
   uploadingInterviewFile.value = true;
   error.value = "";
   try {
-    const project = isNew.value ? await persist() : null;
-    const targetProjectId = project?.project_id ?? projectId.value;
-    if (!targetProjectId) return;
-    const uploaded = await uploadProjectInterviewFile(targetProjectId, file);
+    const uploaded = await uploadProjectInterviewFile(projectId.value, uploadStakeholderId.value, file);
     interviewFiles.value = [...interviewFiles.value, uploaded];
   } catch (caught) {
     error.value = caught instanceof Error ? caught.message : "上傳訪綱失敗";
@@ -125,15 +143,20 @@ const removeInterviewFile = async (file: ProjectInterviewFile): Promise<void> =>
 };
 
 const addStakeholder = (): void => {
-  draft.stakeholders.push({ name: "", role: "", email: "", notes: "" });
+  draft.stakeholders.push({ name: "", role: "", notes: "", pre_form_id: null, post_form_id: null });
 };
 
 const removeStakeholder = (index: number): void => {
+  const target = draft.stakeholders[index];
+  const fileCount = interviewFiles.value.filter((file) => file.stakeholder_id === target.stakeholder_id).length;
+  if (fileCount && !window.confirm(`「${target.name}」有 ${fileCount} 個訪綱檔案，儲存後會一併刪除，確定移除嗎？`)) return;
   draft.stakeholders.splice(index, 1);
 };
 
 const normalizedPayload = (): ProjectPayload => ({
   ...draft,
+  begin: monthStartIso(beginMonth.value),
+  end: monthEndIso(endMonth.value),
   name: draft.name.trim(),
   organization: draft.organization.trim(),
   description: draft.description.trim(),
@@ -141,10 +164,12 @@ const normalizedPayload = (): ProjectPayload => ({
   stakeholders: draft.stakeholders
     .filter((item) => item.name.trim())
     .map((item) => ({
+      stakeholder_id: item.stakeholder_id,
       name: item.name.trim(),
       role: item.role.trim(),
-      email: item.email?.trim() || null,
-      notes: item.notes.trim()
+      notes: item.notes.trim(),
+      pre_form_id: item.pre_form_id || null,
+      post_form_id: item.post_form_id || null
     })),
   outcomes: draft.outcomes
     .filter((item) => item.name.trim())
@@ -154,6 +179,14 @@ const normalizedPayload = (): ProjectPayload => ({
 const persist = async (): Promise<WorkspaceProject | null> => {
   if (!draft.name.trim()) {
     error.value = "請輸入專案名稱";
+    return null;
+  }
+  if (!beginMonth.value || !endMonth.value) {
+    error.value = "請設定專案的開始與結束年月";
+    return null;
+  }
+  if (endMonth.value < beginMonth.value) {
+    error.value = "結束年月不可早於開始年月";
     return null;
   }
   saving.value = true;
@@ -177,10 +210,34 @@ const persist = async (): Promise<WorkspaceProject | null> => {
   }
 };
 
+
 const createProjectForm = async (): Promise<void> => {
   const project = await persist();
   if (!project) return;
   await router.push({ name: "form-builder-new", params: { projectId: project.project_id } });
+};
+*/
+
+const createAndLinkForm = async (): Promise<void> => {
+  console.log("按鈕有被點擊");
+
+  try {
+    const project = await persist();
+    console.log("儲存專案結果：", project);
+
+    if (!project) {
+      alert("專案儲存沒有成功，請檢查必填欄位或 API");
+      return;
+    }
+
+    await router.push({
+      name: "form-builder-new",
+      params: { projectId: project.project_id }
+    });
+  } catch (error) {
+    console.error("建立表單失敗：", error);
+    alert("建立表單失敗，請查看 Console");
+  }
 };
 
 const openProjectForm = async (form: LinkedProjectForm): Promise<void> => {
@@ -241,7 +298,8 @@ onMounted(async () => {
         <div class="field-grid">
           <label class="field field--wide">專案名稱<input v-model="draft.name" maxlength="255" required /></label>
           <label class="field">所屬單位<input v-model="draft.organization" maxlength="255" /></label>
-          <label class="field">年度<input v-model.number="draft.year" type="number" min="1900" max="2200" /></label>
+          <label class="field">開始年月<input v-model="beginMonth" type="month" required /></label>
+          <label class="field">結束年月<input v-model="endMonth" type="month" :min="beginMonth" required /></label>
           <label class="field">狀態
             <select v-model="draft.status"><option value="draft">草稿</option><option value="published">已發布</option></select>
           </label>
@@ -258,11 +316,33 @@ onMounted(async () => {
           <button class="secondary-button" type="button" @click="addStakeholder">＋ 新增利害關係人</button>
         </div>
         <p v-if="!draft.stakeholders.length" class="empty-state">尚未設定利害關係人。</p>
+        <p v-else-if="!projectForms.length" class="form-hint">這個專案還沒有表單，請先在「專案表單」新增後，再選擇前測與後測。</p>
         <article v-for="(stakeholder, index) in draft.stakeholders" :key="index" class="stakeholder-row">
           <span class="stakeholder-number">{{ String(index + 1).padStart(2, "0") }}</span>
           <label class="field">名稱<input v-model="stakeholder.name" placeholder="例：計畫參與者" required /></label>
           <label class="field">關係／類型<input v-model="stakeholder.role" placeholder="例：受益人" /></label>
-          <label class="field">電子郵件<input v-model="stakeholder.email" type="email" placeholder="name@example.com" /></label>
+          <label class="field">前測表單
+            <select v-model="stakeholder.pre_form_id" :disabled="!projectForms.length">
+              <option :value="null">不指定</option>
+              <option
+                v-for="form in projectForms"
+                :key="form.form_id"
+                :value="form.form_id"
+                :disabled="form.form_id === stakeholder.post_form_id"
+              >{{ form.title || "未命名表單" }}</option>
+            </select>
+          </label>
+          <label class="field">後測表單
+            <select v-model="stakeholder.post_form_id" :disabled="!projectForms.length">
+              <option :value="null">不指定</option>
+              <option
+                v-for="form in projectForms"
+                :key="form.form_id"
+                :value="form.form_id"
+                :disabled="form.form_id === stakeholder.pre_form_id"
+              >{{ form.title || "未命名表單" }}</option>
+            </select>
+          </label>
           <label class="field field--notes">備註<input v-model="stakeholder.notes" /></label>
           <button class="remove-button" type="button" @click="removeStakeholder(index)">移除</button>
         </article>
@@ -273,11 +353,22 @@ onMounted(async () => {
           <div><span>03</span><h2>訪綱附件</h2></div>
           <p>支援 PDF、DOC、DOCX，單一檔案上限 10 MB。</p>
         </div>
-        <label class="upload-zone" :class="{ 'upload-zone--busy': uploadingInterviewFile }">
+        <label class="field upload-target">上傳給利害關係人
+          <select v-model="uploadStakeholderId" :disabled="!savedStakeholders.length || uploadingInterviewFile">
+            <option v-if="!savedStakeholders.length" value="">請先新增並儲存利害關係人</option>
+            <option v-for="item in savedStakeholders" :key="item.stakeholder_id" :value="item.stakeholder_id">
+              {{ item.name }}
+            </option>
+          </select>
+        </label>
+        <label
+          class="upload-zone"
+          :class="{ 'upload-zone--busy': uploadingInterviewFile, 'upload-zone--disabled': !uploadStakeholderId }"
+        >
           <input
             type="file"
             accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            :disabled="uploadingInterviewFile"
+            :disabled="uploadingInterviewFile || !uploadStakeholderId"
             @change="uploadInterviewFile"
           />
           <strong>{{ uploadingInterviewFile ? "上傳中…" : "＋ 上傳訪綱" }}</strong>
@@ -285,7 +376,10 @@ onMounted(async () => {
         </label>
         <div v-if="interviewFiles.length" class="file-list">
           <article v-for="file in interviewFiles" :key="file.file_id" class="file-row">
-            <div><strong>{{ file.original_name }}</strong><span>{{ formatFileSize(file.size_bytes) }}</span></div>
+            <div>
+              <strong>{{ file.original_name }}</strong>
+              <span>{{ stakeholderName(file.stakeholder_id) }} · {{ formatFileSize(file.size_bytes) }}</span>
+            </div>
             <button type="button" @click="downloadInterviewFile(file)">下載</button>
             <button type="button" @click="removeInterviewFile(file)">刪除</button>
           </article>
@@ -374,11 +468,12 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .section-heading span { color: #888; font-size: 11px; font-weight: 800; }
 .section-heading p { max-width: 440px; color: #666; font-size: 12px; line-height: 1.6; }
 .field-grid { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 18px; }
+.upload-target { max-width: 320px; }
 .field--wide { grid-column: 1 / -1; }
 .field { display: grid; gap: 7px; color: #555; font-size: 11px; font-weight: 700; }
 .field input, .field select, .field textarea { width: 100%; border: 1px solid #ccc; border-radius: 0; padding: 11px 12px; background: #fff; color: #111; font: inherit; font-size: 13px; outline: none; }
 .field input:focus, .field select:focus, .field textarea:focus { border-color: #111; }
-.stakeholder-row { display: grid; grid-template-columns: 32px repeat(3, 1fr) 1.2fr auto; align-items: end; gap: 12px; padding-bottom: 18px; border-bottom: 1px solid #eee; }
+.stakeholder-row { display: grid; grid-template-columns: 32px repeat(4, 1fr) 1.2fr auto; align-items: end; gap: 12px; padding-bottom: 18px; border-bottom: 1px solid #eee; }
 .stakeholder-number { align-self: center; color: #999; font-size: 11px; }
 .remove-button { border-color: #ccc; }
 .empty-state { padding: 24px; background: #f7f7f7; color: #666; text-align: center; }
@@ -399,6 +494,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .upload-zone strong { font-size: 13px; }
 .upload-zone span { color: #817786; font-size: 11px; }
 .upload-zone--busy { cursor: wait; opacity: .6; }
+.upload-zone--disabled { cursor: not-allowed; opacity: .5; }
 .file-list { display: grid; border-top: 1px solid #ddd; }
 .file-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 12px; padding: 13px 0; border-bottom: 1px solid #eee; }
 .file-row div { display: grid; min-width: 0; gap: 4px; }
