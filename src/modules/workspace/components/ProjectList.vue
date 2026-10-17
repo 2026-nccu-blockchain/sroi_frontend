@@ -1,14 +1,19 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 
+import { GROUP_ROLE_LABELS } from "@/modules/workspace/constants";
 import type { WorkspaceProject } from "@/modules/workspace/types/workspace.types";
 import { formatProjectPeriod } from "@/shared/utils/date";
 
-const props = defineProps<{
-  projects: WorkspaceProject[];
-  loading?: boolean;
-  error?: string;
-}>();
+const props = withDefaults(
+  defineProps<{
+    projects: WorkspaceProject[];
+    loading?: boolean;
+    error?: string;
+    groupTitle?: (groupId: string) => string;
+  }>(),
+  { groupTitle: () => "群組" }
+);
 
 defineEmits<{
   delete: [project: WorkspaceProject];
@@ -29,6 +34,15 @@ const statusLabel = (project: WorkspaceProject): string => {
   const status = project.forms.some((form) => form.status === "published") ? "published" : project.status;
   return status === "published" ? "已發布" : "草稿";
 };
+
+const ownerLabel = (project: WorkspaceProject): string =>
+  project.group_id
+    ? `${props.groupTitle(project.group_id)}・${GROUP_ROLE_LABELS[project.my_role ?? "viewer"]}`
+    : "個人";
+
+// 後端規則：檢視者只能看，刪除專案要組長（個人專案的擁有者視同組長）
+const canEdit = (project: WorkspaceProject): boolean => project.my_role !== "viewer";
+const canDelete = (project: WorkspaceProject): boolean => (project.my_role ?? "leader") === "leader";
 </script>
 
 <template>
@@ -65,7 +79,10 @@ const statusLabel = (project: WorkspaceProject): string => {
           <RouterLink class="project-row__title" :to="`/workspace/projects/${project.project_id}/edit`">
             {{ project.name }}
           </RouterLink>
-          <small class="project-row__status">{{ statusLabel(project) }}</small>
+          <small class="project-row__status">
+            {{ statusLabel(project) }}
+            <span :class="['owner-badge', { 'owner-badge--group': project.group_id }]">{{ ownerLabel(project) }}</span>
+          </small>
           <div v-if="project.outcomes.length" class="outcome-tags">
             <span v-for="outcome in project.outcomes" :key="outcome.outcome_id">#{{ outcome.name }}</span>
           </div>
@@ -81,8 +98,8 @@ const statusLabel = (project: WorkspaceProject): string => {
         </span>
         <span v-else data-label="連結表單">尚未連結</span>
         <div class="project-row__actions">
-          <RouterLink :to="`/workspace/projects/${project.project_id}/edit`">編輯</RouterLink>
-          <button type="button" @click="$emit('delete', project)">刪除</button>
+          <RouterLink :to="`/workspace/projects/${project.project_id}/edit`">{{ canEdit(project) ? "編輯" : "檢視" }}</RouterLink>
+          <button v-if="canDelete(project)" type="button" @click="$emit('delete', project)">刪除</button>
         </div>
       </article>
 
@@ -208,6 +225,8 @@ h1 {
 }
 
 .project-name-cell { display: grid; gap: 5px; }
+.owner-badge { margin-left: 8px; padding: 2px 7px; border: 1px solid #bbb; color: #555; font-size: 10px; text-transform: none; }
+.owner-badge--group { border-color: #000; color: #000; }
 .outcome-tags { display: flex; flex-wrap: wrap; gap: 5px; }
 .outcome-tags span { padding: 3px 7px; border-radius: 999px; background: #f0e8f4; color: #765292; font-size: 9px; font-weight: 700; }
 

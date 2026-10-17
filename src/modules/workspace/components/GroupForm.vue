@@ -1,14 +1,34 @@
 <script setup lang="ts">
 import { reactive } from "vue";
+import type { RouteLocationRaw } from "vue-router";
 
 import type { GroupPayload } from "@/modules/workspace/types/workspace.types";
 
-defineProps<{ submitting: boolean; serverError: string }>();
+const props = withDefaults(
+  defineProps<{
+    submitting: boolean;
+    serverError: string;
+    initial?: GroupPayload;
+    submitText?: string;
+    submittingText?: string;
+    // 不給就不顯示取消按鈕
+    cancelTo?: RouteLocationRaw;
+  }>(),
+  { submitText: "建立群組", submittingText: "建立中..." }
+);
 const emit = defineEmits<{ submit: [payload: GroupPayload] }>();
 
 type Field = "title" | "desc" | "begin" | "end";
 
-const form = reactive<Record<Field, string>>({ title: "", desc: "", begin: "", end: "" });
+// 後端回傳 "YYYY-MM-DDTHH:mm:ss"，date input 只吃 "YYYY-MM-DD"
+const toDate = (iso?: string): string => iso?.slice(0, 10) ?? "";
+
+const form = reactive<Record<Field, string>>({
+  title: props.initial?.title ?? "",
+  desc: props.initial?.desc ?? "",
+  begin: toDate(props.initial?.begin),
+  end: toDate(props.initial?.end)
+});
 const errors = reactive<Record<Field, string>>({ title: "", desc: "", begin: "", end: "" });
 
 const validate = (): boolean => {
@@ -46,135 +66,75 @@ const handleSubmit = (): void => {
 </script>
 
 <template>
-  <section class="group-form">
-    <RouterLink class="back-link" to="/workspace/groups" aria-label="返回我的群組">
-      <span aria-hidden="true">←</span> 返回
-    </RouterLink>
+  <form class="form" novalidate @submit.prevent="handleSubmit">
+    <label class="field">
+      <span class="field__label">群組名稱 <em>*</em></span>
+      <input
+        v-model="form.title"
+        type="text"
+        required
+        placeholder="輸入群組名稱"
+        :class="{ 'field__input--error': errors.title }"
+        @input="errors.title = ''"
+      />
+      <span v-if="errors.title" class="field__error">{{ errors.title }}</span>
+    </label>
 
-    <section class="layout">
-      <div>
-        <p class="group-form__eyebrow">我的群組</p>
-        <h1>新增群組</h1>
-      </div>
+    <label class="field">
+      <span class="field__label">群組描述 <em>*</em></span>
+      <textarea
+        v-model="form.desc"
+        rows="5"
+        required
+        placeholder="簡述群組的目的與內容"
+        :class="{ 'field__input--error': errors.desc }"
+        @input="errors.desc = ''"
+      />
+      <span v-if="errors.desc" class="field__error">{{ errors.desc }}</span>
+    </label>
 
-      <form class="form" novalidate @submit.prevent="handleSubmit">
-        <label class="field">
-          <span class="field__label">群組名稱 <em>*</em></span>
-          <input
-            v-model="form.title"
-            type="text"
-            required
-            placeholder="輸入群組名稱"
-            :class="{ 'field__input--error': errors.title }"
-            @input="errors.title = ''"
-          />
-          <span v-if="errors.title" class="field__error">{{ errors.title }}</span>
-        </label>
+    <div class="form__row">
+      <label class="field">
+        <span class="field__label">開始日期 <em>*</em></span>
+        <input
+          v-model="form.begin"
+          type="date"
+          required
+          :max="form.end || undefined"
+          :class="{ 'field__input--error': errors.begin }"
+          @click="openPicker"
+          @change="errors.begin = ''"
+        />
+        <span v-if="errors.begin" class="field__error">{{ errors.begin }}</span>
+      </label>
 
-        <label class="field">
-          <span class="field__label">群組描述 <em>*</em></span>
-          <textarea
-            v-model="form.desc"
-            rows="5"
-            required
-            placeholder="簡述群組的目的與內容"
-            :class="{ 'field__input--error': errors.desc }"
-            @input="errors.desc = ''"
-          />
-          <span v-if="errors.desc" class="field__error">{{ errors.desc }}</span>
-        </label>
+      <label class="field">
+        <span class="field__label">結束日期 <em>*</em></span>
+        <input
+          v-model="form.end"
+          type="date"
+          required
+          :min="form.begin || undefined"
+          :class="{ 'field__input--error': errors.end }"
+          @click="openPicker"
+          @change="errors.end = ''"
+        />
+        <span v-if="errors.end" class="field__error">{{ errors.end }}</span>
+      </label>
+    </div>
 
-        <div class="form__row">
-          <label class="field">
-            <span class="field__label">開始日期 <em>*</em></span>
-            <input
-              v-model="form.begin"
-              type="date"
-              required
-              :max="form.end || undefined"
-              :class="{ 'field__input--error': errors.begin }"
-              @click="openPicker"
-              @change="errors.begin = ''"
-            />
-            <span v-if="errors.begin" class="field__error">{{ errors.begin }}</span>
-          </label>
+    <p v-if="serverError" class="form__server-error" role="alert">{{ serverError }}</p>
 
-          <label class="field">
-            <span class="field__label">結束日期 <em>*</em></span>
-            <input
-              v-model="form.end"
-              type="date"
-              required
-              :min="form.begin || undefined"
-              :class="{ 'field__input--error': errors.end }"
-              @click="openPicker"
-              @change="errors.end = ''"
-            />
-            <span v-if="errors.end" class="field__error">{{ errors.end }}</span>
-          </label>
-        </div>
-
-        <p v-if="serverError" class="form__server-error" role="alert">{{ serverError }}</p>
-
-        <div class="form__actions">
-          <RouterLink class="button" to="/workspace/groups">取消</RouterLink>
-          <button class="button button--primary" type="submit" :disabled="submitting">
-            {{ submitting ? "建立中..." : "建立群組" }}
-          </button>
-        </div>
-      </form>
-    </section>
-  </section>
+    <div class="form__actions">
+      <RouterLink v-if="cancelTo" class="button" :to="cancelTo">取消</RouterLink>
+      <button class="button button--primary" type="submit" :disabled="submitting">
+        {{ submitting ? submittingText : submitText }}
+      </button>
+    </div>
+  </form>
 </template>
 
 <style scoped>
-.group-form {
-  display: grid;
-  gap: 22px;
-  max-width: 960px;
-  margin-top: -16px;
-}
-
-.back-link {
-  justify-self: start;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  color: #000;
-  font-size: 14px;
-  font-weight: 700;
-  text-decoration: none;
-}
-
-.back-link span {
-  font-size: 22px;
-  line-height: 1;
-}
-
-.back-link:hover {
-  text-decoration: underline;
-  text-underline-offset: 4px;
-}
-
-.group-form__eyebrow {
-  margin: 0 0 8px;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.15em;
-}
-
-h1 {
-  margin: 0;
-  font-size: 26px;
-  font-weight: 500;
-  line-height: 1;
-  letter-spacing: -0.04em;
-}
-
-.layout {
-  padding: 0 120px;
-}
-
 .form {
   display: grid;
   gap: 24px;

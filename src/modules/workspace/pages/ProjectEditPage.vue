@@ -8,8 +8,12 @@ import {
   getProject,
   uploadProjectInterviewFile
 } from "@/modules/workspace/api/workspace.api";
+import { useVerifiedGroups } from "@/modules/workspace/composables/useVerifiedGroups";
+import { GROUP_ROLE_LABELS, toProjectErrorMessage } from "@/modules/workspace/constants";
 import { useProjectStore } from "@/modules/workspace/store/project.store";
 import type {
+  Group,
+  GroupRole,
   LinkedProjectForm,
   ProjectInterviewFile,
   ProjectPayload,
@@ -34,6 +38,19 @@ const uploadStakeholderId = ref("");
 const currentYear = new Date().getFullYear();
 const beginMonth = ref(`${currentYear}-01`);
 const endMonth = ref(`${currentYear}-12`);
+
+// 專案位置：null 是個人專案。新增時從網址 ?group= 帶入預設群組
+const { load: loadGroups, loadCreatable, titleOf } = useVerifiedGroups();
+const creatableGroups = ref<Group[]>([]);
+const ownerGroupId = ref<string | null>(null);
+const myRole = ref<GroupRole>("leader");
+const readOnly = computed(() => myRole.value === "viewer");
+const backTo = computed(() =>
+  ownerGroupId.value ? { name: "group-detail", params: { groupId: ownerGroupId.value } } : { name: "my-projects" }
+);
+const ownerLabel = computed(() =>
+  ownerGroupId.value ? `群組・${titleOf(ownerGroupId.value)}（${GROUP_ROLE_LABELS[myRole.value]}）` : "個人專案"
+);
 
 const draft = reactive<Omit<ProjectPayload, "begin" | "end">>({
   name: "",
@@ -73,6 +90,8 @@ const hydrate = (project: WorkspaceProject): void => {
   if (!savedStakeholders.value.some((item) => item.stakeholder_id === uploadStakeholderId.value)) {
     uploadStakeholderId.value = savedStakeholders.value[0]?.stakeholder_id ?? "";
   }
+  ownerGroupId.value = project.group_id;
+  myRole.value = project.my_role ?? "leader";
 };
 
 const confirmOutcome = async (): Promise<void> => {
@@ -111,7 +130,7 @@ const uploadInterviewFile = async (event: Event): Promise<void> => {
     const uploaded = await uploadProjectInterviewFile(projectId.value, uploadStakeholderId.value, file);
     interviewFiles.value = [...interviewFiles.value, uploaded];
   } catch (caught) {
-    error.value = caught instanceof Error ? caught.message : "上傳訪綱失敗";
+    error.value = toProjectErrorMessage(caught, "上傳訪綱失敗");
   } finally {
     uploadingInterviewFile.value = false;
     input.value = "";
@@ -128,7 +147,7 @@ const downloadInterviewFile = async (file: ProjectInterviewFile): Promise<void> 
     link.click();
     URL.revokeObjectURL(url);
   } catch (caught) {
-    error.value = caught instanceof Error ? caught.message : "下載訪綱失敗";
+    error.value = toProjectErrorMessage(caught, "下載訪綱失敗");
   }
 };
 
@@ -138,7 +157,7 @@ const removeInterviewFile = async (file: ProjectInterviewFile): Promise<void> =>
     await deleteProjectInterviewFile(projectId.value, file.file_id);
     interviewFiles.value = interviewFiles.value.filter((item) => item.file_id !== file.file_id);
   } catch (caught) {
-    error.value = caught instanceof Error ? caught.message : "刪除訪綱失敗";
+    error.value = toProjectErrorMessage(caught, "刪除訪綱失敗");
   }
 };
 
@@ -177,6 +196,7 @@ const normalizedPayload = (): ProjectPayload => ({
 });
 
 const persist = async (): Promise<WorkspaceProject | null> => {
+  if (readOnly.value) return null;
   if (!draft.name.trim()) {
     error.value = "請輸入專案名稱";
     return null;
@@ -194,7 +214,7 @@ const persist = async (): Promise<WorkspaceProject | null> => {
   savedMessage.value = "";
   try {
     const project = isNew.value
-      ? await projectStore.create(normalizedPayload())
+      ? await projectStore.create({ ...normalizedPayload(), group_id: ownerGroupId.value })
       : await projectStore.update(projectId.value, normalizedPayload());
     hydrate(project);
     savedMessage.value = "專案已儲存";
@@ -203,7 +223,7 @@ const persist = async (): Promise<WorkspaceProject | null> => {
     }
     return project;
   } catch (caught) {
-    error.value = caught instanceof Error ? caught.message : "儲存專案失敗";
+    error.value = toProjectErrorMessage(caught, "儲存專案失敗");
     return null;
   } finally {
     saving.value = false;
@@ -264,8 +284,16 @@ onMounted(async () => {
       projectStore.upsert(project);
       hydrate(project);
     }
+    if (isNew.value) {
+      creatableGroups.value = await loadCreatable();
+      const requested = typeof route.query.group === "string" ? route.query.group : null;
+      ownerGroupId.value = creatableGroups.value.some((group) => group.group_id === requested) ? requested : null;
+    } else if (ownerGroupId.value) {
+      // 只用來顯示群組名稱，失敗不影響編輯
+      await loadGroups().catch(() => undefined);
+    }
   } catch (caught) {
-    error.value = caught instanceof Error ? caught.message : "無法載入專案";
+    error.value = toProjectErrorMessage(caught, "無法載入專案");
   } finally {
     loading.value = false;
   }
@@ -276,13 +304,20 @@ onMounted(async () => {
   <section class="project-editor">
     <header class="editor-header">
       <div>
-        <RouterLink class="back-link" to="/workspace/projects">← 返回我的專案</RouterLink>
+        <RouterLink class="back-link" :to="backTo">{{ ownerGroupId ? "← 返回群組" : "← 返回我的專案" }}</RouterLink>
         <p class="eyebrow">PROJECT WORKSPACE</p>
-        <h1>{{ isNew ? "新增專案" : "編輯專案" }}</h1>
+        <h1>{{ isNew ? "新增專案" : readOnly ? "檢視專案" : "編輯專案" }}</h1>
       </div>
-      <button class="primary-button" type="button" :disabled="saving || loading" @click="persist">
-        {{ saving ? "儲存中…" : "儲存專案" }}
-      </button>
+      <div class="editor-header__actions">
+        <RouterLink
+          v-if="!isNew"
+          class="secondary-button"
+          :to="{ name: 'project-sroi', params: { projectId } }"
+        >SROI 計算 →</RouterLink>
+        <button v-if="!readOnly" class="primary-button" type="button" :disabled="saving || loading" @click="persist">
+          {{ saving ? "儲存中…" : "儲存專案" }}
+        </button>
+      </div>
     </header>
 
     <p v-if="error" class="message message--error">{{ error }}</p>
@@ -290,6 +325,9 @@ onMounted(async () => {
     <p v-if="loading" class="message">專案載入中…</p>
 
     <template v-else>
+      <p v-if="readOnly" class="message">你在這個群組是檢視者，只能查看專案內容。</p>
+
+      <fieldset class="plain-fieldset" :disabled="readOnly">
       <section class="editor-card">
         <div class="section-heading">
           <div><span>01</span><h2>專案資料</h2></div>
@@ -306,6 +344,15 @@ onMounted(async () => {
           <label class="field">實際投入成本（NT$）
             <input v-model.number="draft.actual_input_cost" type="number" min="0" step="1" placeholder="0" />
           </label>
+          <label v-if="isNew" class="field">專案位置
+            <select v-model="ownerGroupId">
+              <option :value="null">個人專案</option>
+              <option v-for="group in creatableGroups" :key="group.group_id" :value="group.group_id">
+                群組・{{ group.title }}
+              </option>
+            </select>
+          </label>
+          <p v-else class="field">專案位置<span class="owner-label">{{ ownerLabel }}</span></p>
           <label class="field field--wide">專案說明<textarea v-model="draft.description" rows="4"></textarea></label>
         </div>
       </section>
@@ -347,33 +394,36 @@ onMounted(async () => {
           <button class="remove-button" type="button" @click="removeStakeholder(index)">移除</button>
         </article>
       </section>
+      </fieldset>
 
       <section class="editor-card">
         <div class="section-heading">
           <div><span>03</span><h2>訪綱附件</h2></div>
           <p>支援 PDF、DOC、DOCX，單一檔案上限 10 MB。</p>
         </div>
-        <label class="field upload-target">上傳給利害關係人
-          <select v-model="uploadStakeholderId" :disabled="!savedStakeholders.length || uploadingInterviewFile">
-            <option v-if="!savedStakeholders.length" value="">請先新增並儲存利害關係人</option>
-            <option v-for="item in savedStakeholders" :key="item.stakeholder_id" :value="item.stakeholder_id">
-              {{ item.name }}
-            </option>
-          </select>
-        </label>
-        <label
-          class="upload-zone"
-          :class="{ 'upload-zone--busy': uploadingInterviewFile, 'upload-zone--disabled': !uploadStakeholderId }"
-        >
-          <input
-            type="file"
-            accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            :disabled="uploadingInterviewFile || !uploadStakeholderId"
-            @change="uploadInterviewFile"
-          />
-          <strong>{{ uploadingInterviewFile ? "上傳中…" : "＋ 上傳訪綱" }}</strong>
-          <span>可上傳訪談大綱、訪談題目或相關說明文件</span>
-        </label>
+        <template v-if="!readOnly">
+          <label class="field upload-target">上傳給利害關係人
+            <select v-model="uploadStakeholderId" :disabled="!savedStakeholders.length || uploadingInterviewFile">
+              <option v-if="!savedStakeholders.length" value="">請先新增並儲存利害關係人</option>
+              <option v-for="item in savedStakeholders" :key="item.stakeholder_id" :value="item.stakeholder_id">
+                {{ item.name }}
+              </option>
+            </select>
+          </label>
+          <label
+            class="upload-zone"
+            :class="{ 'upload-zone--busy': uploadingInterviewFile, 'upload-zone--disabled': !uploadStakeholderId }"
+          >
+            <input
+              type="file"
+              accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              :disabled="uploadingInterviewFile || !uploadStakeholderId"
+              @change="uploadInterviewFile"
+            />
+            <strong>{{ uploadingInterviewFile ? "上傳中…" : "＋ 上傳訪綱" }}</strong>
+            <span>可上傳訪談大綱、訪談題目或相關說明文件</span>
+          </label>
+        </template>
         <div v-if="interviewFiles.length" class="file-list">
           <article v-for="file in interviewFiles" :key="file.file_id" class="file-row">
             <div>
@@ -381,7 +431,7 @@ onMounted(async () => {
               <span>{{ stakeholderName(file.stakeholder_id) }} · {{ formatFileSize(file.size_bytes) }}</span>
             </div>
             <button type="button" @click="downloadInterviewFile(file)">下載</button>
-            <button type="button" @click="removeInterviewFile(file)">刪除</button>
+            <button v-if="!readOnly" type="button" @click="removeInterviewFile(file)">刪除</button>
           </article>
         </div>
         <p v-else class="empty-state">尚未上傳訪綱。</p>
@@ -393,7 +443,7 @@ onMounted(async () => {
               <p>確認後會變成 hashtag：編輯中的表單會同步，已發布的表單會保留原版本。</p>
             </div>
           </div>
-          <div class="outcome-composer">
+          <div v-if="!readOnly" class="outcome-composer">
             <input
               v-model="newOutcomeName"
               maxlength="255"
@@ -410,7 +460,7 @@ onMounted(async () => {
               v-for="(outcome, index) in draft.outcomes"
               :key="outcome.outcome_id || `${outcome.name}-${index}`"
               type="button"
-              :disabled="saving"
+              :disabled="saving || readOnly"
               :aria-label="`刪除成果 ${outcome.name}`"
               :title="`刪除 ${outcome.name}`"
               @click="removeOutcome(index)"
@@ -425,7 +475,7 @@ onMounted(async () => {
       <section class="editor-card">
         <div class="section-heading">
           <div><span>04</span><h2>專案表單</h2></div>
-          <button class="secondary-button" type="button" :disabled="saving" @click="createProjectForm">＋ 新增表單</button>
+          <button v-if="!readOnly" class="secondary-button" type="button" :disabled="saving" @click="createProjectForm">＋ 新增表單</button>
         </div>
         <div v-for="form in projectForms" :key="form.form_id" class="linked-form-card">
           <div>
@@ -435,7 +485,7 @@ onMounted(async () => {
             </span>
           </div>
           <div class="form-actions">
-            <button class="secondary-button" type="button" @click="openProjectForm(form)">編輯表單 →</button>
+            <button class="secondary-button" type="button" @click="openProjectForm(form)">{{ readOnly ? "檢視表單 →" : "編輯表單 →" }}</button>
             <button v-if="form.status === 'published'" class="secondary-button" type="button" @click="openResponses(form)">查看回覆與結果</button>
           </div>
         </div>
@@ -462,6 +512,8 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .message { padding: 12px 14px; border: 1px solid #ccc; }
 .message--error { border-color: #bd7676; color: #8c2020; }
 .message--success { border-color: #87aa8c; color: #286133; }
+.plain-fieldset { display: grid; gap: 24px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.owner-label { overflow: hidden; border: 1px solid #e3e3e3; padding: 11px 12px; background: #f7f7f7; color: #111; font-size: 13px; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
 .editor-card { display: grid; gap: 22px; padding: 26px; border: 1px solid #d8d8d8; background: #fff; }
 .section-heading { display: flex; align-items: start; justify-content: space-between; gap: 20px; padding-bottom: 18px; border-bottom: 1px solid #ddd; }
 .section-heading > div { display: flex; align-items: center; gap: 12px; }

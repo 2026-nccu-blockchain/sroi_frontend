@@ -36,5 +36,67 @@ const handleSubmit = async (payload: GroupPayload): Promise<void> => {
 </script>
 
 <template>
-  <GroupForm :submitting="submitting" :server-error="error" @submit="handleSubmit" />
+  <section class="new-group">
+    <RouterLink class="back-link" to="/workspace/groups" aria-label="返回我的群組">
+      <span aria-hidden="true">←</span> 返回
+    </RouterLink>
+
+    <section class="layout">
+      <div>
+        <p class="new-group__eyebrow">我的群組</p>
+        <h1>新增群組</h1>
+      </div>
+
+      <GroupForm :submitting="submitting" :server-error="error" cancel-to="/workspace/groups" @submit="handleSubmit" />
+    </section>
+  </section>
 </template>
+
+<style scoped>
+.new-group {
+  display: grid;
+  gap: 22px;
+  max-width: 960px;
+  margin-top: -16px;
+}
+
+.back-link {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #000;
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.back-link span {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.back-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+.new-group__eyebrow {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+}
+
+h1 {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+.layout {
+  padding: 0 120px;
+}
+</style>

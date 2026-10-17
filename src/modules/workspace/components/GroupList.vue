@@ -13,15 +13,20 @@ const props = withDefaults(
     // 回傳 null 表示這一列不能點
     linkTo: (group: Group, bucket: GroupBucketKey) => RouteLocationRaw | null;
     canCreate?: boolean;
+    // 哪些分頁的最右邊要顯示刪除按鈕
+    deletableBuckets?: GroupBucketKey[];
   }>(),
-  { eyebrow: "工作區", canCreate: false }
+  { eyebrow: "工作區", canCreate: false, deletableBuckets: () => [] }
 );
+
+const emit = defineEmits<{ delete: [group: Group] }>();
 
 // 父層可以用 v-model:tab 綁到網址，不綁就只存在元件內
 const activeTab = defineModel<GroupBucketKey>("tab", { default: "verified" });
 const search = ref("");
 
 const showReason = computed(() => activeTab.value === "unverified");
+const showAction = computed(() => props.deletableBuckets.includes(activeTab.value));
 
 const rows = computed(() => {
   const keyword = search.value.trim().toLowerCase();
@@ -69,12 +74,16 @@ const formatDate = (iso: string): string => new Date(iso).toLocaleDateString("zh
       <input v-model="search" type="search" placeholder="搜尋群組名稱或說明..." :aria-label="`搜尋${title}`" />
     </div>
 
-    <div class="group-list" :class="{ 'group-list--with-reason': showReason }">
+    <div
+      class="group-list"
+      :class="{ 'group-list--with-reason': showReason, 'group-list--with-action': showAction }"
+    >
       <div class="group-list__header" aria-hidden="true">
         <span>群組名稱</span>
         <span>群組描述</span>
         <span v-if="showReason">不同意原因</span>
-        <span>期間</span>
+        <span class="group-list__period">期間</span>
+        <span v-if="showAction" />
       </div>
 
       <article v-for="{ group, to } in rows" :key="group.group_id" class="group-row">
@@ -82,7 +91,10 @@ const formatDate = (iso: string): string => new Date(iso).toLocaleDateString("zh
         <span v-else class="group-row__title group-row__title--static">{{ group.title }}</span>
         <span data-label="群組描述" class="desc">{{ group.desc }}</span>
         <span v-if="showReason" data-label="不同意原因" class="reason">{{ group.reason || "—" }}</span>
-        <span data-label="期間">{{ formatDate(group.begin) }} — {{ formatDate(group.end) }}</span>
+        <span data-label="期間" class="group-list__period">{{ formatDate(group.begin) }} — {{ formatDate(group.end) }}</span>
+        <div v-if="showAction" class="group-row__action">
+          <button class="button button--danger" type="button" @click="emit('delete', group)">刪除</button>
+        </div>
       </article>
 
       <p v-if="rows.length === 0" class="group-list__empty">找不到符合的群組。</p>
@@ -211,6 +223,16 @@ h1 {
   .group-list--with-reason .group-row {
     grid-template-columns: repeat(4, minmax(140px, 1fr));
   }
+
+  .group-list--with-action .group-list__header,
+  .group-list--with-action .group-row {
+    grid-template-columns: repeat(3, minmax(160px, 1fr)) auto;
+  }
+
+  .group-list--with-reason.group-list--with-action .group-list__header,
+  .group-list--with-reason.group-list--with-action .group-row {
+    grid-template-columns: repeat(4, minmax(140px, 1fr)) auto;
+  }
 }
 
 .group-list__header,
@@ -230,7 +252,7 @@ h1 {
   text-transform: uppercase;
 }
 
-.group-list__header span:last-child {
+.group-list__period {
   text-align: right;
 }
 
@@ -264,8 +286,21 @@ h1 {
   cursor: default;
 }
 
-.group-row > span:last-child {
-  text-align: right;
+.group-row__action {
+  justify-self: end;
+}
+
+.button--danger {
+  min-height: 36px;
+  padding: 6px 14px;
+  border-color: #c00;
+  background: #fff;
+  color: #c00;
+}
+
+.button--danger:hover {
+  background: #c00;
+  color: #fff;
 }
 
 .group-list__empty {

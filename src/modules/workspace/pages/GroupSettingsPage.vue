@@ -1,34 +1,41 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
+import { useRouter } from "vue-router";
 
 import { useAuthStore } from "@/modules/auth/store/auth.store";
 import {
   changeMemberRole,
+  deleteGroup,
   deleteGroupMember,
   getGroupInfo,
   getGroupRole,
   inviteGroupMember,
-  searchGroupUsers
+  searchGroupUsers,
+  updateGroup
 } from "@/modules/workspace/api/workspace.api";
 import ConfirmDialog from "@/modules/workspace/components/ConfirmDialog.vue";
+import GroupForm from "@/modules/workspace/components/GroupForm.vue";
 import MemberTable from "@/modules/workspace/components/MemberTable.vue";
-import type { GroupInfo, GroupMember, GroupRole, GroupUser } from "@/modules/workspace/types/workspace.types";
+import { GROUP_ROLE_LABELS, GROUP_ROLES } from "@/modules/workspace/constants";
+import type {
+  GroupInfo,
+  GroupMember,
+  GroupPayload,
+  GroupRole,
+  GroupUser
+} from "@/modules/workspace/types/workspace.types";
 import { ApiError, toErrorMessage } from "@/shared/api/error-handler";
 
 const props = defineProps<{ groupId: string }>();
 
-type TabKey = "role" | "add" | "remove";
+type TabKey = "role" | "add" | "remove" | "edit";
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: "role", label: "成員權限" },
   { key: "add", label: "新增成員" },
-  { key: "remove", label: "刪除成員" }
+  { key: "remove", label: "刪除成員" },
+  { key: "edit", label: "編輯群組" }
 ];
-
-const ROLE_LABELS: Record<GroupRole, string> = {
-  leader: "組長",
-  member: "組員"
-};
 
 const GROUP_SETTINGS_ERROR_MESSAGES: Record<string, string> = {
   "10001": "找不到使用者，或該使用者尚未通過驗證",
@@ -37,7 +44,8 @@ const GROUP_SETTINGS_ERROR_MESSAGES: Record<string, string> = {
   "10014": "該使用者已經是群組成員",
   "10015": "無法更改自己的權限",
   "10016": "群組至少需要一位組長",
-  "10017": "權限沒有變更"
+  "10017": "權限沒有變更",
+  "10022": "請選擇要變更的權限"
 };
 
 const toMessage = (err: unknown): string =>
@@ -59,7 +67,7 @@ const members = computed<GroupMember[]>(() => {
 
   return [
     ...group.value.group_leaders.map((user) => ({ ...user, role: "leader" as const })),
-    ...group.value.group_members.map((user) => ({ ...user, role: "member" as const }))
+    ...group.value.group_members.map((user) => ({ ...user, role: user.group_role ?? ("viewer" as const) }))
   ];
 });
 
@@ -96,6 +104,7 @@ watch(() => props.groupId, loadPage, { immediate: true });
 const selectTab = (key: TabKey): void => {
   activeTab.value = key;
   actionError.value = "";
+  saveMessage.value = "";
 };
 
 // 成員權限
@@ -110,7 +119,7 @@ const handleRoleChange = async (member: GroupMember, event: Event): Promise<void
   actionError.value = "";
 
   try {
-    await changeMemberRole(props.groupId, { user_id: member.user_id, is_leader: role === "leader" });
+    await changeMemberRole(props.groupId, { user_id: member.user_id, group_role: role });
     await refreshGroup();
   } catch (err) {
     select.value = member.role;
@@ -125,6 +134,7 @@ const keyword = ref("");
 const searchResults = ref<GroupUser[]>([]);
 const searching = ref(false);
 const searched = ref(false);
+const inviteRole = ref<GroupRole>("viewer");
 
 const handleSearch = async (): Promise<void> => {
   const search = keyword.value.trim();
@@ -152,10 +162,14 @@ const confirmDialog = computed(() => {
   if (!pending.value) return { title: "", message: "", confirmText: "" };
 
   const { type, user } = pending.value;
-  const who = `${user.name}（${user.campus_id}）`;
+  const who = user.campus_id ? `${user.name}（${user.campus_id}）` : user.name;
 
   return type === "add"
-    ? { title: "加入成員", message: `確定要將 ${who} 加入群組嗎？`, confirmText: "加入" }
+    ? {
+        title: "加入成員",
+        message: `確定要將 ${who} 以「${GROUP_ROLE_LABELS[inviteRole.value]}」身分加入群組嗎？`,
+        confirmText: "加入"
+      }
     : { title: "刪除成員", message: `確定要將 ${who} 移出群組嗎？`, confirmText: "刪除" };
 });
 
@@ -168,7 +182,7 @@ const handleConfirm = async (): Promise<void> => {
 
   try {
     if (type === "add") {
-      await inviteGroupMember(props.groupId, { user_id: user.user_id });
+      await inviteGroupMember(props.groupId, { user_id: user.user_id, group_role: inviteRole.value });
     } else {
       await deleteGroupMember(props.groupId, user.user_id);
     }
@@ -178,6 +192,47 @@ const handleConfirm = async (): Promise<void> => {
   } finally {
     confirming.value = false;
     pending.value = null;
+  }
+};
+
+// 編輯群組
+const router = useRouter();
+const saving = ref(false);
+const editError = ref("");
+const saveMessage = ref("");
+
+const handleUpdate = async (payload: GroupPayload): Promise<void> => {
+  saving.value = true;
+  editError.value = "";
+  saveMessage.value = "";
+
+  try {
+    await updateGroup(props.groupId, payload);
+    await refreshGroup();
+    saveMessage.value = "群組資訊已更新";
+  } catch (err) {
+    editError.value = toMessage(err);
+  } finally {
+    saving.value = false;
+  }
+};
+
+// 刪除群組
+const confirmingDeleteGroup = ref(false);
+const deletingGroup = ref(false);
+
+const handleDeleteGroup = async (): Promise<void> => {
+  deletingGroup.value = true;
+  actionError.value = "";
+
+  try {
+    await deleteGroup(props.groupId);
+    await router.push("/workspace/groups");
+  } catch (err) {
+    actionError.value = toMessage(err);
+    confirmingDeleteGroup.value = false;
+  } finally {
+    deletingGroup.value = false;
   }
 };
 </script>
@@ -223,8 +278,7 @@ const handleConfirm = async (): Promise<void> => {
             :aria-label="`${user.name} 的權限`"
             @change="handleRoleChange(user, $event)"
           >
-            <option value="leader">組長</option>
-            <option value="member">組員</option>
+            <option v-for="role in GROUP_ROLES" :key="role" :value="role">{{ GROUP_ROLE_LABELS[role] }}</option>
           </select>
         </template>
       </MemberTable>
@@ -232,6 +286,9 @@ const handleConfirm = async (): Promise<void> => {
       <div v-else-if="activeTab === 'add'" class="add-panel">
         <form class="search-form" @submit.prevent="handleSearch">
           <input v-model="keyword" type="search" placeholder="輸入姓名或學號" aria-label="搜尋使用者" />
+          <select v-model="inviteRole" class="role-select" aria-label="加入身分">
+            <option v-for="role in GROUP_ROLES" :key="role" :value="role">{{ GROUP_ROLE_LABELS[role] }}</option>
+          </select>
           <button class="button button--primary" type="submit" :disabled="searching || !keyword.trim()">
             {{ searching ? "搜尋中..." : "搜尋" }}
           </button>
@@ -245,9 +302,31 @@ const handleConfirm = async (): Promise<void> => {
         </MemberTable>
       </div>
 
+      <div v-else-if="activeTab === 'edit'" class="edit-panel">
+        <GroupForm
+          :initial="group"
+          submit-text="儲存變更"
+          submitting-text="儲存中..."
+          :submitting="saving"
+          :server-error="editError"
+          @submit="handleUpdate"
+        />
+        <p v-if="saveMessage" class="settings-page__success" role="status">{{ saveMessage }}</p>
+
+        <section class="danger-zone">
+          <div>
+            <h2>刪除群組</h2>
+            <p>刪除後群組及所有成員關係都會移除，且無法復原。</p>
+          </div>
+          <button class="button button--danger" type="button" @click="confirmingDeleteGroup = true">
+            刪除群組
+          </button>
+        </section>
+      </div>
+
       <MemberTable v-else :users="members" searchable>
         <template #action="{ user }">
-          <span class="muted">{{ ROLE_LABELS[user.role] }}</span>
+          <span class="muted">{{ GROUP_ROLE_LABELS[user.role] }}</span>
           <button
             class="button button--danger"
             type="button"
@@ -269,6 +348,17 @@ const handleConfirm = async (): Promise<void> => {
       :danger="pending?.type === 'remove'"
       @confirm="handleConfirm"
       @cancel="pending = null"
+    />
+
+    <ConfirmDialog
+      :open="confirmingDeleteGroup"
+      title="刪除群組"
+      :message="`確定要刪除「${group?.title}」嗎？此動作無法復原。`"
+      confirm-text="刪除"
+      :loading="deletingGroup"
+      danger
+      @confirm="handleDeleteGroup"
+      @cancel="confirmingDeleteGroup = false"
     />
   </section>
 </template>
@@ -342,9 +432,39 @@ h1 {
   color: #fff;
 }
 
-.add-panel {
+.add-panel,
+.edit-panel {
   display: grid;
   gap: 22px;
+}
+
+.settings-page__success {
+  margin: 0;
+  color: #070;
+  font-size: 13px;
+}
+
+.danger-zone {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-top: 24px;
+  padding: 20px;
+  border: 1px solid #c00;
+}
+
+.danger-zone h2 {
+  margin: 0 0 6px;
+  color: #c00;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.danger-zone p {
+  margin: 0;
+  color: #555;
+  font-size: 13px;
 }
 
 .search-form {
