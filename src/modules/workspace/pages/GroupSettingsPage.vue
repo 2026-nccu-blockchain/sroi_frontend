@@ -1,29 +1,40 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
+import { useRouter } from "vue-router";
 
 import { useAuthStore } from "@/modules/auth/store/auth.store";
 import {
   changeMemberRole,
+  deleteGroup,
   deleteGroupMember,
   getGroupInfo,
   getGroupRole,
   inviteGroupMember,
-  searchGroupUsers
+  searchGroupUsers,
+  updateGroup
 } from "@/modules/workspace/api/workspace.api";
 import ConfirmDialog from "@/modules/workspace/components/ConfirmDialog.vue";
+import GroupForm from "@/modules/workspace/components/GroupForm.vue";
 import MemberTable from "@/modules/workspace/components/MemberTable.vue";
 import { GROUP_ROLE_LABELS, GROUP_ROLES } from "@/modules/workspace/constants";
-import type { GroupInfo, GroupMember, GroupRole, GroupUser } from "@/modules/workspace/types/workspace.types";
+import type {
+  GroupInfo,
+  GroupMember,
+  GroupPayload,
+  GroupRole,
+  GroupUser
+} from "@/modules/workspace/types/workspace.types";
 import { ApiError, toErrorMessage } from "@/shared/api/error-handler";
 
 const props = defineProps<{ groupId: string }>();
 
-type TabKey = "role" | "add" | "remove";
+type TabKey = "role" | "add" | "remove" | "edit";
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: "role", label: "成員權限" },
   { key: "add", label: "新增成員" },
-  { key: "remove", label: "刪除成員" }
+  { key: "remove", label: "刪除成員" },
+  { key: "edit", label: "編輯群組" }
 ];
 
 const GROUP_SETTINGS_ERROR_MESSAGES: Record<string, string> = {
@@ -93,6 +104,7 @@ watch(() => props.groupId, loadPage, { immediate: true });
 const selectTab = (key: TabKey): void => {
   activeTab.value = key;
   actionError.value = "";
+  saveMessage.value = "";
 };
 
 // 成員權限
@@ -182,6 +194,47 @@ const handleConfirm = async (): Promise<void> => {
     pending.value = null;
   }
 };
+
+// 編輯群組
+const router = useRouter();
+const saving = ref(false);
+const editError = ref("");
+const saveMessage = ref("");
+
+const handleUpdate = async (payload: GroupPayload): Promise<void> => {
+  saving.value = true;
+  editError.value = "";
+  saveMessage.value = "";
+
+  try {
+    await updateGroup(props.groupId, payload);
+    await refreshGroup();
+    saveMessage.value = "群組資訊已更新";
+  } catch (err) {
+    editError.value = toMessage(err);
+  } finally {
+    saving.value = false;
+  }
+};
+
+// 刪除群組
+const confirmingDeleteGroup = ref(false);
+const deletingGroup = ref(false);
+
+const handleDeleteGroup = async (): Promise<void> => {
+  deletingGroup.value = true;
+  actionError.value = "";
+
+  try {
+    await deleteGroup(props.groupId);
+    await router.push("/workspace/groups");
+  } catch (err) {
+    actionError.value = toMessage(err);
+    confirmingDeleteGroup.value = false;
+  } finally {
+    deletingGroup.value = false;
+  }
+};
 </script>
 
 <template>
@@ -249,6 +302,28 @@ const handleConfirm = async (): Promise<void> => {
         </MemberTable>
       </div>
 
+      <div v-else-if="activeTab === 'edit'" class="edit-panel">
+        <GroupForm
+          :initial="group"
+          submit-text="儲存變更"
+          submitting-text="儲存中..."
+          :submitting="saving"
+          :server-error="editError"
+          @submit="handleUpdate"
+        />
+        <p v-if="saveMessage" class="settings-page__success" role="status">{{ saveMessage }}</p>
+
+        <section class="danger-zone">
+          <div>
+            <h2>刪除群組</h2>
+            <p>刪除後群組及所有成員關係都會移除，且無法復原。</p>
+          </div>
+          <button class="button button--danger" type="button" @click="confirmingDeleteGroup = true">
+            刪除群組
+          </button>
+        </section>
+      </div>
+
       <MemberTable v-else :users="members" searchable>
         <template #action="{ user }">
           <span class="muted">{{ GROUP_ROLE_LABELS[user.role] }}</span>
@@ -273,6 +348,17 @@ const handleConfirm = async (): Promise<void> => {
       :danger="pending?.type === 'remove'"
       @confirm="handleConfirm"
       @cancel="pending = null"
+    />
+
+    <ConfirmDialog
+      :open="confirmingDeleteGroup"
+      title="刪除群組"
+      :message="`確定要刪除「${group?.title}」嗎？此動作無法復原。`"
+      confirm-text="刪除"
+      :loading="deletingGroup"
+      danger
+      @confirm="handleDeleteGroup"
+      @cancel="confirmingDeleteGroup = false"
     />
   </section>
 </template>
@@ -346,9 +432,39 @@ h1 {
   color: #fff;
 }
 
-.add-panel {
+.add-panel,
+.edit-panel {
   display: grid;
   gap: 22px;
+}
+
+.settings-page__success {
+  margin: 0;
+  color: #070;
+  font-size: 13px;
+}
+
+.danger-zone {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-top: 24px;
+  padding: 20px;
+  border: 1px solid #c00;
+}
+
+.danger-zone h2 {
+  margin: 0 0 6px;
+  color: #c00;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.danger-zone p {
+  margin: 0;
+  color: #555;
+  font-size: 13px;
 }
 
 .search-form {

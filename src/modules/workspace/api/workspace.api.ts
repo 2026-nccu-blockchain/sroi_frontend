@@ -91,3 +91,9 @@ export const deleteGroupMember = (groupId: string, userId: string): Promise<ApiE
   httpClient.delete<ApiEnvelope>(
     `/group/group_member?${new URLSearchParams({ GroupId: groupId, UserId: userId })}`
   );
+
+export const updateGroup = (groupId: string, payload: GroupPayload): Promise<ApiEnvelope> =>
+  httpClient.put<ApiEnvelope>(`/group/update/${encodeURIComponent(groupId)}`, payload);
+
+export const deleteGroup = (groupId: string): Promise<ApiEnvelope> =>
+  httpClient.delete<ApiEnvelope>(`/group/${encodeURIComponent(groupId)}`);
