@@ -8,6 +8,7 @@ import type {
   GroupUserSearchResponse,
   InviteMemberPayload,
   ChangeRolePayload,
+  ProjectCreatePayload,
   ProjectPayload,
   ProjectInterviewFile,
   ProjectSROI,
@@ -21,7 +22,7 @@ export const getProjects = (): Promise<WorkspaceProject[]> =>
 export const getProject = (projectId: string): Promise<WorkspaceProject> =>
   httpClient.get<WorkspaceProject>(`/project/${encodeURIComponent(projectId)}`);
 
-export const createProject = (payload: ProjectPayload): Promise<WorkspaceProject> =>
+export const createProject = (payload: ProjectCreatePayload): Promise<WorkspaceProject> =>
   httpClient.post<WorkspaceProject>("/project", payload);
 
 export const updateProject = (projectId: string, payload: Partial<ProjectPayload>): Promise<WorkspaceProject> =>
@@ -90,3 +91,9 @@ export const deleteGroupMember = (groupId: string, userId: string): Promise<ApiE
   httpClient.delete<ApiEnvelope>(
     `/group/group_member?${new URLSearchParams({ GroupId: groupId, UserId: userId })}`
   );
+
+export const updateGroup = (groupId: string, payload: GroupPayload): Promise<ApiEnvelope> =>
+  httpClient.put<ApiEnvelope>(`/group/update/${encodeURIComponent(groupId)}`, payload);
+
+export const deleteGroup = (groupId: string): Promise<ApiEnvelope> =>
+  httpClient.delete<ApiEnvelope>(`/group/${encodeURIComponent(groupId)}`);

@@ -1,13 +1,18 @@
 <script setup lang="ts">
 import { computed } from "vue";
 
-import type { GroupInfo } from "@/modules/workspace/types/workspace.types";
+import { GROUP_ROLE_LABELS } from "@/modules/workspace/constants";
+import type { GroupInfo, GroupRole } from "@/modules/workspace/types/workspace.types";
 
 const props = withDefaults(defineProps<{ group: GroupInfo; eyebrow?: string }>(), { eyebrow: "我的群組" });
 
+const membersWithRole = (role: GroupRole) =>
+  props.group.group_members.filter((user) => (user.group_role ?? "viewer") === role);
+
 const sections = computed(() => [
-  { title: "組長", users: props.group.group_leaders },
-  { title: "組員", users: props.group.group_members }
+  { title: GROUP_ROLE_LABELS.leader, users: props.group.group_leaders },
+  { title: GROUP_ROLE_LABELS.editor, users: membersWithRole("editor") },
+  { title: GROUP_ROLE_LABELS.viewer, users: membersWithRole("viewer") }
 ]);
 
 const formatDate = (iso: string): string => new Date(iso).toLocaleDateString("zh-TW");

@@ -35,7 +35,11 @@ export interface LinkedProjectForm {
 
 export interface WorkspaceProject {
   project_id: string;
-  owner_id: string;
+  // 個人專案只有 owner_id，群組專案只有 group_id
+  owner_id: string | null;
+  group_id: string | null;
+  created_by: string;
+  my_role?: GroupRole | null;
   name: string;
   organization: string;
   description: string;
@@ -101,6 +105,12 @@ export interface ProjectSROIPayload {
   >>;
 }
 
+// 只有建立時能指定專案位置，建立後不能在個人 / 群組之間移動
+export interface ProjectCreatePayload extends ProjectPayload {
+  // 不帶就是個人專案
+  group_id?: string | null;
+}
+
 // 後端 Group.status 的值
 export type GroupReviewStatus = "verified" | "in_progress" | "unverified";
 
@@ -137,22 +147,29 @@ export interface GroupPayload {
 
 export interface GroupUser {
   user_id: string;
-  campus_id: string;
+  // 資料庫允許空值，舊帳號可能沒有學號
+  campus_id: string | null;
   name: string;
+}
+
+export type GroupRole = "leader" | "editor" | "viewer";
+
+export interface GroupMemberUser extends GroupUser {
+  group_role?: GroupRole | null;
 }
 
 export interface GroupInfo extends Group {
   status: GroupReviewStatus;
   group_leaders: GroupUser[];
-  group_members: GroupUser[];
+  // 編輯者與檢視者，用 group_role 區分
+  group_members: GroupMemberUser[];
 }
 
 export interface GroupInfoResponse extends ApiEnvelope, GroupInfo {}
 
-export type GroupRole = "leader" | "member";
-
 export interface GroupRoleResponse extends ApiEnvelope {
-  group_role: GroupRole;
+  // 管理員查自己不在的群組時不會帶
+  group_role?: GroupRole | null;
 }
 
 export interface GroupMember extends GroupUser {
@@ -165,9 +182,10 @@ export interface GroupUserSearchResponse extends ApiEnvelope {
 
 export interface InviteMemberPayload {
   user_id: string;
+  group_role?: GroupRole;
 }
 
 export interface ChangeRolePayload {
   user_id: string;
-  is_leader: boolean;
+  group_role: GroupRole;
 }
