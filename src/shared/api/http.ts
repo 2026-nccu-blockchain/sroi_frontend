@@ -2,7 +2,8 @@ import { ApiError } from "@/shared/api/error-handler";
 import { AUTH_TOKEN_COOKIE_NAME } from "@/shared/constants";
 import { getCookie } from "@/shared/utils/cookie";
 
-const API_BASE_URL = `${(import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000").replace(/\/$/, "").replace(/\/api\/v1$/, "")}/api/v1`;
+// 部署時由 nginx、開發時由 Vite proxy 把 /api 轉給後端
+const API_BASE_URL = "/api/v1";
 const SUCCESS_STATUS_CODE = "00000";
 
 export interface ApiEnvelope {
