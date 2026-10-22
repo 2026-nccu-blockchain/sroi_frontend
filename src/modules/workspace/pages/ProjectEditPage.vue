@@ -3,18 +3,25 @@ import { computed, onMounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import {
+  createProjectCost,
+  deleteProjectCost,
   deleteProjectInterviewFile,
   downloadProjectInterviewFile,
   getProject,
+  updateProjectCost,
   uploadProjectInterviewFile
 } from "@/modules/workspace/api/workspace.api";
+import ConfirmDialog from "@/modules/workspace/components/ConfirmDialog.vue";
+import CostDialog from "@/modules/workspace/components/CostDialog.vue";
 import { useVerifiedGroups } from "@/modules/workspace/composables/useVerifiedGroups";
 import { GROUP_ROLE_LABELS, toProjectErrorMessage } from "@/modules/workspace/constants";
 import { useProjectStore } from "@/modules/workspace/store/project.store";
 import type {
-  Group,
   GroupRole,
   LinkedProjectForm,
+  ProjectCost,
+  ProjectCostPayload,
+  ProjectCostsResponse,
   ProjectInterviewFile,
   ProjectPayload,
   WorkspaceProject
@@ -35,13 +42,20 @@ const interviewFiles = ref<ProjectInterviewFile[]>([]);
 const projectForms = ref<LinkedProjectForm[]>([]);
 const newOutcomeName = ref("");
 const uploadStakeholderId = ref("");
+const DEFAULT_PROJECT_NAME = "未命名的專案";
 const currentYear = new Date().getFullYear();
 const beginMonth = ref(`${currentYear}-01`);
 const endMonth = ref(`${currentYear}-12`);
+const costs = ref<ProjectCost[]>([]);
+const totalCost = ref(0);
+const costDialogOpen = ref(false);
+const editingCost = ref<ProjectCost | null>(null);
+const costSaving = ref(false);
+const costError = ref("");
+const deletingCost = ref<ProjectCost | null>(null);
 
-// 專案位置：null 是個人專案。新增時從網址 ?group= 帶入預設群組
-const { load: loadGroups, loadCreatable, titleOf } = useVerifiedGroups();
-const creatableGroups = ref<Group[]>([]);
+// 專案位置：null 是個人專案。新增時由入口網址 ?group= 決定，建立後不能移動
+const { load: loadGroups, titleOf } = useVerifiedGroups();
 const ownerGroupId = ref<string | null>(null);
 const myRole = ref<GroupRole>("leader");
 const readOnly = computed(() => myRole.value === "viewer");
@@ -56,7 +70,6 @@ const draft = reactive<Omit<ProjectPayload, "begin" | "end">>({
   name: "",
   organization: "",
   description: "",
-  actual_input_cost: 0,
   status: "draft",
   stakeholders: [],
   outcomes: []
@@ -72,7 +85,8 @@ const hydrate = (project: WorkspaceProject): void => {
   draft.name = project.name;
   draft.organization = project.organization;
   draft.description = project.description;
-  draft.actual_input_cost = Number(project.actual_input_cost ?? 0);
+  costs.value = project.costs ?? [];
+  totalCost.value = Number(project.actual_input_cost ?? 0);
   beginMonth.value = toMonthValue(project.begin);
   endMonth.value = toMonthValue(project.end);
   draft.status = project.status;
@@ -172,14 +186,65 @@ const removeStakeholder = (index: number): void => {
   draft.stakeholders.splice(index, 1);
 };
 
+const formatMoney = (value: number | string): string =>
+  `NT$ ${Number(value || 0).toLocaleString("zh-TW")}`;
+
+// 總成本只由後端加總，前端不自行計算
+const applyCosts = (data: ProjectCostsResponse): void => {
+  costs.value = data.costs;
+  totalCost.value = Number(data.total_cost);
+  const cached = projectStore.projects.find((item) => item.project_id === projectId.value);
+  if (cached) projectStore.upsert({ ...cached, costs: data.costs, actual_input_cost: totalCost.value });
+};
+
+const openCostDialog = (cost: ProjectCost | null = null): void => {
+  editingCost.value = cost;
+  costError.value = "";
+  costDialogOpen.value = true;
+};
+
+const closeCostDialog = (): void => {
+  if (costSaving.value) return;
+  costDialogOpen.value = false;
+  editingCost.value = null;
+};
+
+const submitCost = async (payload: ProjectCostPayload): Promise<void> => {
+  costSaving.value = true;
+  costError.value = "";
+  try {
+    applyCosts(editingCost.value
+      ? await updateProjectCost(projectId.value, editingCost.value.cost_id, payload)
+      : await createProjectCost(projectId.value, payload));
+    costDialogOpen.value = false;
+    editingCost.value = null;
+  } catch (caught) {
+    costError.value = toProjectErrorMessage(caught, "儲存成本失敗");
+  } finally {
+    costSaving.value = false;
+  }
+};
+
+const confirmDeleteCost = async (): Promise<void> => {
+  if (!deletingCost.value) return;
+  costSaving.value = true;
+  try {
+    applyCosts(await deleteProjectCost(projectId.value, deletingCost.value.cost_id));
+  } catch (caught) {
+    error.value = toProjectErrorMessage(caught, "刪除成本失敗");
+  } finally {
+    deletingCost.value = null;
+    costSaving.value = false;
+  }
+};
+
 const normalizedPayload = (): ProjectPayload => ({
   ...draft,
   begin: monthStartIso(beginMonth.value),
   end: monthEndIso(endMonth.value),
-  name: draft.name.trim(),
+  name: draft.name.trim() || DEFAULT_PROJECT_NAME,
   organization: draft.organization.trim(),
   description: draft.description.trim(),
-  actual_input_cost: Math.max(0, Number(draft.actual_input_cost) || 0),
   stakeholders: draft.stakeholders
     .filter((item) => item.name.trim())
     .map((item) => ({
@@ -197,10 +262,6 @@ const normalizedPayload = (): ProjectPayload => ({
 
 const persist = async (): Promise<WorkspaceProject | null> => {
   if (readOnly.value) return null;
-  if (!draft.name.trim()) {
-    error.value = "請輸入專案名稱";
-    return null;
-  }
   if (!beginMonth.value || !endMonth.value) {
     error.value = "請設定專案的開始與結束年月";
     return null;
@@ -228,6 +289,14 @@ const persist = async (): Promise<WorkspaceProject | null> => {
   } finally {
     saving.value = false;
   }
+};
+
+// 一進新增頁就建立專案，之後跟編輯既有專案走同一條路
+const createDraftProject = async (): Promise<void> => {
+  const requested = typeof route.query.group === "string" ? route.query.group : null;
+  const project = await projectStore.create({ ...normalizedPayload(), group_id: requested });
+  hydrate(project);
+  await router.replace({ name: "project-edit", params: { projectId: project.project_id } });
 };
 
 
@@ -278,22 +347,20 @@ onMounted(async () => {
   loading.value = true;
   error.value = "";
   try {
-    const cachedProject = projectStore.projects.find((item) => item.project_id === projectId.value) ?? null;
-    const project = projectId.value && !cachedProject ? await getProject(projectId.value) : cachedProject;
-    if (project) {
+    if (isNew.value) {
+      await createDraftProject();
+    } else {
+      const cachedProject = projectStore.projects.find((item) => item.project_id === projectId.value) ?? null;
+      const project = cachedProject ?? await getProject(projectId.value);
       projectStore.upsert(project);
       hydrate(project);
     }
-    if (isNew.value) {
-      creatableGroups.value = await loadCreatable();
-      const requested = typeof route.query.group === "string" ? route.query.group : null;
-      ownerGroupId.value = creatableGroups.value.some((group) => group.group_id === requested) ? requested : null;
-    } else if (ownerGroupId.value) {
+    if (ownerGroupId.value) {
       // 只用來顯示群組名稱，失敗不影響編輯
       await loadGroups().catch(() => undefined);
     }
   } catch (caught) {
-    error.value = toProjectErrorMessage(caught, "無法載入專案");
+    error.value = toProjectErrorMessage(caught, isNew.value ? "無法建立專案" : "無法載入專案");
   } finally {
     loading.value = false;
   }
@@ -322,7 +389,7 @@ onMounted(async () => {
 
     <p v-if="error" class="message message--error">{{ error }}</p>
     <p v-if="savedMessage" class="message message--success">{{ savedMessage }}</p>
-    <p v-if="loading" class="message">專案載入中…</p>
+    <p v-if="loading" class="message">{{ isNew ? "專案建立中…" : "專案載入中…" }}</p>
 
     <template v-else>
       <p v-if="readOnly" class="message">你在這個群組是檢視者，只能查看專案內容。</p>
@@ -334,26 +401,45 @@ onMounted(async () => {
           <p>這些資料會顯示在專案總覽。</p>
         </div>
         <div class="field-grid">
-          <label class="field field--wide">專案名稱<input v-model="draft.name" maxlength="255" required /></label>
+          <label class="field field--wide">專案名稱<input v-model="draft.name" maxlength="255" :placeholder="DEFAULT_PROJECT_NAME" /></label>
           <label class="field">所屬單位<input v-model="draft.organization" maxlength="255" /></label>
           <label class="field">開始年月<input v-model="beginMonth" type="month" required /></label>
           <label class="field">結束年月<input v-model="endMonth" type="month" :min="beginMonth" required /></label>
           <label class="field">狀態
             <select v-model="draft.status"><option value="draft">草稿</option><option value="published">已發布</option></select>
           </label>
-          <label class="field">實際投入成本（NT$）
-            <input v-model.number="draft.actual_input_cost" type="number" min="0" step="1" placeholder="0" />
-          </label>
-          <label v-if="isNew" class="field">專案位置
-            <select v-model="ownerGroupId">
-              <option :value="null">個人專案</option>
-              <option v-for="group in creatableGroups" :key="group.group_id" :value="group.group_id">
-                群組・{{ group.title }}
-              </option>
-            </select>
-          </label>
-          <p v-else class="field">專案位置<span class="owner-label">{{ ownerLabel }}</span></p>
+          <p class="field">專案位置<span class="owner-label">{{ ownerLabel }}</span></p>
           <label class="field field--wide">專案說明<textarea v-model="draft.description" rows="4"></textarea></label>
+        </div>
+
+        <div class="cost-section">
+          <div class="cost-section__heading">
+            <div>
+              <h3>成本明細</h3>
+              <p>總成本會依下方成本自動加總，無法直接修改。</p>
+            </div>
+            <button
+              v-if="!readOnly"
+              class="secondary-button"
+              type="button"
+              @click="openCostDialog()"
+            >＋ 新增成本</button>
+          </div>
+          <p v-if="!costs.length" class="empty-state">尚未新增成本。</p>
+          <article v-for="(cost, index) in costs" :key="cost.cost_id" class="cost-row">
+            <span class="stakeholder-number">{{ String(index + 1).padStart(2, "0") }}</span>
+            <div class="field">名稱<span class="cost-value">{{ cost.name }}</span></div>
+            <div class="field">金額<span class="cost-value">{{ formatMoney(cost.price) }}</span></div>
+            <div class="field field--notes">說明<span class="cost-value">{{ cost.description || "—" }}</span></div>
+            <div v-if="!readOnly" class="cost-actions">
+              <button class="remove-button" type="button" @click="openCostDialog(cost)">修改</button>
+              <button class="remove-button" type="button" @click="deletingCost = cost">刪除</button>
+            </div>
+          </article>
+          <div class="cost-total">
+            <span>總成本</span>
+            <strong>{{ formatMoney(totalCost) }}</strong>
+          </div>
         </div>
       </section>
 
@@ -395,6 +481,25 @@ onMounted(async () => {
         </article>
       </section>
       </fieldset>
+
+      <CostDialog
+        :open="costDialogOpen"
+        :cost="editingCost"
+        :loading="costSaving"
+        :error="costError"
+        @submit="submitCost"
+        @cancel="closeCostDialog"
+      />
+      <ConfirmDialog
+        :open="!!deletingCost"
+        title="刪除成本"
+        :message="`確定刪除「${deletingCost?.name ?? ''}」嗎？總成本會重新計算。`"
+        confirm-text="刪除"
+        :loading="costSaving"
+        danger
+        @confirm="confirmDeleteCost"
+        @cancel="deletingCost = null"
+      />
 
       <section class="editor-card">
         <div class="section-heading">
@@ -529,6 +634,16 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .stakeholder-number { align-self: center; color: #999; font-size: 11px; }
 .remove-button { border-color: #ccc; }
 .empty-state { padding: 24px; background: #f7f7f7; color: #666; text-align: center; }
+.cost-section { display: grid; gap: 16px; padding-top: 24px; border-top: 1px solid #ddd; }
+.cost-section__heading { display: flex; align-items: start; justify-content: space-between; gap: 20px; }
+.cost-section__heading h3 { margin-bottom: 6px; font-size: 16px; }
+.cost-section__heading p { color: #666; font-size: 11px; line-height: 1.6; }
+.cost-row { display: grid; grid-template-columns: 32px 1fr 1fr 1.6fr auto; align-items: end; gap: 12px; padding-bottom: 18px; border-bottom: 1px solid #eee; }
+.cost-value { overflow: hidden; border: 1px solid #e3e3e3; padding: 11px 12px; background: #f7f7f7; color: #111; font-size: 13px; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
+.cost-actions { display: flex; gap: 8px; }
+.cost-total { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 14px 16px; background: #111; color: #fff; }
+.cost-total span { font-size: 12px; font-weight: 700; }
+.cost-total strong { font-size: 20px; }
 .outcome-section { display: grid; gap: 16px; margin-top: 6px; padding-top: 24px; border-top: 1px solid #ddd; }
 .outcome-section__heading { display: flex; align-items: start; justify-content: space-between; gap: 20px; }
 .outcome-section__heading h3 { margin-bottom: 6px; font-size: 16px; }
@@ -562,7 +677,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .form-linker { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 18px; background: #f7f7f7; }
 .form-linker p { color: #666; font-size: 12px; line-height: 1.6; }
 .form-hint { margin: -10px 0 0; color: #7b647f; font-size: 11px; }
-@media (max-width: 900px) { .field-grid, .stakeholder-row { grid-template-columns: 1fr; } .stakeholder-number { display: none; } }
+@media (max-width: 900px) { .field-grid, .stakeholder-row, .cost-row { grid-template-columns: 1fr; } .stakeholder-number { display: none; } }
 @media (max-width: 700px) { .linked-form-card, .form-linker, .form-actions { align-items: stretch; flex-direction: column; } }
 @media (max-width: 600px) { .editor-header, .section-heading { align-items: stretch; flex-direction: column; } .editor-card { padding: 18px; } .outcome-composer { grid-template-columns: 1fr; } }
 </style>

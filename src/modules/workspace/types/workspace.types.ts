@@ -18,6 +18,28 @@ export interface ProjectOutcome {
   position?: number;
 }
 
+export interface ProjectCost {
+  cost_id: string;
+  name: string;
+  price: number;
+  description: string;
+  position: number;
+  create_time?: string | null;
+  update_time?: string | null;
+}
+
+export interface ProjectCostPayload {
+  name: string;
+  price: number;
+  description: string;
+}
+
+export interface ProjectCostsResponse {
+  project_id: string;
+  costs: ProjectCost[];
+  total_cost: number;
+}
+
 export interface ProjectInterviewFile {
   file_id: string;
   stakeholder_id: string;
@@ -50,6 +72,7 @@ export interface WorkspaceProject {
   forms: LinkedProjectForm[];
   stakeholders: ProjectStakeholder[];
   outcomes: ProjectOutcome[];
+  costs: ProjectCost[];
   interview_files: ProjectInterviewFile[];
   create_time?: string | null;
   update_time?: string | null;
@@ -59,7 +82,6 @@ export interface ProjectPayload {
   name: string;
   organization: string;
   description: string;
-  actual_input_cost: number;
   begin: string;
   end: string;
   status: ProjectStatus;
@@ -96,7 +118,6 @@ export interface ProjectSROI {
 }
 
 export interface ProjectSROIPayload {
-  actual_input_cost: number;
   discount_rate: number;
   outcomes: Array<Pick<OutcomeValuation,
     "outcome_id" | "quantity" | "financial_proxy_value" | "deadweight_rate" |

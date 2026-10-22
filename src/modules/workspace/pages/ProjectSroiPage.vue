@@ -3,7 +3,6 @@ import { computed, onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
 
 import { getProjectSROI, saveProjectSROI } from "@/modules/workspace/api/workspace.api";
-import { useProjectStore } from "@/modules/workspace/store/project.store";
 import type {
   OutcomeValuation,
   ProjectSROI,
@@ -11,7 +10,6 @@ import type {
 } from "@/modules/workspace/types/workspace.types";
 
 const route = useRoute();
-const projectStore = useProjectStore();
 const projectId = computed(() => String(route.params.projectId ?? ""));
 const loading = ref(true);
 const saving = ref(false);
@@ -79,7 +77,6 @@ const hydrate = (data: ProjectSROI): void => {
 };
 
 const payload = (): ProjectSROIPayload => ({
-  actual_input_cost: Math.max(0, finite(actualInputCost.value)),
   discount_rate: clamp(discountRatePercent.value / 100, 0, 1),
   outcomes: outcomes.value.map((outcome) => ({
     outcome_id: outcome.outcome_id,
@@ -101,8 +98,6 @@ const save = async (): Promise<void> => {
   try {
     const saved = await saveProjectSROI(projectId.value, payload());
     hydrate(saved);
-    const cached = projectStore.projects.find((project) => project.project_id === projectId.value);
-    if (cached) projectStore.upsert({ ...cached, actual_input_cost: Number(saved.actual_input_cost) });
     savedMessage.value = "SROI 計算資料已儲存";
   } catch (caught) {
     error.value = caught instanceof Error ? caught.message : "無法儲存 SROI 資料";
@@ -146,7 +141,7 @@ onMounted(async () => {
           <span>SROI 比例</span>
           <strong>{{ sroiRatio === null ? '—' : `${sroiRatio.toFixed(2)} : 1` }}</strong>
           <p v-if="sroiRatio !== null">每投入 1 元，暫估產生 {{ sroiRatio.toFixed(2) }} 元社會價值。</p>
-          <p v-else-if="actualInputCost <= 0">請先輸入實際投入成本。</p>
+          <p v-else-if="actualInputCost <= 0">請先在專案基本資料新增成本。</p>
           <p v-else-if="missingFinancialProxy">等待連接財務代理變數後才會計算。</p>
           <p v-else>尚無可採計的成果價值。</p>
         </article>
@@ -154,10 +149,11 @@ onMounted(async () => {
           <span>成果總價值</span>
           <strong>{{ missingFinancialProxy ? '待連接代理變數' : formatMoney(totalSocialValue) }}</strong>
         </article>
-        <label class="summary-card summary-card--input">
+        <article class="summary-card">
           <span>實際投入成本</span>
-          <input v-model.number="actualInputCost" type="number" min="0" step="1" />
-        </label>
+          <strong>{{ formatMoney(actualInputCost) }}</strong>
+          <RouterLink class="cost-link" :to="{ name: 'project-edit', params: { projectId } }">到專案基本資料修改成本 →</RouterLink>
+        </article>
         <label class="summary-card summary-card--input">
           <span>折現率（%）</span>
           <input v-model.number="discountRatePercent" type="number" min="0" max="100" step="0.1" />
@@ -256,6 +252,7 @@ h2 { font-size: 20px; }
 .summary-card--ratio { background: #765292; color: #fff; }
 .summary-card--ratio span, .summary-card--ratio p { color: #f0e7f4; }
 .summary-card--input input { width: 100%; border: 0; border-bottom: 1px solid #8f8295; padding: 8px 0; background: transparent; color: #211827; font: inherit; font-size: 20px; font-weight: 700; outline: none; }
+.cost-link { color: #765292; font-size: 11px; font-weight: 750; text-decoration: none; }
 .explanation { display: grid; grid-template-columns: 180px 1fr; gap: 22px; padding: 17px 20px; border-left: 4px solid #a77bbd; background: #f7f1f9; }
 .explanation strong { font-size: 12px; }
 .explanation p { color: #675d6c; font-size: 12px; line-height: 1.7; }
