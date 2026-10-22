@@ -25,7 +25,7 @@ export const getFormSubmissions = (formId: string): Promise<FormSubmission[]> =>
 
 export const updateForm = (
   formId: string,
-  payload: { title?: string; content?: string; status?: FormStatus }
+  payload: { title?: string; content?: string; status?: FormStatus; shuffle_outcome_questions?: boolean }
 ): Promise<FormResponse> => httpClient.patch<FormResponse>(`/form/${formId}`, payload);
 
 export const createQuestion = (
