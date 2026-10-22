@@ -75,6 +75,9 @@ const validationIssues = ref<string[]>([]);
 const showToast = ref(false);
 const publishedLink = ref("");
 const formStatus = ref<FormResponse["status"]>("draft");
+const shuffleOutcomeQuestions = ref(true);
+const showPublishDialog = ref(false);
+const publishing = ref(false);
 const draggedQuestionId = ref<string | null>(null);
 const dragOverQuestionId = ref<string | null>(null);
 let saveTimer: number | undefined;
@@ -156,6 +159,7 @@ const fromResponse = (question: QuestionResponse): Question => ({
 const hydrate = (form: FormResponse): void => {
   formId.value = form.form_id;
   formStatus.value = form.status;
+  shuffleOutcomeQuestions.value = form.shuffle_outcome_questions;
   formTitle.value = form.title ?? "未命名表單";
   formDescription.value = form.content ?? "";
   blocks.value = form.pages.map((page) => ({
@@ -215,6 +219,7 @@ const initializeForm = async (): Promise<void> => {
       title: formTitle.value,
       content: formDescription.value,
       status: "draft",
+      shuffle_outcome_questions: true,
       pages: [
         {
           project_outcome_id: null,
@@ -802,28 +807,37 @@ const publishIssues = (): string[] => {
   return issues;
 };
 
-const publish = async (): Promise<void> => {
+const openPublishDialog = (): void => {
   validationIssues.value = publishIssues();
   if (validationIssues.value.length) {
     saveError.value = "發布前請先完成以下內容";
     window.scrollTo({ top: 0, behavior: "smooth" });
     return;
   }
+  showPublishDialog.value = true;
+};
+
+const publish = async (): Promise<void> => {
   window.clearTimeout(saveTimer);
   saveError.value = "";
+  publishing.value = true;
   try {
     if (!saved.value) await persistDraft();
     if (!formId.value || saveError.value || !saved.value) return;
     const published = await updateForm(formId.value, {
-      status: "published"
+      status: "published",
+      shuffle_outcome_questions: shuffleOutcomeQuestions.value
     });
     formStore.upsert(published);
     hydrate(published);
     saved.value = true;
+    showPublishDialog.value = false;
     showToast.value = true;
     window.setTimeout(() => (showToast.value = false), 2400);
   } catch (error) {
     saveError.value = error instanceof Error ? error.message : "發布失敗";
+  } finally {
+    publishing.value = false;
   }
 };
 
@@ -1151,7 +1165,7 @@ onMounted(() => void initializeForm());
 
         <button type="button" class="worksheet-export-btn" @click="exportWorksheet">匯出學習單</button>
 
-        <button class="publish-button" type="button" :disabled="initializing || saving" @click="publish">
+        <button class="publish-button" type="button" :disabled="initializing || saving || publishing" @click="openPublishDialog">
           {{ formStatus === "published" ? "重新發布" : "發布" }}
         </button>
         <RouterLink
@@ -1398,6 +1412,40 @@ onMounted(() => void initializeForm());
           <span>{{ type.icon }}</span>{{ type.label }}
         </button>
         <button type="button" class="question-type-menu__cancel" @click="showQuestionTypeMenu = false">取消</button>
+      </section>
+    </div>
+
+    <div v-if="showPublishDialog" class="publish-dialog-backdrop" @click.self="showPublishDialog = false">
+      <section class="publish-dialog" role="dialog" aria-modal="true" aria-labelledby="publish-dialog-title">
+        <header>
+          <p>{{ formStatus === 'published' ? '重新發布設定' : '發布設定' }}</p>
+          <h2 id="publish-dialog-title">填答時要打散成果區塊的題目嗎？</h2>
+          <span>基本資料區塊不受此設定影響，永遠會先顯示。</span>
+        </header>
+
+        <div class="publish-options">
+          <label :class="{ 'publish-option--selected': shuffleOutcomeQuestions }">
+            <input v-model="shuffleOutcomeQuestions" type="radio" :value="true" />
+            <span>
+              <strong>打散題目</strong>
+              <small>完成基本資料後，系統會將所有成果區塊的題目隨機混排。</small>
+            </span>
+          </label>
+          <label :class="{ 'publish-option--selected': !shuffleOutcomeQuestions }">
+            <input v-model="shuffleOutcomeQuestions" type="radio" :value="false" />
+            <span>
+              <strong>維持原本順序</strong>
+              <small>依照設計者設定的區塊與題目順序顯示。</small>
+            </span>
+          </label>
+        </div>
+
+        <footer>
+          <button type="button" class="publish-dialog__cancel" :disabled="publishing" @click="showPublishDialog = false">取消</button>
+          <button type="button" class="publish-dialog__confirm" :disabled="publishing" @click="publish">
+            {{ publishing ? '發布中…' : (formStatus === 'published' ? '確認重新發布' : '確認發布') }}
+          </button>
+        </footer>
       </section>
     </div>
 
@@ -1706,6 +1754,24 @@ svg { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: 
 .question-type-menu button:hover { background: #f6f1f8 !important; }
 .question-type-menu button span { width: 20px; color: #765292; text-align: center; }
 .question-type-menu .question-type-menu__cancel { justify-content: center !important; margin-top: 6px; border-top: 1px solid #eee8f1 !important; border-radius: 0 !important; color: #7e7582 !important; }
+.publish-dialog-backdrop { position: fixed; z-index: 90; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(37, 25, 44, .38); backdrop-filter: blur(3px); }
+.publish-dialog { width: min(520px, 100%); overflow: hidden; border: 1px solid #e3dbe8; border-radius: 16px; background: #fff; box-shadow: 0 22px 70px rgba(48, 32, 58, .25); }
+.publish-dialog header { padding: 28px 30px 20px; }
+.publish-dialog header p { margin: 0 0 8px; color: #765292; font-size: 10px; font-weight: 750; letter-spacing: .14em; }
+.publish-dialog h2 { margin: 0 0 10px; color: #332c38; font-size: 20px; line-height: 1.45; }
+.publish-dialog header > span { color: #786f7d; font-size: 12px; line-height: 1.6; }
+.publish-options { display: grid; gap: 10px; padding: 0 30px 28px; }
+.publish-options label { display: grid; grid-template-columns: 20px 1fr; align-items: start; gap: 12px; padding: 16px; border: 1px solid #ded7e2; border-radius: 11px; background: #fff; cursor: pointer; }
+.publish-options label:hover, .publish-options .publish-option--selected { border-color: #8c6aa3; background: #faf7fc; box-shadow: 0 0 0 2px rgba(118, 82, 146, .08); }
+.publish-options input { margin-top: 3px; accent-color: #765292; }
+.publish-options span { display: grid; gap: 5px; }
+.publish-options strong { color: #453a4c; font-size: 13px; }
+.publish-options small { color: #7f7683; font-size: 11px; line-height: 1.6; }
+.publish-dialog footer { display: flex; justify-content: flex-end; gap: 10px; padding: 18px 30px; border-top: 1px solid #eee8f1; background: #fcfafc; }
+.publish-dialog footer button { min-height: 40px; padding: 0 17px; border-radius: 8px; font-size: 12px; font-weight: 650; }
+.publish-dialog__cancel { border: 1px solid #d8d0dc; background: #fff; color: #655d69; }
+.publish-dialog__confirm { border: 0; background: #694786; color: #fff; }
+.publish-dialog footer button:disabled { cursor: wait; opacity: .55; }
 .worksheet-export-btn {
   border: 1px solid #74459a;
   background: #ffffff;
