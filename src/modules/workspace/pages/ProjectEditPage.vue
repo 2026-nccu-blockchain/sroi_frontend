@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import {
@@ -17,6 +17,7 @@ import { useVerifiedGroups } from "@/modules/workspace/composables/useVerifiedGr
 import { GROUP_ROLE_LABELS, toProjectErrorMessage } from "@/modules/workspace/constants";
 import { useProjectStore } from "@/modules/workspace/store/project.store";
 import type {
+  Group,
   GroupRole,
   LinkedProjectForm,
   ProjectCost,
@@ -42,7 +43,6 @@ const interviewFiles = ref<ProjectInterviewFile[]>([]);
 const projectForms = ref<LinkedProjectForm[]>([]);
 const newOutcomeName = ref("");
 const selectedStakeholderId = ref("");
-const DEFAULT_PROJECT_NAME = "未命名的專案";
 const currentYear = new Date().getFullYear();
 const beginMonth = ref(`${currentYear}-01`);
 const endMonth = ref(`${currentYear}-12`);
@@ -53,9 +53,14 @@ const editingCost = ref<ProjectCost | null>(null);
 const costSaving = ref(false);
 const costError = ref("");
 const deletingCost = ref<ProjectCost | null>(null);
+// 最後一次儲存（或載入）時的內容，用來判斷有沒有未儲存的修改
+const savedSnapshot = ref("");
+const leaveDialogOpen = ref(false);
+let resolveLeave: ((leave: boolean) => void) | null = null;
 
-// 專案位置：null 是個人專案。新增時由入口網址 ?group= 決定，建立後不能移動
-const { load: loadGroups, titleOf } = useVerifiedGroups();
+// 專案位置：null 是個人專案。新增時可選擇，入口網址 ?group= 帶入預設群組，建立後不能移動
+const { load: loadGroups, loadCreatable, titleOf } = useVerifiedGroups();
+const creatableGroups = ref<Group[]>([]);
 const ownerGroupId = ref<string | null>(null);
 const myRole = ref<GroupRole>("leader");
 const readOnly = computed(() => myRole.value === "viewer");
@@ -111,6 +116,7 @@ const hydrate = (project: WorkspaceProject): void => {
   }
   ownerGroupId.value = project.group_id;
   myRole.value = project.my_role ?? "leader";
+  savedSnapshot.value = snapshot();
 };
 
 const confirmOutcome = async (): Promise<void> => {
@@ -247,7 +253,7 @@ const normalizedPayload = (): ProjectPayload => ({
   ...draft,
   begin: monthStartIso(beginMonth.value),
   end: monthEndIso(endMonth.value),
-  name: draft.name.trim() || DEFAULT_PROJECT_NAME,
+  name: draft.name.trim(),
   organization: draft.organization.trim(),
   description: draft.description.trim(),
   stakeholders: draft.stakeholders
@@ -265,8 +271,17 @@ const normalizedPayload = (): ProjectPayload => ({
     .map((item) => ({ outcome_id: item.outcome_id, name: item.name.trim() }))
 });
 
+const snapshot = (): string => JSON.stringify(normalizedPayload());
+
+const isDirty = computed(() => !readOnly.value && !loading.value && snapshot() !== savedSnapshot.value);
+const nameMissing = computed(() => !draft.name.trim());
+
 const persist = async (): Promise<WorkspaceProject | null> => {
   if (readOnly.value) return null;
+  if (nameMissing.value) {
+    error.value = "請輸入專案名稱";
+    return null;
+  }
   if (!beginMonth.value || !endMonth.value) {
     error.value = "請設定專案的開始與結束年月";
     return null;
@@ -283,8 +298,9 @@ const persist = async (): Promise<WorkspaceProject | null> => {
       ? await projectStore.create({ ...normalizedPayload(), group_id: ownerGroupId.value })
       : await projectStore.update(projectId.value, normalizedPayload());
     hydrate(project);
-    savedMessage.value = "專案已儲存";
+    savedMessage.value = isNew.value ? "專案已建立，可以繼續填寫其他資料" : "專案已儲存";
     if (isNew.value) {
+      // 換成編輯頁路由後，畫面會顯示其餘區塊
       await router.replace({ name: "project-edit", params: { projectId: project.project_id } });
     }
     return project;
@@ -296,19 +312,41 @@ const persist = async (): Promise<WorkspaceProject | null> => {
   }
 };
 
-// 一進新增頁就建立專案，之後跟編輯既有專案走同一條路
-const createDraftProject = async (): Promise<void> => {
-  const requested = typeof route.query.group === "string" ? route.query.group : null;
-  const project = await projectStore.create({ ...normalizedPayload(), group_id: requested });
-  hydrate(project);
-  await router.replace({ name: "project-edit", params: { projectId: project.project_id } });
+const askLeave = (): Promise<boolean> => new Promise((resolve) => {
+  resolveLeave = resolve;
+  leaveDialogOpen.value = true;
+});
+
+const answerLeave = (leave: boolean): void => {
+  leaveDialogOpen.value = false;
+  resolveLeave?.(leave);
+  resolveLeave = null;
 };
 
+// 新增頁儲存後會換成編輯頁的路由，但元件沿用同一個，用 beforeEach 才不會漏掉後續的離開
+const removeLeaveGuard = router.beforeEach((to, from) => {
+  if (!isDirty.value || to.path === from.path) return true;
+  return askLeave();
+});
+
+// 重新整理或關閉分頁，只能用瀏覽器內建的提醒
+const warnBeforeUnload = (event: BeforeUnloadEvent): void => {
+  if (!isDirty.value) return;
+  event.preventDefault();
+  event.returnValue = "";
+};
+
+onBeforeUnmount(() => {
+  removeLeaveGuard();
+  window.removeEventListener("beforeunload", warnBeforeUnload);
+});
+
+// 不會自動儲存專案；有未儲存的修改時，離開提醒會先問使用者
+const canCreateForm = computed(() => !isNew.value && !saving.value);
 
 const createProjectForm = async (): Promise<void> => {
-  const project = await persist();
-  if (!project) return;
-  await router.push({ name: "form-builder-new", params: { projectId: project.project_id } });
+  if (!canCreateForm.value) return;
+  await router.push({ name: "form-builder-new", params: { projectId: projectId.value } });
 };
 
 
@@ -349,25 +387,30 @@ const openResponses = async (form: LinkedProjectForm): Promise<void> => {
 };
 
 onMounted(async () => {
+  window.addEventListener("beforeunload", warnBeforeUnload);
   loading.value = true;
   error.value = "";
   try {
     if (isNew.value) {
-      await createDraftProject();
+      // 只先決定專案位置，按「新增專案」才建立
+      creatableGroups.value = await loadCreatable();
+      const requested = typeof route.query.group === "string" ? route.query.group : null;
+      ownerGroupId.value = creatableGroups.value.some((group) => group.group_id === requested) ? requested : null;
     } else {
       const cachedProject = projectStore.projects.find((item) => item.project_id === projectId.value) ?? null;
       const project = cachedProject ?? await getProject(projectId.value);
       projectStore.upsert(project);
       hydrate(project);
     }
-    if (ownerGroupId.value) {
+    if (!isNew.value && ownerGroupId.value) {
       // 只用來顯示群組名稱，失敗不影響編輯
       await loadGroups().catch(() => undefined);
     }
   } catch (caught) {
-    error.value = toProjectErrorMessage(caught, isNew.value ? "無法建立專案" : "無法載入專案");
+    error.value = toProjectErrorMessage(caught, "無法載入專案");
   } finally {
     loading.value = false;
+    if (isNew.value) savedSnapshot.value = snapshot();
   }
 });
 </script>
@@ -386,15 +429,15 @@ onMounted(async () => {
           class="secondary-button"
           :to="{ name: 'project-sroi', params: { projectId } }"
         >SROI 計算 →</RouterLink>
-        <button v-if="!readOnly" class="primary-button" type="button" :disabled="saving || loading" @click="persist">
-          {{ saving ? "儲存中…" : "儲存專案" }}
+        <button v-if="!readOnly" class="primary-button" type="button" :disabled="saving || loading || nameMissing" @click="persist">
+          {{ saving ? (isNew ? "新增中…" : "儲存中…") : (isNew ? "新增專案" : "儲存專案") }}
         </button>
       </div>
     </header>
 
     <p v-if="error" class="message message--error">{{ error }}</p>
     <p v-if="savedMessage" class="message message--success">{{ savedMessage }}</p>
-    <p v-if="loading" class="message">{{ isNew ? "專案建立中…" : "專案載入中…" }}</p>
+    <p v-if="loading" class="message">專案載入中…</p>
 
     <template v-else>
       <p v-if="readOnly" class="message">你在這個群組是檢視者，只能查看專案內容。</p>
@@ -403,21 +446,29 @@ onMounted(async () => {
       <section class="editor-card">
         <div class="section-heading">
           <div><span>01</span><h2>專案資料</h2></div>
-          <p>這些資料會顯示在專案總覽。</p>
+          <p>{{ isNew ? "先填寫基本資料，新增專案後即可設定成本、利害關係人與表單。" : "這些資料會顯示在專案總覽。" }}</p>
         </div>
         <div class="field-grid">
-          <label class="field field--wide">專案名稱<input v-model="draft.name" maxlength="255" :placeholder="DEFAULT_PROJECT_NAME" /></label>
+          <label class="field field--wide">專案名稱（必填）<input v-model="draft.name" maxlength="255" placeholder="請輸入專案名稱" required /></label>
           <label class="field">所屬單位<input v-model="draft.organization" maxlength="255" /></label>
           <label class="field">開始年月<input v-model="beginMonth" type="month" required /></label>
           <label class="field">結束年月<input v-model="endMonth" type="month" :min="beginMonth" required /></label>
           <label class="field">狀態
             <select v-model="draft.status"><option value="draft">草稿</option><option value="published">已發布</option></select>
           </label>
-          <p class="field">專案位置<span class="owner-label">{{ ownerLabel }}</span></p>
+          <label v-if="isNew" class="field">專案位置
+            <select v-model="ownerGroupId">
+              <option :value="null">個人專案</option>
+              <option v-for="group in creatableGroups" :key="group.group_id" :value="group.group_id">
+                群組・{{ group.title }}
+              </option>
+            </select>
+          </label>
+          <p v-else class="field">專案位置<span class="owner-label">{{ ownerLabel }}</span></p>
           <label class="field field--wide">專案說明<textarea v-model="draft.description" rows="4"></textarea></label>
         </div>
 
-        <div class="cost-section">
+        <div v-if="!isNew" class="cost-section">
           <div class="cost-section__heading">
             <div>
               <h3>成本明細</h3>
@@ -448,7 +499,7 @@ onMounted(async () => {
         </div>
       </section>
 
-      <section class="editor-card">
+      <section v-if="!isNew" class="editor-card">
         <div class="section-heading section-heading--action">
           <div><span>02</span><h2>利害關係人</h2></div>
           <button class="secondary-button" type="button" @click="addStakeholder">＋ 新增利害關係人</button>
@@ -505,8 +556,17 @@ onMounted(async () => {
         @confirm="confirmDeleteCost"
         @cancel="deletingCost = null"
       />
+      <ConfirmDialog
+        :open="leaveDialogOpen"
+        title="尚未儲存"
+        :message="isNew ? '專案還沒儲存，離開後輸入的內容不會建立。確定要離開嗎？' : '有修改還沒儲存，離開後會遺失。確定要離開嗎？'"
+        confirm-text="離開"
+        danger
+        @confirm="answerLeave(true)"
+        @cancel="answerLeave(false)"
+      />
 
-      <section class="editor-card">
+      <section v-if="!isNew" class="editor-card">
         <div class="section-heading">
           <div><span>03</span><h2>訪綱附件</h2></div>
           <p>支援 PDF、DOC、DOCX，單一檔案上限 10 MB。</p>
@@ -582,10 +642,10 @@ onMounted(async () => {
         </div>
       </section>
 
-      <section class="editor-card">
+      <section v-if="!isNew" class="editor-card">
         <div class="section-heading">
           <div><span>04</span><h2>專案表單</h2></div>
-          <button v-if="!readOnly" class="secondary-button" type="button" :disabled="saving" @click="createProjectForm">＋ 新增表單</button>
+          <button v-if="!readOnly" class="secondary-button" type="button" :disabled="!canCreateForm" @click="createProjectForm">＋ 新增表單</button>
         </div>
         <div v-for="form in projectForms" :key="form.form_id" class="linked-form-card">
           <div>
