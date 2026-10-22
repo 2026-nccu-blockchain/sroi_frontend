@@ -178,12 +178,7 @@ const persist = async (): Promise<WorkspaceProject | null> => {
 };
 
 
-const createProjectForm = async (): Promise<void> => {
-  const project = await persist();
-  if (!project) return;
-  await router.push({ name: "form-builder-new", params: { projectId: project.project_id } });
-};
-*/
+
 
 const createAndLinkForm = async (): Promise<void> => {
   console.log("按鈕有被點擊");
@@ -355,7 +350,7 @@ onMounted(async () => {
       <section class="editor-card">
         <div class="section-heading">
           <div><span>04</span><h2>專案表單</h2></div>
-          <button class="secondary-button" type="button" :disabled="saving" @click="createProjectForm">＋ 新增表單</button>
+          <button class="secondary-button" type="button" :disabled="saving" @click="createAndLinkForm">＋ 新增表單</button>
         </div>
         <div v-for="form in projectForms" :key="form.form_id" class="linked-form-card">
           <div>
