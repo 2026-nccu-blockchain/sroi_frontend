@@ -41,7 +41,7 @@ const uploadingInterviewFile = ref(false);
 const interviewFiles = ref<ProjectInterviewFile[]>([]);
 const projectForms = ref<LinkedProjectForm[]>([]);
 const newOutcomeName = ref("");
-const uploadStakeholderId = ref("");
+const selectedStakeholderId = ref("");
 const DEFAULT_PROJECT_NAME = "未命名的專案";
 const currentYear = new Date().getFullYear();
 const beginMonth = ref(`${currentYear}-01`);
@@ -78,8 +78,13 @@ const draft = reactive<Omit<ProjectPayload, "begin" | "end">>({
 // 已儲存（有 stakeholder_id）的利害關係人才能上傳檔案
 const savedStakeholders = computed(() => draft.stakeholders.filter((item) => item.stakeholder_id));
 
-const stakeholderName = (stakeholderId: string): string =>
-  draft.stakeholders.find((item) => item.stakeholder_id === stakeholderId)?.name || "未指定";
+// 下拉選單選到的利害關係人，同時決定顯示誰的檔案與上傳給誰
+const selectedFiles = computed(() =>
+  interviewFiles.value.filter((file) => file.stakeholder_id === selectedStakeholderId.value)
+);
+
+const fileCountOf = (stakeholderId?: string): number =>
+  interviewFiles.value.filter((file) => file.stakeholder_id === stakeholderId).length;
 
 const hydrate = (project: WorkspaceProject): void => {
   draft.name = project.name;
@@ -101,8 +106,8 @@ const hydrate = (project: WorkspaceProject): void => {
   draft.outcomes = project.outcomes.map(({ outcome_id, name }) => ({ outcome_id, name }));
   interviewFiles.value = project.interview_files ?? [];
   projectForms.value = project.forms ?? [];
-  if (!savedStakeholders.value.some((item) => item.stakeholder_id === uploadStakeholderId.value)) {
-    uploadStakeholderId.value = savedStakeholders.value[0]?.stakeholder_id ?? "";
+  if (!savedStakeholders.value.some((item) => item.stakeholder_id === selectedStakeholderId.value)) {
+    selectedStakeholderId.value = savedStakeholders.value[0]?.stakeholder_id ?? "";
   }
   ownerGroupId.value = project.group_id;
   myRole.value = project.my_role ?? "leader";
@@ -133,7 +138,7 @@ const uploadInterviewFile = async (event: Event): Promise<void> => {
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0];
   if (!file) return;
-  if (!projectId.value || !uploadStakeholderId.value) {
+  if (!projectId.value || !selectedStakeholderId.value) {
     error.value = "請先選擇要上傳給哪位利害關係人";
     input.value = "";
     return;
@@ -141,7 +146,7 @@ const uploadInterviewFile = async (event: Event): Promise<void> => {
   uploadingInterviewFile.value = true;
   error.value = "";
   try {
-    const uploaded = await uploadProjectInterviewFile(projectId.value, uploadStakeholderId.value, file);
+    const uploaded = await uploadProjectInterviewFile(projectId.value, selectedStakeholderId.value, file);
     interviewFiles.value = [...interviewFiles.value, uploaded];
   } catch (caught) {
     error.value = toProjectErrorMessage(caught, "上傳訪綱失敗");
@@ -506,40 +511,40 @@ onMounted(async () => {
           <div><span>03</span><h2>訪綱附件</h2></div>
           <p>支援 PDF、DOC、DOCX，單一檔案上限 10 MB。</p>
         </div>
-        <template v-if="!readOnly">
-          <label class="field upload-target">上傳給利害關係人
-            <select v-model="uploadStakeholderId" :disabled="!savedStakeholders.length || uploadingInterviewFile">
-              <option v-if="!savedStakeholders.length" value="">請先新增並儲存利害關係人</option>
-              <option v-for="item in savedStakeholders" :key="item.stakeholder_id" :value="item.stakeholder_id">
-                {{ item.name }}
-              </option>
-            </select>
-          </label>
-          <label
-            class="upload-zone"
-            :class="{ 'upload-zone--busy': uploadingInterviewFile, 'upload-zone--disabled': !uploadStakeholderId }"
-          >
-            <input
-              type="file"
-              accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-              :disabled="uploadingInterviewFile || !uploadStakeholderId"
-              @change="uploadInterviewFile"
-            />
-            <strong>{{ uploadingInterviewFile ? "上傳中…" : "＋ 上傳訪綱" }}</strong>
-            <span>可上傳訪談大綱、訪談題目或相關說明文件</span>
-          </label>
-        </template>
-        <div v-if="interviewFiles.length" class="file-list">
-          <article v-for="file in interviewFiles" :key="file.file_id" class="file-row">
+        <label class="field upload-target">利害關係人
+          <select v-model="selectedStakeholderId" :disabled="!savedStakeholders.length || uploadingInterviewFile">
+            <option v-if="!savedStakeholders.length" value="">請先新增並儲存利害關係人</option>
+            <option v-for="item in savedStakeholders" :key="item.stakeholder_id" :value="item.stakeholder_id">
+              {{ item.name }}（{{ fileCountOf(item.stakeholder_id) }}）
+            </option>
+          </select>
+        </label>
+        <label
+          v-if="!readOnly"
+          class="upload-zone"
+          :class="{ 'upload-zone--busy': uploadingInterviewFile, 'upload-zone--disabled': !selectedStakeholderId }"
+        >
+          <input
+            type="file"
+            accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            :disabled="uploadingInterviewFile || !selectedStakeholderId"
+            @change="uploadInterviewFile"
+          />
+          <strong>{{ uploadingInterviewFile ? "上傳中…" : "＋ 上傳訪綱" }}</strong>
+          <span>可上傳訪談大綱、訪談題目或相關說明文件</span>
+        </label>
+        <div v-if="selectedFiles.length" class="file-list">
+          <article v-for="file in selectedFiles" :key="file.file_id" class="file-row">
             <div>
               <strong>{{ file.original_name }}</strong>
-              <span>{{ stakeholderName(file.stakeholder_id) }} · {{ formatFileSize(file.size_bytes) }}</span>
+              <span>{{ formatFileSize(file.size_bytes) }}</span>
             </div>
             <button type="button" @click="downloadInterviewFile(file)">下載</button>
             <button v-if="!readOnly" type="button" @click="removeInterviewFile(file)">刪除</button>
           </article>
         </div>
-        <p v-else class="empty-state">尚未上傳訪綱。</p>
+        <p v-else-if="selectedStakeholderId" class="empty-state">這位利害關係人尚未上傳訪綱。</p>
+        <p v-else class="empty-state">請先新增並儲存利害關係人。</p>
 
         <div class="outcome-section">
           <div class="outcome-section__heading">
