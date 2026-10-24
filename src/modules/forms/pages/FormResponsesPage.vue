@@ -81,6 +81,7 @@ const answersForQuestion = (questionId: string): SubmittedAnswer[] =>
 const pieColors = ["#E5484D", "#2563EB", "#16A34A", "#F59E0B", "#9333EA", "#0891B2", "#DB2777", "#65A30D"];
 
 type ChoiceStat = { id: string; label: string; count: number; percent: number; color: string };
+type ScaleStat = { value: number; count: number; percent: number; color: string };
 
 // 同時相容後端以 option_id、選項文字或 JSON 字串儲存答案的情況。
 // 無法對應的值不會被硬塞進某個選項。
@@ -142,8 +143,7 @@ const unmatchedChoiceAnswers = (question: QuestionResponse): number =>
   answersForQuestion(question.question_id)
     .filter((answer) => selectedOptionIds(question, answer).length === 0).length;
 
-const pieBackground = (question: QuestionResponse): string => {
-  const stats = optionStats(question);
+const chartBackground = (stats: Array<{ count: number; color: string }>): string => {
   const total = stats.reduce((sum, stat) => sum + stat.count, 0);
   if (total === 0) return "#EEE9F1";
   let cumulative = 0;
@@ -155,7 +155,9 @@ const pieBackground = (question: QuestionResponse): string => {
   return `conic-gradient(${slices.join(", ")})`;
 };
 
-const scaleStats = (question: QuestionResponse): Array<{ value: number; count: number; percent: number }> => {
+const pieBackground = (question: QuestionResponse): string => chartBackground(optionStats(question));
+
+const scaleStats = (question: QuestionResponse): ScaleStat[] => {
   const values = answersForQuestion(question.question_id)
     .map((answer) => answer.number_value)
     .filter((value): value is number => value !== null);
@@ -164,9 +166,16 @@ const scaleStats = (question: QuestionResponse): Array<{ value: number; count: n
   return Array.from({ length: end - begin + 1 }, (_, index) => {
     const value = begin + index;
     const count = values.filter((answer) => answer === value).length;
-    return { value, count, percent: values.length ? Math.round((count / values.length) * 100) : 0 };
+    return {
+      value,
+      count,
+      percent: values.length ? Math.round((count / values.length) * 100) : 0,
+      color: pieColors[index % pieColors.length]
+    };
   });
 };
+
+const scalePieBackground = (question: QuestionResponse): string => chartBackground(scaleStats(question));
 
 const scaleAverage = (question: QuestionResponse): string => {
   const values = answersForQuestion(question.question_id)
@@ -272,10 +281,11 @@ watch([projectId, formId], () => void load(), { immediate: true });
               <header>
                 <div class="outcome-heading">
                   <div>
-                    <p class="eyebrow">成果區塊</p>
+                    <p class="eyebrow">{{ page.is_respondent_info ? '基本資料區段' : '成果區塊' }}</p>
                     <h2>{{ page.title || "未命名區塊" }}</h2>
                   </div>
                   <span
+                    v-if="!page.is_respondent_info"
                     class="assessment-badge"
                     :class="`assessment-badge--${outcomeAssessment(page).status}`"
                   >
@@ -287,7 +297,7 @@ watch([projectId, formId], () => void load(), { immediate: true });
                   </span>
                 </div>
                 <p v-if="page.content">{{ page.content }}</p>
-                <small class="assessment-note">目前暫以量表正規化平均高於中位數 50% 判定，正式採計標準之後可再調整。</small>
+                <small v-if="!page.is_respondent_info" class="assessment-note">目前暫以量表正規化平均高於中位數 50% 判定，正式採計標準之後可再調整。</small>
               </header>
 
               <article
@@ -304,17 +314,7 @@ watch([projectId, formId], () => void load(), { immediate: true });
                 <div v-if="question.question_type === 'CQ'" class="choice-summary">
                   <div
                     class="pie-chart"
-                    :style="{
-                      background: `conic-gradient(${optionStats(question)
-                        .reduce((parts, stat, index, all) => {
-                          const palette = ['#765292', '#a77bbd', '#c7a8d7', '#5f8fc9', '#72b7a6', '#d79a68'];
-                          const start = all.slice(0, index).reduce((sum, item) => sum + item.percent, 0);
-                          const end = start + stat.percent;
-                          parts.push(`${palette[index % palette.length]} ${start}% ${end}%`);
-                          return parts;
-                        }, [] as string[])
-                        .join(', ') || '#eee9f1 0% 100%'})`
-                    }"
+                    :style="{ background: pieBackground(question) }"
                     aria-label="選擇題圓餅圖"
                   ></div>
 
@@ -334,11 +334,21 @@ watch([projectId, formId], () => void load(), { immediate: true });
 
                 <div v-else-if="question.question_type === 'SC'" class="scale-summary">
                   <p>平均分數 <b>{{ scaleAverage(question) }}</b></p>
-                  <div class="bar-chart">
-                    <div v-for="stat in scaleStats(question)" :key="stat.value" class="bar-row">
-                      <span>{{ stat.value }} 分</span>
-                      <div><i :style="{ width: `${stat.percent}%` }"></i></div>
-                      <b>{{ stat.count }}（{{ stat.percent }}%）</b>
+                  <div class="choice-summary">
+                    <div
+                      class="pie-chart"
+                      :style="{ background: scalePieBackground(question) }"
+                      aria-label="量表題圓餅圖"
+                    ></div>
+                    <div class="pie-legend">
+                      <div v-for="stat in scaleStats(question)" :key="stat.value" class="pie-legend__row">
+                        <i :style="{ background: stat.color }"></i>
+                        <span>{{ stat.value }} 分</span>
+                        <b>{{ stat.count }} 人（{{ stat.percent }}%）</b>
+                      </div>
+                      <p v-if="scaleStats(question).every((stat) => stat.count === 0)" class="choice-note">
+                        尚無可統計的量表答案
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -450,12 +460,6 @@ h1, h2, p { margin-top: 0; }
 .pie-legend__row i { width: 10px; height: 10px; border-radius: 50%; }
 .pie-legend__row b { color: #292631; font-weight: 700; }
 .choice-note { margin: 4px 0 0; color: #b45309; font-size: 12px; line-height: 1.6; }
-.bar-chart { display: grid; gap: 12px; }
-.bar-row { display: grid; grid-template-columns: minmax(80px, 140px) minmax(100px, 1fr) 90px; align-items: center; gap: 12px; font-size: 11px; }
-.bar-row > span { overflow-wrap: anywhere; }
-.bar-row > div { height: 10px; overflow: hidden; border-radius: 6px; background: #eee9f1; }
-.bar-row i { display: block; min-width: 2px; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #765292, #aa86be); }
-.bar-row b { color: #6d6571; font-weight: 600; text-align: right; }
 .scale-summary > p { margin-bottom: 16px; color: #6e6673; font-size: 12px; }
 .scale-summary > p b { margin-left: 5px; color: #684884; font-size: 20px; }
 .raw-answer-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }

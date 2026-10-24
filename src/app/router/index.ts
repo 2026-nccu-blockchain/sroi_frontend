@@ -19,6 +19,7 @@ import GroupDetailPage from "@/modules/workspace/pages/GroupDetailPage.vue";
 import GroupSettingsPage from "@/modules/workspace/pages/GroupSettingsPage.vue";
 import MyProjectsPage from "@/modules/workspace/pages/MyProjectsPage.vue";
 import ProjectEditPage from "@/modules/workspace/pages/ProjectEditPage.vue";
+import ProjectSroiPage from "@/modules/workspace/pages/ProjectSroiPage.vue";
 import { registerRouterGuards } from "@/app/router/guards";
 import AdminGroupDetailPage from "@/modules/admin/pages/AdminGroupDetailPage.vue";
 import AdminGroupsPage from "@/modules/admin/pages/AdminGroupsPage.vue";
@@ -104,6 +105,12 @@ const routes: RouteRecordRaw[] = [
         path: "workspace/projects/:projectId/edit",
         name: "project-edit",
         component: ProjectEditPage,
+        meta: { requiresAuth: true, roles: WORKSPACE_ROLES }
+      },
+      {
+        path: "workspace/projects/:projectId/sroi",
+        name: "project-sroi",
+        component: ProjectSroiPage,
         meta: { requiresAuth: true, roles: WORKSPACE_ROLES }
       },
       {

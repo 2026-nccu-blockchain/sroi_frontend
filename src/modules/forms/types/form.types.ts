@@ -40,6 +40,7 @@ export interface QuestionResponse extends QuestionPayload {
 export interface PageResponse {
   page_id: string;
   project_outcome_id: string | null;
+  is_respondent_info: boolean;
   title: string | null;
   content: string;
   position: number;
@@ -54,6 +55,7 @@ export interface FormResponse {
   title: string | null;
   content: string | null;
   status: FormStatus;
+  shuffle_outcome_questions: boolean;
   create_time?: string | null;
   update_time?: string | null;
   pages: PageResponse[];
@@ -63,6 +65,7 @@ export interface PublicFormResponse {
   public_token: string;
   title: string | null;
   content: string | null;
+  shuffle_outcome_questions: boolean;
   pages: PageResponse[];
 }
 
@@ -98,8 +101,10 @@ export interface CreateFormPayload {
   title: string;
   content: string;
   status: FormStatus;
+  shuffle_outcome_questions?: boolean;
   pages: Array<{
     project_outcome_id?: string | null;
+    is_respondent_info?: boolean;
     title?: string;
     content: string;
     position: number;

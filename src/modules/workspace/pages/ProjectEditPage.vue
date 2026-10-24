@@ -3,18 +3,30 @@ import { computed, onMounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import {
+  createProjectCost,
+  deleteProjectCost,
   deleteProjectInterviewFile,
   downloadProjectInterviewFile,
   getProject,
+  updateProjectCost,
   uploadProjectInterviewFile
 } from "@/modules/workspace/api/workspace.api";
+import ConfirmDialog from "@/modules/workspace/components/ConfirmDialog.vue";
+import CostDialog from "@/modules/workspace/components/CostDialog.vue";
+import { useVerifiedGroups } from "@/modules/workspace/composables/useVerifiedGroups";
+import { GROUP_ROLE_LABELS, toProjectErrorMessage } from "@/modules/workspace/constants";
 import { useProjectStore } from "@/modules/workspace/store/project.store";
 import type {
+  GroupRole,
   LinkedProjectForm,
+  ProjectCost,
+  ProjectCostPayload,
+  ProjectCostsResponse,
   ProjectInterviewFile,
   ProjectPayload,
   WorkspaceProject
 } from "@/modules/workspace/types/workspace.types";
+import { monthEndIso, monthStartIso, toMonthValue } from "@/shared/utils/date";
 
 const route = useRoute();
 const router = useRouter();
@@ -29,34 +41,71 @@ const uploadingInterviewFile = ref(false);
 const interviewFiles = ref<ProjectInterviewFile[]>([]);
 const projectForms = ref<LinkedProjectForm[]>([]);
 const newOutcomeName = ref("");
+const uploadStakeholderId = ref("");
+const DEFAULT_PROJECT_NAME = "未命名的專案";
+const currentYear = new Date().getFullYear();
+const beginMonth = ref(`${currentYear}-01`);
+const endMonth = ref(`${currentYear}-12`);
+const costs = ref<ProjectCost[]>([]);
+const totalCost = ref(0);
+const costDialogOpen = ref(false);
+const editingCost = ref<ProjectCost | null>(null);
+const costSaving = ref(false);
+const costError = ref("");
+const deletingCost = ref<ProjectCost | null>(null);
 
-const draft = reactive<ProjectPayload>({
+// 專案位置：null 是個人專案。新增時由入口網址 ?group= 決定，建立後不能移動
+const { load: loadGroups, titleOf } = useVerifiedGroups();
+const ownerGroupId = ref<string | null>(null);
+const myRole = ref<GroupRole>("leader");
+const readOnly = computed(() => myRole.value === "viewer");
+const backTo = computed(() =>
+  ownerGroupId.value ? { name: "group-detail", params: { groupId: ownerGroupId.value } } : { name: "my-projects" }
+);
+const ownerLabel = computed(() =>
+  ownerGroupId.value ? `群組・${titleOf(ownerGroupId.value)}（${GROUP_ROLE_LABELS[myRole.value]}）` : "個人專案"
+);
+
+const draft = reactive<Omit<ProjectPayload, "begin" | "end">>({
   name: "",
   organization: "",
   description: "",
-  actual_input_cost: 0,
-  year: new Date().getFullYear(),
   status: "draft",
   stakeholders: [],
   outcomes: []
 });
 
+// 已儲存（有 stakeholder_id）的利害關係人才能上傳檔案
+const savedStakeholders = computed(() => draft.stakeholders.filter((item) => item.stakeholder_id));
+
+const stakeholderName = (stakeholderId: string): string =>
+  draft.stakeholders.find((item) => item.stakeholder_id === stakeholderId)?.name || "未指定";
+
 const hydrate = (project: WorkspaceProject): void => {
   draft.name = project.name;
   draft.organization = project.organization;
   draft.description = project.description;
-  draft.actual_input_cost = Number(project.actual_input_cost ?? 0);
-  draft.year = project.year;
+  costs.value = project.costs ?? [];
+  totalCost.value = Number(project.actual_input_cost ?? 0);
+  beginMonth.value = toMonthValue(project.begin);
+  endMonth.value = toMonthValue(project.end);
   draft.status = project.status;
-  draft.stakeholders = project.stakeholders.map(({ name, role, email, notes }) => ({
+  draft.stakeholders = project.stakeholders.map(({ stakeholder_id, name, role, notes, pre_form_id, post_form_id }) => ({
+    stakeholder_id,
     name,
     role,
-    email: email ?? "",
-    notes
+    notes,
+    pre_form_id: pre_form_id ?? null,
+    post_form_id: post_form_id ?? null
   }));
   draft.outcomes = project.outcomes.map(({ outcome_id, name }) => ({ outcome_id, name }));
   interviewFiles.value = project.interview_files ?? [];
   projectForms.value = project.forms ?? [];
+  if (!savedStakeholders.value.some((item) => item.stakeholder_id === uploadStakeholderId.value)) {
+    uploadStakeholderId.value = savedStakeholders.value[0]?.stakeholder_id ?? "";
+  }
+  ownerGroupId.value = project.group_id;
+  myRole.value = project.my_role ?? "leader";
 };
 
 const confirmOutcome = async (): Promise<void> => {
@@ -84,16 +133,18 @@ const uploadInterviewFile = async (event: Event): Promise<void> => {
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0];
   if (!file) return;
+  if (!projectId.value || !uploadStakeholderId.value) {
+    error.value = "請先選擇要上傳給哪位利害關係人";
+    input.value = "";
+    return;
+  }
   uploadingInterviewFile.value = true;
   error.value = "";
   try {
-    const project = isNew.value ? await persist() : null;
-    const targetProjectId = project?.project_id ?? projectId.value;
-    if (!targetProjectId) return;
-    const uploaded = await uploadProjectInterviewFile(targetProjectId, file);
+    const uploaded = await uploadProjectInterviewFile(projectId.value, uploadStakeholderId.value, file);
     interviewFiles.value = [...interviewFiles.value, uploaded];
   } catch (caught) {
-    error.value = caught instanceof Error ? caught.message : "上傳訪綱失敗";
+    error.value = toProjectErrorMessage(caught, "上傳訪綱失敗");
   } finally {
     uploadingInterviewFile.value = false;
     input.value = "";
@@ -110,7 +161,7 @@ const downloadInterviewFile = async (file: ProjectInterviewFile): Promise<void> 
     link.click();
     URL.revokeObjectURL(url);
   } catch (caught) {
-    error.value = caught instanceof Error ? caught.message : "下載訪綱失敗";
+    error.value = toProjectErrorMessage(caught, "下載訪綱失敗");
   }
 };
 
@@ -120,31 +171,89 @@ const removeInterviewFile = async (file: ProjectInterviewFile): Promise<void> =>
     await deleteProjectInterviewFile(projectId.value, file.file_id);
     interviewFiles.value = interviewFiles.value.filter((item) => item.file_id !== file.file_id);
   } catch (caught) {
-    error.value = caught instanceof Error ? caught.message : "刪除訪綱失敗";
+    error.value = toProjectErrorMessage(caught, "刪除訪綱失敗");
   }
 };
 
 const addStakeholder = (): void => {
-  draft.stakeholders.push({ name: "", role: "", email: "", notes: "" });
+  draft.stakeholders.push({ name: "", role: "", notes: "", pre_form_id: null, post_form_id: null });
 };
 
 const removeStakeholder = (index: number): void => {
+  const target = draft.stakeholders[index];
+  const fileCount = interviewFiles.value.filter((file) => file.stakeholder_id === target.stakeholder_id).length;
+  if (fileCount && !window.confirm(`「${target.name}」有 ${fileCount} 個訪綱檔案，儲存後會一併刪除，確定移除嗎？`)) return;
   draft.stakeholders.splice(index, 1);
+};
+
+const formatMoney = (value: number | string): string =>
+  `NT$ ${Number(value || 0).toLocaleString("zh-TW")}`;
+
+// 總成本只由後端加總，前端不自行計算
+const applyCosts = (data: ProjectCostsResponse): void => {
+  costs.value = data.costs;
+  totalCost.value = Number(data.total_cost);
+  const cached = projectStore.projects.find((item) => item.project_id === projectId.value);
+  if (cached) projectStore.upsert({ ...cached, costs: data.costs, actual_input_cost: totalCost.value });
+};
+
+const openCostDialog = (cost: ProjectCost | null = null): void => {
+  editingCost.value = cost;
+  costError.value = "";
+  costDialogOpen.value = true;
+};
+
+const closeCostDialog = (): void => {
+  if (costSaving.value) return;
+  costDialogOpen.value = false;
+  editingCost.value = null;
+};
+
+const submitCost = async (payload: ProjectCostPayload): Promise<void> => {
+  costSaving.value = true;
+  costError.value = "";
+  try {
+    applyCosts(editingCost.value
+      ? await updateProjectCost(projectId.value, editingCost.value.cost_id, payload)
+      : await createProjectCost(projectId.value, payload));
+    costDialogOpen.value = false;
+    editingCost.value = null;
+  } catch (caught) {
+    costError.value = toProjectErrorMessage(caught, "儲存成本失敗");
+  } finally {
+    costSaving.value = false;
+  }
+};
+
+const confirmDeleteCost = async (): Promise<void> => {
+  if (!deletingCost.value) return;
+  costSaving.value = true;
+  try {
+    applyCosts(await deleteProjectCost(projectId.value, deletingCost.value.cost_id));
+  } catch (caught) {
+    error.value = toProjectErrorMessage(caught, "刪除成本失敗");
+  } finally {
+    deletingCost.value = null;
+    costSaving.value = false;
+  }
 };
 
 const normalizedPayload = (): ProjectPayload => ({
   ...draft,
-  name: draft.name.trim(),
+  begin: monthStartIso(beginMonth.value),
+  end: monthEndIso(endMonth.value),
+  name: draft.name.trim() || DEFAULT_PROJECT_NAME,
   organization: draft.organization.trim(),
   description: draft.description.trim(),
-  actual_input_cost: Math.max(0, Number(draft.actual_input_cost) || 0),
   stakeholders: draft.stakeholders
     .filter((item) => item.name.trim())
     .map((item) => ({
+      stakeholder_id: item.stakeholder_id,
       name: item.name.trim(),
       role: item.role.trim(),
-      email: item.email?.trim() || null,
-      notes: item.notes.trim()
+      notes: item.notes.trim(),
+      pre_form_id: item.pre_form_id || null,
+      post_form_id: item.post_form_id || null
     })),
   outcomes: draft.outcomes
     .filter((item) => item.name.trim())
@@ -152,8 +261,13 @@ const normalizedPayload = (): ProjectPayload => ({
 });
 
 const persist = async (): Promise<WorkspaceProject | null> => {
-  if (!draft.name.trim()) {
-    error.value = "請輸入專案名稱";
+  if (readOnly.value) return null;
+  if (!beginMonth.value || !endMonth.value) {
+    error.value = "請設定專案的開始與結束年月";
+    return null;
+  }
+  if (endMonth.value < beginMonth.value) {
+    error.value = "結束年月不可早於開始年月";
     return null;
   }
   saving.value = true;
@@ -161,7 +275,7 @@ const persist = async (): Promise<WorkspaceProject | null> => {
   savedMessage.value = "";
   try {
     const project = isNew.value
-      ? await projectStore.create(normalizedPayload())
+      ? await projectStore.create({ ...normalizedPayload(), group_id: ownerGroupId.value })
       : await projectStore.update(projectId.value, normalizedPayload());
     hydrate(project);
     savedMessage.value = "專案已儲存";
@@ -170,14 +284,27 @@ const persist = async (): Promise<WorkspaceProject | null> => {
     }
     return project;
   } catch (caught) {
-    error.value = caught instanceof Error ? caught.message : "儲存專案失敗";
+    error.value = toProjectErrorMessage(caught, "儲存專案失敗");
     return null;
   } finally {
     saving.value = false;
   }
 };
 
+// 一進新增頁就建立專案，之後跟編輯既有專案走同一條路
+const createDraftProject = async (): Promise<void> => {
+  const requested = typeof route.query.group === "string" ? route.query.group : null;
+  const project = await projectStore.create({ ...normalizedPayload(), group_id: requested });
+  hydrate(project);
+  await router.replace({ name: "project-edit", params: { projectId: project.project_id } });
+};
 
+
+const createProjectForm = async (): Promise<void> => {
+  const project = await persist();
+  if (!project) return;
+  await router.push({ name: "form-builder-new", params: { projectId: project.project_id } });
+};
 
 
 const createAndLinkForm = async (): Promise<void> => {
@@ -220,14 +347,20 @@ onMounted(async () => {
   loading.value = true;
   error.value = "";
   try {
-    const cachedProject = projectStore.projects.find((item) => item.project_id === projectId.value) ?? null;
-    const project = projectId.value && !cachedProject ? await getProject(projectId.value) : cachedProject;
-    if (project) {
+    if (isNew.value) {
+      await createDraftProject();
+    } else {
+      const cachedProject = projectStore.projects.find((item) => item.project_id === projectId.value) ?? null;
+      const project = cachedProject ?? await getProject(projectId.value);
       projectStore.upsert(project);
       hydrate(project);
     }
+    if (ownerGroupId.value) {
+      // 只用來顯示群組名稱，失敗不影響編輯
+      await loadGroups().catch(() => undefined);
+    }
   } catch (caught) {
-    error.value = caught instanceof Error ? caught.message : "無法載入專案";
+    error.value = toProjectErrorMessage(caught, isNew.value ? "無法建立專案" : "無法載入專案");
   } finally {
     loading.value = false;
   }
@@ -238,36 +371,75 @@ onMounted(async () => {
   <section class="project-editor">
     <header class="editor-header">
       <div>
-        <RouterLink class="back-link" to="/workspace/projects">← 返回我的專案</RouterLink>
+        <RouterLink class="back-link" :to="backTo">{{ ownerGroupId ? "← 返回群組" : "← 返回我的專案" }}</RouterLink>
         <p class="eyebrow">PROJECT WORKSPACE</p>
-        <h1>{{ isNew ? "新增專案" : "編輯專案" }}</h1>
+        <h1>{{ isNew ? "新增專案" : readOnly ? "檢視專案" : "編輯專案" }}</h1>
       </div>
-      <button class="primary-button" type="button" :disabled="saving || loading" @click="persist">
-        {{ saving ? "儲存中…" : "儲存專案" }}
-      </button>
+      <div class="editor-header__actions">
+        <RouterLink
+          v-if="!isNew"
+          class="secondary-button"
+          :to="{ name: 'project-sroi', params: { projectId } }"
+        >SROI 計算 →</RouterLink>
+        <button v-if="!readOnly" class="primary-button" type="button" :disabled="saving || loading" @click="persist">
+          {{ saving ? "儲存中…" : "儲存專案" }}
+        </button>
+      </div>
     </header>
 
     <p v-if="error" class="message message--error">{{ error }}</p>
     <p v-if="savedMessage" class="message message--success">{{ savedMessage }}</p>
-    <p v-if="loading" class="message">專案載入中…</p>
+    <p v-if="loading" class="message">{{ isNew ? "專案建立中…" : "專案載入中…" }}</p>
 
     <template v-else>
+      <p v-if="readOnly" class="message">你在這個群組是檢視者，只能查看專案內容。</p>
+
+      <fieldset class="plain-fieldset" :disabled="readOnly">
       <section class="editor-card">
         <div class="section-heading">
           <div><span>01</span><h2>專案資料</h2></div>
           <p>這些資料會顯示在專案總覽。</p>
         </div>
         <div class="field-grid">
-          <label class="field field--wide">專案名稱<input v-model="draft.name" maxlength="255" required /></label>
+          <label class="field field--wide">專案名稱<input v-model="draft.name" maxlength="255" :placeholder="DEFAULT_PROJECT_NAME" /></label>
           <label class="field">所屬單位<input v-model="draft.organization" maxlength="255" /></label>
-          <label class="field">年度<input v-model.number="draft.year" type="number" min="1900" max="2200" /></label>
+          <label class="field">開始年月<input v-model="beginMonth" type="month" required /></label>
+          <label class="field">結束年月<input v-model="endMonth" type="month" :min="beginMonth" required /></label>
           <label class="field">狀態
             <select v-model="draft.status"><option value="draft">草稿</option><option value="published">已發布</option></select>
           </label>
-          <label class="field">實際投入成本（NT$）
-            <input v-model.number="draft.actual_input_cost" type="number" min="0" step="1" placeholder="0" />
-          </label>
+          <p class="field">專案位置<span class="owner-label">{{ ownerLabel }}</span></p>
           <label class="field field--wide">專案說明<textarea v-model="draft.description" rows="4"></textarea></label>
+        </div>
+
+        <div class="cost-section">
+          <div class="cost-section__heading">
+            <div>
+              <h3>成本明細</h3>
+              <p>總成本會依下方成本自動加總，無法直接修改。</p>
+            </div>
+            <button
+              v-if="!readOnly"
+              class="secondary-button"
+              type="button"
+              @click="openCostDialog()"
+            >＋ 新增成本</button>
+          </div>
+          <p v-if="!costs.length" class="empty-state">尚未新增成本。</p>
+          <article v-for="(cost, index) in costs" :key="cost.cost_id" class="cost-row">
+            <span class="stakeholder-number">{{ String(index + 1).padStart(2, "0") }}</span>
+            <div class="field">名稱<span class="cost-value">{{ cost.name }}</span></div>
+            <div class="field">金額<span class="cost-value">{{ formatMoney(cost.price) }}</span></div>
+            <div class="field field--notes">說明<span class="cost-value">{{ cost.description || "—" }}</span></div>
+            <div v-if="!readOnly" class="cost-actions">
+              <button class="remove-button" type="button" @click="openCostDialog(cost)">修改</button>
+              <button class="remove-button" type="button" @click="deletingCost = cost">刪除</button>
+            </div>
+          </article>
+          <div class="cost-total">
+            <span>總成本</span>
+            <strong>{{ formatMoney(totalCost) }}</strong>
+          </div>
         </div>
       </section>
 
@@ -277,36 +449,94 @@ onMounted(async () => {
           <button class="secondary-button" type="button" @click="addStakeholder">＋ 新增利害關係人</button>
         </div>
         <p v-if="!draft.stakeholders.length" class="empty-state">尚未設定利害關係人。</p>
+        <p v-else-if="!projectForms.length" class="form-hint">這個專案還沒有表單，請先在「專案表單」新增後，再選擇前測與後測。</p>
         <article v-for="(stakeholder, index) in draft.stakeholders" :key="index" class="stakeholder-row">
           <span class="stakeholder-number">{{ String(index + 1).padStart(2, "0") }}</span>
           <label class="field">名稱<input v-model="stakeholder.name" placeholder="例：計畫參與者" required /></label>
           <label class="field">關係／類型<input v-model="stakeholder.role" placeholder="例：受益人" /></label>
-          <label class="field">電子郵件<input v-model="stakeholder.email" type="email" placeholder="name@example.com" /></label>
+          <label class="field">前測表單
+            <select v-model="stakeholder.pre_form_id" :disabled="!projectForms.length">
+              <option :value="null">不指定</option>
+              <option
+                v-for="form in projectForms"
+                :key="form.form_id"
+                :value="form.form_id"
+                :disabled="form.form_id === stakeholder.post_form_id"
+              >{{ form.title || "未命名表單" }}</option>
+            </select>
+          </label>
+          <label class="field">後測表單
+            <select v-model="stakeholder.post_form_id" :disabled="!projectForms.length">
+              <option :value="null">不指定</option>
+              <option
+                v-for="form in projectForms"
+                :key="form.form_id"
+                :value="form.form_id"
+                :disabled="form.form_id === stakeholder.pre_form_id"
+              >{{ form.title || "未命名表單" }}</option>
+            </select>
+          </label>
           <label class="field field--notes">備註<input v-model="stakeholder.notes" /></label>
           <button class="remove-button" type="button" @click="removeStakeholder(index)">移除</button>
         </article>
       </section>
+      </fieldset>
+
+      <CostDialog
+        :open="costDialogOpen"
+        :cost="editingCost"
+        :loading="costSaving"
+        :error="costError"
+        @submit="submitCost"
+        @cancel="closeCostDialog"
+      />
+      <ConfirmDialog
+        :open="!!deletingCost"
+        title="刪除成本"
+        :message="`確定刪除「${deletingCost?.name ?? ''}」嗎？總成本會重新計算。`"
+        confirm-text="刪除"
+        :loading="costSaving"
+        danger
+        @confirm="confirmDeleteCost"
+        @cancel="deletingCost = null"
+      />
 
       <section class="editor-card">
         <div class="section-heading">
           <div><span>03</span><h2>訪綱附件</h2></div>
           <p>支援 PDF、DOC、DOCX，單一檔案上限 10 MB。</p>
         </div>
-        <label class="upload-zone" :class="{ 'upload-zone--busy': uploadingInterviewFile }">
-          <input
-            type="file"
-            accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            :disabled="uploadingInterviewFile"
-            @change="uploadInterviewFile"
-          />
-          <strong>{{ uploadingInterviewFile ? "上傳中…" : "＋ 上傳訪綱" }}</strong>
-          <span>可上傳訪談大綱、訪談題目或相關說明文件</span>
-        </label>
+        <template v-if="!readOnly">
+          <label class="field upload-target">上傳給利害關係人
+            <select v-model="uploadStakeholderId" :disabled="!savedStakeholders.length || uploadingInterviewFile">
+              <option v-if="!savedStakeholders.length" value="">請先新增並儲存利害關係人</option>
+              <option v-for="item in savedStakeholders" :key="item.stakeholder_id" :value="item.stakeholder_id">
+                {{ item.name }}
+              </option>
+            </select>
+          </label>
+          <label
+            class="upload-zone"
+            :class="{ 'upload-zone--busy': uploadingInterviewFile, 'upload-zone--disabled': !uploadStakeholderId }"
+          >
+            <input
+              type="file"
+              accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              :disabled="uploadingInterviewFile || !uploadStakeholderId"
+              @change="uploadInterviewFile"
+            />
+            <strong>{{ uploadingInterviewFile ? "上傳中…" : "＋ 上傳訪綱" }}</strong>
+            <span>可上傳訪談大綱、訪談題目或相關說明文件</span>
+          </label>
+        </template>
         <div v-if="interviewFiles.length" class="file-list">
           <article v-for="file in interviewFiles" :key="file.file_id" class="file-row">
-            <div><strong>{{ file.original_name }}</strong><span>{{ formatFileSize(file.size_bytes) }}</span></div>
+            <div>
+              <strong>{{ file.original_name }}</strong>
+              <span>{{ stakeholderName(file.stakeholder_id) }} · {{ formatFileSize(file.size_bytes) }}</span>
+            </div>
             <button type="button" @click="downloadInterviewFile(file)">下載</button>
-            <button type="button" @click="removeInterviewFile(file)">刪除</button>
+            <button v-if="!readOnly" type="button" @click="removeInterviewFile(file)">刪除</button>
           </article>
         </div>
         <p v-else class="empty-state">尚未上傳訪綱。</p>
@@ -318,7 +548,7 @@ onMounted(async () => {
               <p>確認後會變成 hashtag：編輯中的表單會同步，已發布的表單會保留原版本。</p>
             </div>
           </div>
-          <div class="outcome-composer">
+          <div v-if="!readOnly" class="outcome-composer">
             <input
               v-model="newOutcomeName"
               maxlength="255"
@@ -335,7 +565,7 @@ onMounted(async () => {
               v-for="(outcome, index) in draft.outcomes"
               :key="outcome.outcome_id || `${outcome.name}-${index}`"
               type="button"
-              :disabled="saving"
+              :disabled="saving || readOnly"
               :aria-label="`刪除成果 ${outcome.name}`"
               :title="`刪除 ${outcome.name}`"
               @click="removeOutcome(index)"
@@ -350,7 +580,7 @@ onMounted(async () => {
       <section class="editor-card">
         <div class="section-heading">
           <div><span>04</span><h2>專案表單</h2></div>
-          <button class="secondary-button" type="button" :disabled="saving" @click="createAndLinkForm">＋ 新增表單</button>
+          <button v-if="!readOnly" class="secondary-button" type="button" :disabled="saving" @click="createProjectForm">＋ 新增表單</button>
         </div>
         <div v-for="form in projectForms" :key="form.form_id" class="linked-form-card">
           <div>
@@ -360,7 +590,7 @@ onMounted(async () => {
             </span>
           </div>
           <div class="form-actions">
-            <button class="secondary-button" type="button" @click="openProjectForm(form)">編輯表單 →</button>
+            <button class="secondary-button" type="button" @click="openProjectForm(form)">{{ readOnly ? "檢視表單 →" : "編輯表單 →" }}</button>
             <button v-if="form.status === 'published'" class="secondary-button" type="button" @click="openResponses(form)">查看回覆與結果</button>
           </div>
         </div>
@@ -387,20 +617,33 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .message { padding: 12px 14px; border: 1px solid #ccc; }
 .message--error { border-color: #bd7676; color: #8c2020; }
 .message--success { border-color: #87aa8c; color: #286133; }
+.plain-fieldset { display: grid; gap: 24px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.owner-label { overflow: hidden; border: 1px solid #e3e3e3; padding: 11px 12px; background: #f7f7f7; color: #111; font-size: 13px; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
 .editor-card { display: grid; gap: 22px; padding: 26px; border: 1px solid #d8d8d8; background: #fff; }
 .section-heading { display: flex; align-items: start; justify-content: space-between; gap: 20px; padding-bottom: 18px; border-bottom: 1px solid #ddd; }
 .section-heading > div { display: flex; align-items: center; gap: 12px; }
 .section-heading span { color: #888; font-size: 11px; font-weight: 800; }
 .section-heading p { max-width: 440px; color: #666; font-size: 12px; line-height: 1.6; }
 .field-grid { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 18px; }
+.upload-target { max-width: 320px; }
 .field--wide { grid-column: 1 / -1; }
 .field { display: grid; gap: 7px; color: #555; font-size: 11px; font-weight: 700; }
 .field input, .field select, .field textarea { width: 100%; border: 1px solid #ccc; border-radius: 0; padding: 11px 12px; background: #fff; color: #111; font: inherit; font-size: 13px; outline: none; }
 .field input:focus, .field select:focus, .field textarea:focus { border-color: #111; }
-.stakeholder-row { display: grid; grid-template-columns: 32px repeat(3, 1fr) 1.2fr auto; align-items: end; gap: 12px; padding-bottom: 18px; border-bottom: 1px solid #eee; }
+.stakeholder-row { display: grid; grid-template-columns: 32px repeat(4, 1fr) 1.2fr auto; align-items: end; gap: 12px; padding-bottom: 18px; border-bottom: 1px solid #eee; }
 .stakeholder-number { align-self: center; color: #999; font-size: 11px; }
 .remove-button { border-color: #ccc; }
 .empty-state { padding: 24px; background: #f7f7f7; color: #666; text-align: center; }
+.cost-section { display: grid; gap: 16px; padding-top: 24px; border-top: 1px solid #ddd; }
+.cost-section__heading { display: flex; align-items: start; justify-content: space-between; gap: 20px; }
+.cost-section__heading h3 { margin-bottom: 6px; font-size: 16px; }
+.cost-section__heading p { color: #666; font-size: 11px; line-height: 1.6; }
+.cost-row { display: grid; grid-template-columns: 32px 1fr 1fr 1.6fr auto; align-items: end; gap: 12px; padding-bottom: 18px; border-bottom: 1px solid #eee; }
+.cost-value { overflow: hidden; border: 1px solid #e3e3e3; padding: 11px 12px; background: #f7f7f7; color: #111; font-size: 13px; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
+.cost-actions { display: flex; gap: 8px; }
+.cost-total { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 14px 16px; background: #111; color: #fff; }
+.cost-total span { font-size: 12px; font-weight: 700; }
+.cost-total strong { font-size: 20px; }
 .outcome-section { display: grid; gap: 16px; margin-top: 6px; padding-top: 24px; border-top: 1px solid #ddd; }
 .outcome-section__heading { display: flex; align-items: start; justify-content: space-between; gap: 20px; }
 .outcome-section__heading h3 { margin-bottom: 6px; font-size: 16px; }
@@ -418,6 +661,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .upload-zone strong { font-size: 13px; }
 .upload-zone span { color: #817786; font-size: 11px; }
 .upload-zone--busy { cursor: wait; opacity: .6; }
+.upload-zone--disabled { cursor: not-allowed; opacity: .5; }
 .file-list { display: grid; border-top: 1px solid #ddd; }
 .file-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 12px; padding: 13px 0; border-bottom: 1px solid #eee; }
 .file-row div { display: grid; min-width: 0; gap: 4px; }
@@ -433,7 +677,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .form-linker { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 18px; background: #f7f7f7; }
 .form-linker p { color: #666; font-size: 12px; line-height: 1.6; }
 .form-hint { margin: -10px 0 0; color: #7b647f; font-size: 11px; }
-@media (max-width: 900px) { .field-grid, .stakeholder-row { grid-template-columns: 1fr; } .stakeholder-number { display: none; } }
+@media (max-width: 900px) { .field-grid, .stakeholder-row, .cost-row { grid-template-columns: 1fr; } .stakeholder-number { display: none; } }
 @media (max-width: 700px) { .linked-form-card, .form-linker, .form-actions { align-items: stretch; flex-direction: column; } }
 @media (max-width: 600px) { .editor-header, .section-heading { align-items: stretch; flex-direction: column; } .editor-card { padding: 18px; } .outcome-composer { grid-template-columns: 1fr; } }
 </style>

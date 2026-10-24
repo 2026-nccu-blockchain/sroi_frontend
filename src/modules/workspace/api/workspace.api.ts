@@ -8,8 +8,13 @@ import type {
   GroupUserSearchResponse,
   InviteMemberPayload,
   ChangeRolePayload,
+  ProjectCostPayload,
+  ProjectCostsResponse,
+  ProjectCreatePayload,
   ProjectPayload,
   ProjectInterviewFile,
+  ProjectSROI,
+  ProjectSROIPayload,
   WorkspaceProject
 } from "@/modules/workspace/types/workspace.types";
 
@@ -19,7 +24,7 @@ export const getProjects = (): Promise<WorkspaceProject[]> =>
 export const getProject = (projectId: string): Promise<WorkspaceProject> =>
   httpClient.get<WorkspaceProject>(`/project/${encodeURIComponent(projectId)}`);
 
-export const createProject = (payload: ProjectPayload): Promise<WorkspaceProject> =>
+export const createProject = (payload: ProjectCreatePayload): Promise<WorkspaceProject> =>
   httpClient.post<WorkspaceProject>("/project", payload);
 
 export const updateProject = (projectId: string, payload: Partial<ProjectPayload>): Promise<WorkspaceProject> =>
@@ -28,8 +33,46 @@ export const updateProject = (projectId: string, payload: Partial<ProjectPayload
 export const deleteProject = (projectId: string): Promise<void> =>
   httpClient.delete(`/project/${encodeURIComponent(projectId)}`);
 
-export const uploadProjectInterviewFile = (projectId: string, file: File): Promise<ProjectInterviewFile> => {
+export const getProjectSROI = (projectId: string): Promise<ProjectSROI> =>
+  httpClient.get<ProjectSROI>(`/project/${encodeURIComponent(projectId)}/sroi`);
+
+export const saveProjectSROI = (
+  projectId: string,
+  payload: ProjectSROIPayload
+): Promise<ProjectSROI> =>
+  httpClient.put<ProjectSROI>(`/project/${encodeURIComponent(projectId)}/sroi`, payload);
+
+export const getProjectCosts = (projectId: string): Promise<ProjectCostsResponse> =>
+  httpClient.get<ProjectCostsResponse>(`/project/${encodeURIComponent(projectId)}/costs`);
+
+export const createProjectCost = (
+  projectId: string,
+  payload: ProjectCostPayload
+): Promise<ProjectCostsResponse> =>
+  httpClient.post<ProjectCostsResponse>(`/project/${encodeURIComponent(projectId)}/costs`, payload);
+
+export const updateProjectCost = (
+  projectId: string,
+  costId: string,
+  payload: Partial<ProjectCostPayload>
+): Promise<ProjectCostsResponse> =>
+  httpClient.patch<ProjectCostsResponse>(
+    `/project/${encodeURIComponent(projectId)}/costs/${encodeURIComponent(costId)}`,
+    payload
+  );
+
+export const deleteProjectCost = (projectId: string, costId: string): Promise<ProjectCostsResponse> =>
+  httpClient.delete<ProjectCostsResponse>(
+    `/project/${encodeURIComponent(projectId)}/costs/${encodeURIComponent(costId)}`
+  );
+
+export const uploadProjectInterviewFile = (
+  projectId: string,
+  stakeholderId: string,
+  file: File
+): Promise<ProjectInterviewFile> => {
   const body = new FormData();
+  body.append("stakeholder_id", stakeholderId);
   body.append("file", file);
   return httpClient.post<ProjectInterviewFile>(
     `/project/${encodeURIComponent(projectId)}/interview-files`,
@@ -74,3 +117,9 @@ export const deleteGroupMember = (groupId: string, userId: string): Promise<ApiE
   httpClient.delete<ApiEnvelope>(
     `/group/group_member?${new URLSearchParams({ GroupId: groupId, UserId: userId })}`
   );
+
+export const updateGroup = (groupId: string, payload: GroupPayload): Promise<ApiEnvelope> =>
+  httpClient.put<ApiEnvelope>(`/group/update/${encodeURIComponent(groupId)}`, payload);
+
+export const deleteGroup = (groupId: string): Promise<ApiEnvelope> =>
+  httpClient.delete<ApiEnvelope>(`/group/${encodeURIComponent(groupId)}`);

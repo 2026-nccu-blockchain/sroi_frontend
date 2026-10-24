@@ -7,7 +7,7 @@ import {
   getProjects,
   updateProject as updateProjectRequest
 } from "@/modules/workspace/api/workspace.api";
-import type { ProjectPayload, WorkspaceProject } from "@/modules/workspace/types/workspace.types";
+import type { ProjectCreatePayload, ProjectPayload, WorkspaceProject } from "@/modules/workspace/types/workspace.types";
 
 const CACHE_TTL_MS = 30_000;
 let activeRequest: Promise<WorkspaceProject[]> | null = null;
@@ -85,7 +85,7 @@ export const useProjectStore = defineStore("projects", {
       this.loaded = true;
       this.lastLoadedAt = Date.now();
     },
-    async create(payload: ProjectPayload): Promise<WorkspaceProject> {
+    async create(payload: ProjectCreatePayload): Promise<WorkspaceProject> {
       const project = await createProjectRequest(payload);
       this.upsert(project);
       return project;

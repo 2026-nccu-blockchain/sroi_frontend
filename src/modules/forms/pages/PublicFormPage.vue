@@ -16,10 +16,22 @@ const error = ref("");
 const email = ref("");
 const answers = reactive<Record<string, string | number | string[]>>({});
 const shuffledQuestions = ref<QuestionResponse[]>([]);
+const currentOutcomePageIndex = ref(0);
 
 const publicToken = computed(() => String(route.params.publicToken ?? ""));
 const allQuestions = computed(() => form.value?.pages.flatMap((page) => page.questions) ?? []);
-const questions = computed(() => emailVerified.value ? shuffledQuestions.value : allQuestions.value);
+const respondentPage = computed(() => form.value?.pages.find((page) => page.is_respondent_info) ?? null);
+const basicQuestions = computed(() => respondentPage.value?.questions ?? []);
+const outcomePages = computed(() => form.value?.pages.filter((page) => !page.is_respondent_info) ?? []);
+const outcomeQuestions = computed(() => outcomePages.value.flatMap((page) => page.questions));
+const isBlockByBlock = computed(() => form.value?.shuffle_outcome_questions === false);
+const currentOutcomePage = computed(() => outcomePages.value[currentOutcomePageIndex.value] ?? null);
+const questions = computed(() => {
+  if (!emailVerified.value) return outcomeQuestions.value;
+  if (!isBlockByBlock.value) return shuffledQuestions.value;
+  return currentOutcomePage.value?.questions ?? [];
+});
+const submissionQuestions = computed(() => [...basicQuestions.value, ...outcomeQuestions.value]);
 
 const seededShuffle = (items: QuestionResponse[], seedText: string): QuestionResponse[] => {
   let seed = 2166136261;
@@ -79,6 +91,13 @@ const verifyEmail = async (): Promise<void> => {
     error.value = "請輸入有效的 Email";
     return;
   }
+  const missingBasic = basicQuestions.value.find((question) =>
+    question.question_type !== "DS" && question.is_required && !hasAnswer(question)
+  );
+  if (missingBasic) {
+    error.value = `請填寫必填基本資料：${missingBasic.title ?? "未命名問題"}`;
+    return;
+  }
   checkingEmail.value = true;
   error.value = "";
   try {
@@ -87,10 +106,10 @@ const verifyEmail = async (): Promise<void> => {
       error.value = "這個 Email 已填寫過此表單，不能重複填寫。";
       return;
     }
-    shuffledQuestions.value = seededShuffle(
-      allQuestions.value,
-      `${publicToken.value}:${email.value}`
-    );
+    shuffledQuestions.value = form.value?.shuffle_outcome_questions
+      ? seededShuffle(outcomeQuestions.value, `${publicToken.value}:${email.value}`)
+      : [...outcomeQuestions.value];
+    currentOutcomePageIndex.value = 0;
     emailVerified.value = true;
     window.scrollTo({ top: 0, behavior: "smooth" });
   } catch (caught) {
@@ -102,7 +121,7 @@ const verifyEmail = async (): Promise<void> => {
 
 const submit = async (): Promise<void> => {
   error.value = "";
-  const missingRequired = questions.value.find((question) =>
+  const missingRequired = submissionQuestions.value.find((question) =>
     question.question_type !== "DS" && question.is_required && !hasAnswer(question)
   );
   if (missingRequired) {
@@ -111,7 +130,7 @@ const submit = async (): Promise<void> => {
   }
   submitting.value = true;
   try {
-    const answeredQuestions = questions.value.filter((question) =>
+    const answeredQuestions = submissionQuestions.value.filter((question) =>
       question.question_type !== "DS" && hasAnswer(question)
     );
     await submitPublicForm(publicToken.value, email.value, answeredQuestions.map(answerPayload));
@@ -122,6 +141,40 @@ const submit = async (): Promise<void> => {
   } finally {
     submitting.value = false;
   }
+};
+
+const currentPageHasMissingRequired = (): QuestionResponse | undefined =>
+  questions.value.find((question) =>
+    question.question_type !== "DS" && question.is_required && !hasAnswer(question)
+  );
+
+const goToPreviousBlock = (): void => {
+  if (currentOutcomePageIndex.value <= 0) return;
+  currentOutcomePageIndex.value -= 1;
+  error.value = "";
+  window.scrollTo({ top: 0, behavior: "smooth" });
+};
+
+const submitOrContinue = async (): Promise<void> => {
+  if (isBlockByBlock.value && currentOutcomePageIndex.value < outcomePages.value.length - 1) {
+    const missingRequired = currentPageHasMissingRequired();
+    if (missingRequired) {
+      error.value = `請回答必填問題：${missingRequired.title ?? "未命名問題"}`;
+      return;
+    }
+    currentOutcomePageIndex.value += 1;
+    error.value = "";
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    return;
+  }
+  await submit();
+};
+
+const changeEmail = (): void => {
+  emailVerified.value = false;
+  currentOutcomePageIndex.value = 0;
+  error.value = "";
+  window.scrollTo({ top: 0, behavior: "smooth" });
 };
 
 onMounted(() => void load());
@@ -148,8 +201,13 @@ onMounted(() => void load());
         </header>
 
         <form v-if="!emailVerified" class="email-step" @submit.prevent="verifyEmail">
+          <section class="basic-section-heading">
+            <p class="eyebrow">第一步</p>
+            <h2>{{ respondentPage?.title || '基本資料' }}</h2>
+            <p>{{ respondentPage?.content || '請先填寫基本資料。' }}</p>
+          </section>
           <section class="answer-card respondent-card">
-            <h2>請先驗證你的 Email <b>*</b></h2>
+            <h2>電子郵件 Email <b>*</b></h2>
             <label class="sr-only" for="respondent-email">Email</label>
             <input
               id="respondent-email"
@@ -160,21 +218,59 @@ onMounted(() => void load());
               required
             />
           </section>
+
+          <template v-for="question in basicQuestions" :key="question.question_id">
+            <section v-if="question.question_type === 'DS'" class="description-card">
+              <h3>{{ question.title || question.content }}</h3>
+              <p v-if="question.title && question.content">{{ question.content }}</p>
+            </section>
+            <section v-else class="answer-card">
+              <h2>{{ question.title }} <b v-if="question.is_required">*</b></h2>
+              <textarea
+                v-if="question.question_type === 'OQ'"
+                v-model="answers[question.question_id]"
+                rows="3"
+                placeholder="請輸入你的回答"
+                :required="question.is_required"
+              ></textarea>
+              <div v-else-if="question.question_type === 'SC'" class="scale-answer">
+                <label v-for="score in (question.scale_end ?? 5) - (question.scale_begin ?? 1) + 1" :key="score">
+                  <span>{{ score + (question.scale_begin ?? 1) - 1 }}</span>
+                  <input v-model.number="answers[question.question_id]" type="radio" :name="question.question_id" :value="score + (question.scale_begin ?? 1) - 1" :required="question.is_required" />
+                </label>
+              </div>
+              <input v-else-if="question.question_type === 'DT'" v-model="answers[question.question_id]" type="date" :required="question.is_required" />
+              <div v-else class="choice-answer">
+                <label v-for="option in question.options" :key="option.option_id">
+                  <input v-model="answers[question.question_id]" :type="question.is_multiple ? 'checkbox' : 'radio'" :name="question.question_id" :value="option.option_id" :required="question.is_required && !question.is_multiple" />
+                  {{ option.label }}
+                </label>
+                <small v-if="question.is_multiple">可複選</small>
+              </div>
+            </section>
+          </template>
           <p v-if="error" class="submit-error" role="alert">{{ error }}</p>
           <button class="submit-button" type="submit" :disabled="checkingEmail">
-            {{ checkingEmail ? "檢查中…" : "驗證並開始填寫" }}
+            {{ checkingEmail ? "檢查中…" : "確認基本資料並開始填寫" }}
           </button>
         </form>
 
-        <form v-else @submit.prevent="submit">
+        <form v-else @submit.prevent="submitOrContinue">
           <section class="email-confirmed">
             <span>填答 Email：{{ email }}</span>
-            <button type="button" @click="emailVerified = false">更換</button>
+            <button type="button" @click="changeEmail">更換</button>
+          </section>
+
+          <section v-if="isBlockByBlock && currentOutcomePage" class="outcome-section-heading">
+            <p class="eyebrow">區塊 {{ currentOutcomePageIndex + 1 }} / {{ outcomePages.length }}</p>
+            <h2>{{ currentOutcomePage.title || `成果區塊 ${currentOutcomePageIndex + 1}` }}</h2>
+            <p v-if="currentOutcomePage.content">{{ currentOutcomePage.content }}</p>
           </section>
 
           <template v-for="(question, index) in questions" :key="question.question_id">
             <section v-if="question.question_type === 'DS'" class="description-card">
-              <p>{{ question.content }}</p>
+              <h3>{{ question.title || question.content }}</h3>
+              <p v-if="question.title && question.content">{{ question.content }}</p>
             </section>
 
             <section v-else class="answer-card">
@@ -225,9 +321,22 @@ onMounted(() => void load());
           </template>
 
           <p v-if="error" class="submit-error" role="alert">{{ error }}</p>
-          <button class="submit-button" type="submit" :disabled="submitting">
-            {{ submitting ? "送出中…" : "送出表單" }}
-          </button>
+          <div class="form-actions">
+            <button
+              v-if="isBlockByBlock && currentOutcomePageIndex > 0"
+              class="previous-button"
+              type="button"
+              :disabled="submitting"
+              @click="goToPreviousBlock"
+            >上一頁</button>
+            <button class="submit-button" type="submit" :disabled="submitting">
+              {{ submitting
+                ? "送出中…"
+                : isBlockByBlock && currentOutcomePageIndex < outcomePages.length - 1
+                  ? "下一頁"
+                  : "送出表單" }}
+            </button>
+          </div>
         </form>
       </template>
     </div>
@@ -244,12 +353,16 @@ onMounted(() => void load());
 .public-heading p { margin: 0; color: #6f6873; font-size: 13px; line-height: 1.7; }
 .public-heading small { display: block; margin-top: 22px; color: #99929c; font-size: 10px; }
 .public-heading b, .answer-card h2 b { color: #b1485c; }
+.basic-section-heading, .outcome-section-heading { padding: 23px 28px; border: 1px solid #d8cbe0; border-left: 5px solid #765292; border-radius: 12px; background: #faf7fc; }
+.basic-section-heading h2, .outcome-section-heading h2 { margin: 0 0 7px; color: #4b3d54; font-size: 18px; }
+.basic-section-heading p:last-child, .outcome-section-heading p:last-child { margin: 0; color: #756b79; font-size: 12px; line-height: 1.6; }
 form { display: grid; gap: 14px; }
 .answer-card h2 { margin: 0 0 24px; font-size: 14px; font-weight: 650; line-height: 1.6; }
 .answer-card textarea, .answer-card > input { width: 100%; padding: 10px 2px; resize: vertical; border: 0; border-bottom: 1px solid #bcb5c0; border-radius: 0; outline: 0; color: inherit; }
 .answer-card textarea:focus, .answer-card > input:focus { border-color: #765292; border-bottom-width: 2px; }
-.description-card { border-left: 5px solid #83609c; color: #69616e; font-size: 13px; line-height: 1.8; }
-.description-card p { margin: 0; }
+.description-card { padding: 28px 32px; color: #4e4752; font-size: 13px; line-height: 1.8; }
+.description-card h3 { margin: 0; color: #38323c; font-size: 16px; font-weight: 650; line-height: 1.6; }
+.description-card p { margin: 26px 0 0; white-space: pre-wrap; }
 .scale-answer { display: flex; justify-content: center; gap: clamp(18px, 6vw, 48px); }
 .scale-answer label { display: grid; justify-items: center; gap: 10px; color: #716a75; font-size: 12px; }
 .scale-answer input, .choice-answer input { accent-color: #765292; }
@@ -264,6 +377,9 @@ form { display: grid; gap: 14px; }
 .choice-answer small { color: #918996; font-size: 10px; }
 .submit-button { justify-self: start; min-height: 44px; padding: 0 24px; border: 0; border-radius: 8px; background: #694786; color: #fff; font-weight: 650; }
 .submit-button:disabled { cursor: wait; opacity: .55; }
+.form-actions { display: flex; align-items: center; gap: 10px; }
+.previous-button { min-height: 44px; padding: 0 22px; border: 1px solid #cfc4d5; border-radius: 8px; background: #fff; color: #684884; font-weight: 650; }
+.previous-button:disabled { cursor: wait; opacity: .55; }
 .submit-error { margin: 0; padding: 13px 16px; border-radius: 8px; background: #fff0f3; color: #943c50; font-size: 12px; }
 .state-card { text-align: center; }
 .state-card--error { color: #943c50; }
