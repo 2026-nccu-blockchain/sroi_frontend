@@ -391,7 +391,19 @@ onMounted(async () => {
             </select>
           </label>
           <label class="field field--notes">備註<input v-model="stakeholder.notes" /></label>
-          <button class="remove-button" type="button" @click="removeStakeholder(index)">移除</button>
+          <div class="stakeholder-actions">
+            <RouterLink
+              v-if="stakeholder.stakeholder_id"
+              class="sroi-link"
+              :to="{
+                name: 'project-sroi',
+                params: { projectId },
+                query: { stakeholder: stakeholder.stakeholder_id }
+              }"
+            >查看 SROI</RouterLink>
+            <span v-else class="sroi-link sroi-link--disabled">儲存後查看 SROI</span>
+            <button class="remove-button" type="button" @click="removeStakeholder(index)">移除</button>
+          </div>
         </article>
       </section>
       </fieldset>
@@ -527,6 +539,9 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .field input:focus, .field select:focus, .field textarea:focus { border-color: #111; }
 .stakeholder-row { display: grid; grid-template-columns: 32px repeat(4, 1fr) 1.2fr auto; align-items: end; gap: 12px; padding-bottom: 18px; border-bottom: 1px solid #eee; }
 .stakeholder-number { align-self: center; color: #999; font-size: 11px; }
+.stakeholder-actions { display: grid; gap: 7px; }
+.sroi-link { display: grid; min-height: 40px; box-sizing: border-box; place-items: center; border: 1px solid #765292; padding: 8px 12px; color: #68447f; font-size: 11px; font-weight: 750; text-align: center; text-decoration: none; white-space: nowrap; }
+.sroi-link--disabled { border-color: #ddd; color: #999; cursor: not-allowed; }
 .remove-button { border-color: #ccc; }
 .empty-state { padding: 24px; background: #f7f7f7; color: #666; text-align: center; }
 .outcome-section { display: grid; gap: 16px; margin-top: 6px; padding-top: 24px; border-top: 1px solid #ddd; }
