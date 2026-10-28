@@ -11,7 +11,7 @@ export interface Profile{
 export interface ProfileResponse extends ApiEnvelope, Profile {}
 
 export interface ChangeEmailPayload {
-  email: string;
+  email_prefix: string;
 }
 
 export interface ChangePasswordPayload {

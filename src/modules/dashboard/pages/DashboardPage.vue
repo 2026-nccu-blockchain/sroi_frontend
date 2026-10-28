@@ -2,12 +2,10 @@
 import { onMounted, ref } from "vue";
 import { storeToRefs } from "pinia";
 
-import { useAuth } from "@/modules/auth/composables/useAuth";
 import { useProjectStore } from "@/modules/workspace/store/project.store";
 import type { WorkspaceProject } from "@/modules/workspace/types/workspace.types";
 import { formatProjectPeriod } from "@/shared/utils/date";
 
-const { isAuthenticated } = useAuth();
 const projectStore = useProjectStore();
 const { projectsWithForms: projects, loading, error } = storeToRefs(projectStore);
 const selectedProject = ref<string | null>(null);
@@ -18,7 +16,6 @@ const statusLabel = (project: WorkspaceProject): string => {
 };
 
 onMounted(async () => {
-  if (!isAuthenticated.value) return;
   await projectStore.ensureLoaded().catch(() => undefined);
 });
 </script>
@@ -31,11 +28,10 @@ onMounted(async () => {
         <h1>專案列表</h1>
       </div>
       <div class="intro-actions">
-        <RouterLink v-if="isAuthenticated" class="outline-button" to="/workspace/projects/new">＋ 新增專案</RouterLink>
+        <RouterLink class="outline-button" to="/workspace/projects/new">＋ 新增專案</RouterLink>
       </div>
     </div>
 
-    <p v-if="!isAuthenticated" class="projects__notice">登入後可新增、編輯專案與設定利害關係人。</p>
     <p v-if="error" class="projects__notice projects__notice--error">{{ error }}</p>
     <p v-if="loading" class="projects__notice">專案載入中…</p>
 
@@ -83,7 +79,7 @@ onMounted(async () => {
         </div>
       </article>
 
-      <p v-if="isAuthenticated && projects.length === 0" class="project-list__empty">目前沒有專案，可以先新增一個專案。</p>
+      <p v-if="!loading && projects.length === 0" class="project-list__empty">目前沒有專案，可以先新增一個專案。</p>
     </div>
   </section>
 </template>

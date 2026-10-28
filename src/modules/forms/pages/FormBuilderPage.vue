@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import { useAuth } from "@/modules/auth/composables/useAuth";
+import { toFullEmail } from "@/modules/auth/utils/email";
 import {
   createPage,
   createForm,
@@ -1172,7 +1173,7 @@ onMounted(() => void initializeForm());
           class="avatar-button"
           to="/profile"
           :aria-label="`前往 ${user?.name || user?.email || '使用者'} 的個人資料`"
-          :title="user?.email || '個人資料'"
+          :title="toFullEmail(user?.email) || '個人資料'"
         >{{ userInitial }}</RouterLink>
       </div>
     </header>

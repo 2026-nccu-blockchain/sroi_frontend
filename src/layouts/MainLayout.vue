@@ -7,7 +7,7 @@ import { ADMIN_ROLES, WORKSPACE_ROLES } from "@/modules/auth/constants";
 import { ROLE_LABELS } from "@/modules/profile/constants";
 
 const router = useRouter();
-const { user, isAuthenticated, logout } = useAuth();
+const { user, logout } = useAuth();
 
 const canUseWorkspace = computed(() => WORKSPACE_ROLES.includes(user.value?.role ?? ""));
 const isAdmin = computed(() => ADMIN_ROLES.includes(user.value?.role ?? ""));
@@ -15,7 +15,7 @@ const roleLabel = computed(() => ROLE_LABELS[user.value?.role ?? ""] ?? user.val
 
 const handleLogout = async (): Promise<void> => {
   logout();
-  await router.push("/");
+  await router.push({ name: "login" });
 };
 </script>
 
@@ -59,19 +59,9 @@ const handleLogout = async (): Promise<void> => {
       </div>
 
       <div class="sidebar__account">
-        <template v-if="isAuthenticated">
-          <p class="sidebar__label">角色權限：{{ roleLabel }}</p>
-          <RouterLink class="sidebar__user" to="/profile">{{ user?.campus_id }} {{ user?.name }}</RouterLink>
-          <button class="sidebar__auth-action" type="button" @click="handleLogout">登出</button>
-        </template>
-        <template v-else>
-          <p class="sidebar__guest">訪客模式</p>
-          <div class="sidebar__auth">
-            <RouterLink class="sidebar__auth-action" to="/auth/login">登入 →</RouterLink>
-            <RouterLink class="sidebar__auth-action" to="/auth/register">註冊 →</RouterLink>
-          </div>
-          
-        </template>
+        <p class="sidebar__label">角色權限：{{ roleLabel }}</p>
+        <RouterLink class="sidebar__user" to="/profile">{{ user?.campus_id }} {{ user?.name }}</RouterLink>
+        <button class="sidebar__auth-action" type="button" @click="handleLogout">登出</button>
       </div>
     </aside>
 
@@ -156,11 +146,6 @@ const handleLogout = async (): Promise<void> => {
   vertical-align: 2px;
 }
 
-.sidebar__auth {
-  display: flex;
-}
-
-.sidebar__guest,
 .sidebar__user {
   margin: 0 0 16px;
   overflow-wrap: anywhere;

@@ -41,7 +41,7 @@ export const useAuthStore = defineStore("auth", {
       setCookie(AUTH_TOKEN_COOKIE_NAME, token);
 
       const decoded = decodeJwt<AuthJwtPayload>(token);
-      this.user = decoded ? { user_id: decoded.user_id, email: payload.email } : null;
+      this.user = decoded ? { user_id: decoded.user_id, email: payload.email_prefix } : null;
 
       // 未驗證帳號可能無法取得完整 profile，但仍可使用表單功能。
       await this.fetchProfile().catch(() => undefined);

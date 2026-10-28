@@ -2,6 +2,7 @@
 import { computed } from "vue";
 
 import type { AuthUser } from "@/modules/auth/types/auth.types";
+import { toFullEmail } from "@/modules/auth/utils/email";
 import { ROLE_LABELS } from "@/modules/profile/constants";
 
 const props = defineProps<{ user: AuthUser }>();
@@ -35,7 +36,7 @@ const roleLabel = computed(() => ROLE_LABELS[props.user.role ?? ""] ?? props.use
       </div>
       <div class="profile__row">
         <dt>Email</dt>
-        <dd>{{ user.email }}</dd>
+        <dd>{{ toFullEmail(user.email) || "—" }}</dd>
       </div>
       <div class="profile__row">
         <dt>學號 / 教職員編號</dt>

@@ -6,7 +6,7 @@ export const registerRouterGuards = (router: Router): void => {
   router.beforeEach(async (to) => {
     const authStore = useAuthStore();
 
-    if (to.meta.requiresAuth && !authStore.user) {
+    if (!to.meta.public && !authStore.user) {
       return {
         name: "login",
         query: { redirect: to.fullPath }
@@ -19,7 +19,7 @@ export const registerRouterGuards = (router: Router): void => {
       });
     }
 
-    if (to.name === "login" && authStore.user) {
+    if ((to.name === "login" || to.name === "register") && authStore.user) {
       return { name: "dashboard" };
     }
 

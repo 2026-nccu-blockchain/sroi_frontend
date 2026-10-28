@@ -3,6 +3,7 @@ import { computed, reactive } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import { useAuthStore } from "@/modules/auth/store/auth.store";
+import { EMAIL_DOMAIN, normalizeEmailPrefix } from "@/modules/auth/utils/email";
 import { changeEmail, changePassword } from "@/modules/profile/api/profile.api";
 import { PASSWORD_RULE_HINT, isStrongPassword } from "@/modules/profile/constants";
 import { ApiError, toErrorMessage } from "@/shared/api/error-handler";
@@ -24,7 +25,7 @@ const PASSWORD_FIELDS: { key: PasswordField; label: string; autocomplete: string
 const EMAIL_ERROR_MESSAGES: Record<string, string> = {
   "10001": "找不到使用者",
   "10006": "此 Email 已被其他帳號使用",
-  "10007": "Email 格式錯誤"
+  "10007": "Email 格式錯誤，只需輸入 @ 前面的帳號"
 };
 
 const PASSWORD_ERROR_MESSAGES: Record<string, string> = {
@@ -48,8 +49,9 @@ const toMessage = (err: unknown, messages: Record<string, string>): string =>
     ? messages[err.statusCode]
     : toErrorMessage(err);
 
+// 舊資料可能是完整 email，輸入框只放 @ 前面的部分
 const account = reactive({
-  email: authStore.user?.email ?? "",
+  email: (authStore.user?.email ?? "").split("@")[0],
   error: "",
   serverError: "",
   success: "",
@@ -57,18 +59,19 @@ const account = reactive({
 });
 
 const submitEmail = async (): Promise<void> => {
-  const email = account.email.trim();
+  const emailPrefix = normalizeEmailPrefix(account.email);
   account.success = "";
   account.serverError = "";
 
-  if (!email) account.error = "請輸入 Email";
-  else if (email === authStore.user?.email) account.error = "新 Email 與目前相同";
+  if (!account.email.trim()) account.error = "請輸入 Email";
+  else if (!emailPrefix) account.error = "只能包含英數字與 . _ % + -";
+  else if (emailPrefix === authStore.user?.email) account.error = "新 Email 與目前相同";
   else account.error = "";
-  if (account.error) return;
+  if (account.error || !emailPrefix) return;
 
   account.submitting = true;
   try {
-    await changeEmail({ email });
+    await changeEmail({ email_prefix: emailPrefix });
     await authStore.fetchProfile();
     account.success = "Email 已更新";
   } catch (err) {
@@ -144,13 +147,17 @@ const submitPassword = async (): Promise<void> => {
     <form v-if="activeTab === 'account'" class="form" novalidate @submit.prevent="submitEmail">
       <label class="field">
         <span class="field__label">Email <em>*</em></span>
-        <input
-          v-model="account.email"
-          type="email"
-          autocomplete="email"
-          :class="{ 'field__input--error': account.error }"
-          @input="account.error = ''"
-        />
+        <div class="field__email" :class="{ 'field__input--error': account.error }">
+          <input
+            v-model="account.email"
+            type="text"
+            autocomplete="username"
+            autocapitalize="off"
+            spellcheck="false"
+            @input="account.error = ''"
+          />
+          <span class="field__domain">{{ EMAIL_DOMAIN }}</span>
+        </div>
         <span v-if="account.error" class="field__error">{{ account.error }}</span>
       </label>
 
@@ -295,6 +302,31 @@ h1 {
 
 .field .field__input--error {
   border-color: #c00;
+}
+
+.field__email {
+  display: flex;
+  align-items: center;
+  border: 1px solid #000;
+  background: #fff;
+}
+
+.field__email:focus-within {
+  box-shadow: inset 0 0 0 1px #000;
+}
+
+.field .field__email input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  box-shadow: none;
+}
+
+.field__domain {
+  padding-right: 14px;
+  color: #555;
+  font-size: 15px;
+  white-space: nowrap;
 }
 
 .field__hint {
