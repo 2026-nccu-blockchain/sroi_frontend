@@ -19,13 +19,6 @@ export interface ChangePasswordPayload {
   new_password: string;
 }
 
-export interface UploadImageResponse extends ApiEnvelope {
-  id_card_link: string;
-}
-
-export interface CampusIdRequestPayload {
+export interface CampusIdChangePayload {
   campus_id: string;
-  id_card_link: string;
 }
-
-export type CampusIdRequestMode = "verify" | "change";

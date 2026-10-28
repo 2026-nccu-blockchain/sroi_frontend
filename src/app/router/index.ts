@@ -26,7 +26,6 @@ import AdminGroupsPage from "@/modules/admin/pages/AdminGroupsPage.vue";
 import AdminUserDetailPage from "@/modules/admin/pages/AdminUserDetailPage.vue";
 import AdminUsersPage from "@/modules/admin/pages/AdminUsersPage.vue";
 import { ADMIN_ROLES, WORKSPACE_ROLES } from "@/modules/auth/constants";
-import { VERIFY_ROLES } from "@/modules/profile/constants";
 
 const routes: RouteRecordRaw[] = [
   {
@@ -152,17 +151,9 @@ const routes: RouteRecordRaw[] = [
         meta: { requiresAuth: true }
       },
       {
-        path: "profile/verify",
-        name: "profile-verify",
-        component: CampusIdRequestPage,
-        props: { mode: "verify" },
-        meta: { requiresAuth: true, roles: VERIFY_ROLES }
-      },
-      {
         path: "profile/campus-id",
         name: "profile-campus-id",
         component: CampusIdRequestPage,
-        props: { mode: "change" },
         meta: { requiresAuth: true, roles: WORKSPACE_ROLES }
       },
       {

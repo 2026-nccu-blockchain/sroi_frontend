@@ -9,7 +9,6 @@ import { ROLE_LABELS } from "@/modules/profile/constants";
 const router = useRouter();
 const { user, isAuthenticated, logout } = useAuth();
 
-// 未驗證、驗證中的帳號導覽列跟訪客一樣
 const canUseWorkspace = computed(() => WORKSPACE_ROLES.includes(user.value?.role ?? ""));
 const isAdmin = computed(() => ADMIN_ROLES.includes(user.value?.role ?? ""));
 const roleLabel = computed(() => ROLE_LABELS[user.value?.role ?? ""] ?? user.value?.role);

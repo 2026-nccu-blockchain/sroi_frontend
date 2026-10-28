@@ -2,16 +2,9 @@
 import { computed } from "vue";
 
 import type { AuthUser } from "@/modules/auth/types/auth.types";
-import { WORKSPACE_ROLES } from "@/modules/auth/constants";
-import { ROLE_LABELS, UNVERIFIED_ROLES, VERIFY_ROLES } from "@/modules/profile/constants";
+import { ROLE_LABELS } from "@/modules/profile/constants";
 
 const props = defineProps<{ user: AuthUser }>();
-
-const showCampusId = computed(() => !UNVERIFIED_ROLES.includes(props.user.role ?? ""));
-
-const canVerify = computed(() => VERIFY_ROLES.includes(props.user.role ?? ""));
-// 已驗證、資料庫編輯者、管理員才可以申請變更學號
-const canChangeCampusId = computed(() => WORKSPACE_ROLES.includes(props.user.role ?? ""));
 
 const roleLabel = computed(() => ROLE_LABELS[props.user.role ?? ""] ?? props.user.role ?? "—");
 </script>
@@ -28,8 +21,9 @@ const roleLabel = computed(() => ROLE_LABELS[props.user.role ?? ""] ?? props.use
       </div>
 
       <div class="profile__actions">
-        <RouterLink v-if="canVerify" class="button" :to="{ name: 'profile-verify' }">驗證帳號</RouterLink>
-        <RouterLink v-if="canChangeCampusId" class="button" :to="{ name: 'profile-campus-id' }">變更學號</RouterLink>
+        <RouterLink class="button" :to="{ name: 'profile-campus-id' }">
+          {{ user.campus_id ? "變更學號" : "申請學號" }}
+        </RouterLink>
         <RouterLink class="button button--primary" :to="{ name: 'profile-edit' }">修改</RouterLink>
       </div>
     </div>
@@ -43,9 +37,9 @@ const roleLabel = computed(() => ROLE_LABELS[props.user.role ?? ""] ?? props.use
         <dt>Email</dt>
         <dd>{{ user.email }}</dd>
       </div>
-      <div v-if="showCampusId" class="profile__row">
+      <div class="profile__row">
         <dt>學號 / 教職員編號</dt>
-        <dd>{{ user.campus_id }}</dd>
+        <dd>{{ user.campus_id || "—" }}</dd>
       </div>
       <div class="profile__row">
         <dt>角色</dt>
@@ -177,15 +171,9 @@ h1 {
 }
 
 .profile__role--admin,
-.profile__role--db_editor,
-.profile__role--verified {
+.profile__role--db_editor {
   background: #000;
   color: #fff;
-}
-
-.profile__role--unverified {
-  border-color: #c00;
-  color: #c00;
 }
 
 @media (max-width: 560px) {

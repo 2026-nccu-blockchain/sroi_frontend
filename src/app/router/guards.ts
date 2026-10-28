@@ -23,7 +23,7 @@ export const registerRouterGuards = (router: Router): void => {
       return { name: "dashboard" };
     }
 
-    // 角色不符（包含未驗證、驗證中）就導回首頁
+    // 角色不符就導回首頁
     if (to.meta.roles && !to.meta.roles.includes(authStore.user?.role ?? "")) {
       return { name: "dashboard" };
     }

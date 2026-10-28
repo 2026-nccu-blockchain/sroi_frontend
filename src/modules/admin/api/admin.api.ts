@@ -6,7 +6,6 @@ import type {
   OneGroupResponse,
   OneUserResponse,
   ReviewDecision,
-  ReviewKind,
   RoleAction,
   SearchUserResponse
 } from "@/modules/admin/types/admin.types";
@@ -16,9 +15,9 @@ const ROLE_ENDPOINTS: Record<ManagedRole, Record<RoleAction, string>> = {
   db_editor: { add: "add_db_editor", remove: "remove_db_editor" }
 };
 
-const REVIEW_ENDPOINTS: Record<ReviewKind, Record<ReviewDecision, string>> = {
-  verification: { approve: "confirm_verification", reject: "unconfirm_verification" },
-  change: { approve: "confirm_change", reject: "unconfirm_change" }
+const CHANGE_REVIEW_ENDPOINTS: Record<ReviewDecision, string> = {
+  approve: "confirm_change",
+  reject: "unconfirm_change"
 };
 
 export const getAllUsers = (): Promise<AllUserResponse> =>
@@ -33,8 +32,8 @@ export const updateUserRole = (role: ManagedRole, action: RoleAction, userId: st
 export const getOneUser = (userId: string): Promise<OneUserResponse> =>
   httpClient.get<OneUserResponse>(`/admin/one_user/${encodeURIComponent(userId)}`);
 
-export const reviewRequest = (kind: ReviewKind, decision: ReviewDecision, userId: string): Promise<ApiEnvelope> =>
-  httpClient.post<ApiEnvelope>(`/admin/${REVIEW_ENDPOINTS[kind][decision]}/${encodeURIComponent(userId)}`);
+export const reviewChangeRequest = (decision: ReviewDecision, userId: string): Promise<ApiEnvelope> =>
+  httpClient.post<ApiEnvelope>(`/admin/${CHANGE_REVIEW_ENDPOINTS[decision]}/${encodeURIComponent(userId)}`);
 
 export const getAllGroups = (): Promise<AllGroupsResponse> =>
   httpClient.get<AllGroupsResponse>("/admin/all_groups");
@@ -47,7 +46,3 @@ export const approveGroup = (groupId: string): Promise<ApiEnvelope> =>
 
 export const rejectGroup = (groupId: string, reason: string): Promise<ApiEnvelope> =>
   httpClient.post<ApiEnvelope>(`/admin/unconfirm_group/${encodeURIComponent(groupId)}`, { reason });
-
-// 圖片需要帶 token，不能直接放在 <img src>
-export const getIdCardImage = (filename: string): Promise<Blob> =>
-  httpClient.getBlob(`/admin/id_card/${encodeURIComponent(filename)}`);

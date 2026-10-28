@@ -21,9 +21,7 @@ import MemberTable from "@/modules/workspace/components/MemberTable.vue";
 const ROLE_TABS: { key: UserRole; field: UserListField }[] = [
   { key: "admin", field: "admin" },
   { key: "db_editor", field: "db_editor" },
-  { key: "verified", field: "verified_user" },
-  { key: "in_progress", field: "in_progress_user" },
-  { key: "unverified", field: "unverified_user" }
+  { key: "normal", field: "normal_user" }
 ];
 
 // 學號變更申請的使用者同時也在原本的角色清單裡
@@ -33,16 +31,14 @@ const TABS: { key: UserTab; field: UserListField }[] = [
 ];
 
 // 需要管理員處理的分頁，有待審項目時標示出來
-const REVIEW_TABS: UserTab[] = ["in_progress", "change_request"];
+const REVIEW_TABS: UserTab[] = ["change_request"];
 
 const MANAGED_ROLES: UserTab[] = ["admin", "db_editor"];
 
 const emptyLists = (): Record<UserTab, AdminUser[]> => ({
   admin: [],
   db_editor: [],
-  verified: [],
-  in_progress: [],
-  unverified: [],
+  normal: [],
   change_request: []
 });
 
@@ -121,7 +117,7 @@ const confirmDialog = computed(() => {
     ? { title: `新增${roleName}`, message: `確定要將 ${who} 設為${roleName}嗎？`, confirmText: "新增" }
     : {
         title: `刪除${roleName}`,
-        message: `確定要移除 ${who} 的${roleName}權限嗎？移除後會變回已驗證使用者。`,
+        message: `確定要移除 ${who} 的${roleName}權限嗎？移除後會變回一般使用者。`,
         confirmText: "刪除"
       };
 });
