@@ -1,6 +1,14 @@
 import { httpClient } from "@/shared/api/http";
 import type { ApiEnvelope } from "@/shared/api/http";
-import type { LoginPayload, RegisterPayload, LoginResponse, ProfileResponse } from "@/modules/auth/types/auth.types";
+import type {
+  LoginPayload,
+  RegisterPayload,
+  LoginResponse,
+  ProfileResponse,
+  SendCodePayload,
+  VerifyCodePayload,
+  VerifyCodeResponse
+} from "@/modules/auth/types/auth.types";
 
 export const login = (payload: LoginPayload): Promise<LoginResponse> =>
   httpClient.post<LoginResponse>("/auth/user/login", payload);
@@ -10,3 +18,9 @@ export const getProfile = (): Promise<ProfileResponse> =>
 
 export const register = (payload: RegisterPayload): Promise<ApiEnvelope> =>
   httpClient.post<ApiEnvelope>("/auth/user/register", payload);
+
+export const sendCode = (payload: SendCodePayload): Promise<ApiEnvelope> =>
+  httpClient.post<ApiEnvelope>("/auth/user/send_code", payload);
+
+export const verifyCode = (payload: VerifyCodePayload): Promise<VerifyCodeResponse> =>
+  httpClient.post<VerifyCodeResponse>("/auth/user/verify_code", payload);

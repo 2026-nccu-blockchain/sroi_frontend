@@ -38,7 +38,7 @@ const TABS: { key: TabKey; label: string }[] = [
 ];
 
 const GROUP_SETTINGS_ERROR_MESSAGES: Record<string, string> = {
-  "10001": "找不到使用者，或該使用者尚未通過驗證",
+  "10001": "找不到使用者",
   "10008": "權限不足，只有組長可以進入群組設定",
   "10013": "找不到群組，或群組尚未通過審核",
   "10014": "該使用者已經是群組成員",

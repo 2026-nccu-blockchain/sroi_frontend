@@ -206,8 +206,8 @@ function formatValue(value: number) {
             數值 <span class="required">*</span>
             <input
               v-model="form.value"
-              type="number"
-              step="0.0001"
+              
+              step="any"
               placeholder="請輸入數值"
               required
             />
