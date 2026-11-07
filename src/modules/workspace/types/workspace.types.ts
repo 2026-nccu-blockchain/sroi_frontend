@@ -31,6 +31,8 @@ export interface ProjectCost {
 }
 
 export interface ProjectCostPayload {
+  // 沒帶就是新增
+  cost_id?: string;
   name: string;
   price: number;
   quantity: number;
@@ -50,6 +52,14 @@ export interface ProjectInterviewFile {
   content_type: string;
   size_bytes: number;
   create_time: string | null;
+}
+
+// 上傳到暫存資料夾的訪綱，儲存專案前不會寫入資料庫
+export interface TempInterviewFile {
+  temp_file_id: string;
+  original_name: string;
+  content_type: string;
+  size_bytes: number;
 }
 
 export interface LinkedProjectForm {
@@ -88,8 +98,14 @@ export interface ProjectPayload {
   begin: string;
   end: string;
   status: ProjectStatus;
-  stakeholders: Array<Omit<ProjectStakeholder, "position">>;
+  stakeholders: Array<Omit<ProjectStakeholder, "position"> & {
+    // 只有更新時會帶：要保留的已儲存訪綱，以及這次要存入的暫存訪綱
+    interview_file_ids?: string[];
+    temp_file_ids?: string[];
+  }>;
   outcomes: Array<Omit<ProjectOutcome, "position">>;
+  // 只有更新時會帶
+  costs?: ProjectCostPayload[];
 }
 
 export interface OutcomeValuation {

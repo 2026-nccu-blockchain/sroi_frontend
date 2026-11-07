@@ -3,12 +3,14 @@ import { computed, onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
 
 import { getProjectSROI, saveProjectSROI } from "@/modules/workspace/api/workspace.api";
+import ConfirmDialog from "@/modules/workspace/components/ConfirmDialog.vue";
 import type {
   OutcomeValuation,
   ProjectSROI,
   ProjectSROIPayload,
   StakeholderSROI
 } from "@/modules/workspace/types/workspace.types";
+import { useUnsavedChanges } from "@/shared/composables/useUnsavedChanges";
 
 const route = useRoute();
 const projectId = computed(() => String(route.params.projectId ?? ""));
@@ -20,6 +22,8 @@ const projectName = ref("");
 const actualInputCost = ref(0);
 const discountRatePercent = ref(3.5);
 const stakeholders = ref<StakeholderSROI[]>([]);
+// 最後一次儲存（或載入）時的內容，用來判斷有沒有未儲存的修改
+const savedSnapshot = ref("");
 const selectedStakeholderId = computed(() =>
   typeof route.query.stakeholder === "string" ? route.query.stakeholder : ""
 );
@@ -104,6 +108,7 @@ const hydrate = (data: ProjectSROI): void => {
       calculated_value: Number(outcome.calculated_value)
     }))
   }));
+  savedSnapshot.value = snapshot();
 };
 
 const payload = (): ProjectSROIPayload => ({
@@ -123,6 +128,10 @@ const payload = (): ProjectSROIPayload => ({
     }))
   }))
 });
+
+const snapshot = (): string => JSON.stringify(payload());
+const isDirty = computed(() => !loading.value && snapshot() !== savedSnapshot.value);
+const { leaveDialogOpen, answerLeave } = useUnsavedChanges(isDirty);
 
 const save = async (): Promise<void> => {
   saving.value = true;
@@ -159,10 +168,23 @@ onMounted(async () => {
         <p class="eyebrow">SOCIAL RETURN ON INVESTMENT</p>
         <h1>{{ projectName || "SROI 計算" }}</h1>
       </div>
-      <button class="primary-button" type="button" :disabled="loading || saving" @click="save">
-        {{ saving ? "儲存中…" : "儲存 SROI" }}
-      </button>
+      <div class="page-header__actions">
+        <span v-if="isDirty" class="dirty-hint">有未儲存的修改</span>
+        <button class="primary-button" type="button" :disabled="loading || saving" @click="save">
+          {{ saving ? "儲存中…" : "儲存 SROI" }}
+        </button>
+      </div>
     </header>
+
+    <ConfirmDialog
+      :open="leaveDialogOpen"
+      title="尚未儲存"
+      message="SROI 資料有修改還沒儲存，離開後會遺失。確定要離開嗎？"
+      confirm-text="離開"
+      danger
+      @confirm="answerLeave(true)"
+      @cancel="answerLeave(false)"
+    />
 
     <p v-if="error" class="message message--error">{{ error }}</p>
     <p v-if="savedMessage" class="message message--success">{{ savedMessage }}</p>
@@ -264,6 +286,8 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.page-header__actions { display: flex; align-items: center; gap: 10px; }
+.dirty-hint { color: #8a5a00; font-size: 12px; font-weight: 700; }
 .sroi-page { display: grid; gap: 24px; color: #17131a; }
 .page-header { display: flex; align-items: end; justify-content: space-between; gap: 24px; padding-bottom: 22px; border-bottom: 2px solid #211827; }
 .back-link { display: inline-block; margin-bottom: 22px; color: #675d6c; font-size: 12px; text-decoration: none; }

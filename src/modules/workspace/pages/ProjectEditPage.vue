@@ -1,15 +1,11 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import {
-  createProjectCost,
-  deleteProjectCost,
-  deleteProjectInterviewFile,
   downloadProjectInterviewFile,
   getProject,
-  updateProjectCost,
-  uploadProjectInterviewFile
+  uploadTempInterviewFile
 } from "@/modules/workspace/api/workspace.api";
 import ConfirmDialog from "@/modules/workspace/components/ConfirmDialog.vue";
 import CostDialog from "@/modules/workspace/components/CostDialog.vue";
@@ -20,14 +16,33 @@ import type {
   Group,
   GroupRole,
   LinkedProjectForm,
-  ProjectCost,
   ProjectCostPayload,
-  ProjectCostsResponse,
-  ProjectInterviewFile,
   ProjectPayload,
+  ProjectStakeholder,
   WorkspaceProject
 } from "@/modules/workspace/types/workspace.types";
+import { useUnsavedChanges } from "@/shared/composables/useUnsavedChanges";
 import { monthEndIso, monthStartIso, toMonthValue } from "@/shared/utils/date";
+
+// 所有內容（含成本、訪綱）都先改在畫面上，按「儲存專案」才一次存入
+// key：已儲存的用後端 id，新增的用 new-n，讓尚未儲存的項目也能互相對應
+type DraftStakeholder = Omit<ProjectStakeholder, "position"> & { key: string };
+type DraftCost = ProjectCostPayload & { key: string };
+
+interface DraftInterviewFile {
+  key: string;
+  stakeholderKey: string;
+  original_name: string;
+  size_bytes: number;
+  // 已儲存的檔案
+  file_id?: string;
+  // 已上傳到暫存資料夾、還沒儲存的檔案；下載時直接用本機的 file
+  temp_file_id?: string;
+  file?: File;
+}
+
+let newKeySeed = 0;
+const newKey = (): string => `new-${++newKeySeed}`;
 
 const route = useRoute();
 const router = useRouter();
@@ -39,24 +54,19 @@ const saving = ref(false);
 const error = ref("");
 const savedMessage = ref("");
 const uploadingInterviewFile = ref(false);
-const interviewFiles = ref<ProjectInterviewFile[]>([]);
+const interviewFiles = ref<DraftInterviewFile[]>([]);
 const projectForms = ref<LinkedProjectForm[]>([]);
 const newOutcomeName = ref("");
-const selectedStakeholderId = ref("");
+const selectedStakeholderKey = ref("");
 const currentYear = new Date().getFullYear();
 const beginMonth = ref(`${currentYear}-01`);
 const endMonth = ref(`${currentYear}-12`);
-const costs = ref<ProjectCost[]>([]);
-const totalCost = ref(0);
+const costs = ref<DraftCost[]>([]);
 const costDialogOpen = ref(false);
-const editingCost = ref<ProjectCost | null>(null);
-const costSaving = ref(false);
-const costError = ref("");
-const deletingCost = ref<ProjectCost | null>(null);
+const editingCost = ref<DraftCost | null>(null);
+const deletingCost = ref<DraftCost | null>(null);
 // 最後一次儲存（或載入）時的內容，用來判斷有沒有未儲存的修改
 const savedSnapshot = ref("");
-const leaveDialogOpen = ref(false);
-let resolveLeave: ((leave: boolean) => void) | null = null;
 
 // 專案位置：null 是個人專案。新增時可選擇，入口網址 ?group= 帶入預設群組，建立後不能移動
 const { load: loadGroups, loadCreatable, titleOf } = useVerifiedGroups();
@@ -71,7 +81,7 @@ const ownerLabel = computed(() =>
   ownerGroupId.value ? `群組・${titleOf(ownerGroupId.value)}（${GROUP_ROLE_LABELS[myRole.value]}）` : "個人專案"
 );
 
-const draft = reactive<Omit<ProjectPayload, "begin" | "end">>({
+const draft = reactive<Omit<ProjectPayload, "begin" | "end" | "stakeholders" | "costs"> & { stakeholders: DraftStakeholder[] }>({
   name: "",
   organization: "",
   description: "",
@@ -80,27 +90,46 @@ const draft = reactive<Omit<ProjectPayload, "begin" | "end">>({
   outcomes: []
 });
 
-// 已儲存（有 stakeholder_id）的利害關係人才能上傳檔案
-const savedStakeholders = computed(() => draft.stakeholders.filter((item) => item.stakeholder_id));
+// 沒填名稱的利害關係人儲存時會被略過，所以不能上傳檔案
+const namedStakeholders = computed(() => draft.stakeholders.filter((item) => item.name.trim()));
+
+const filesOf = (stakeholderKey: string): DraftInterviewFile[] =>
+  interviewFiles.value.filter((file) => file.stakeholderKey === stakeholderKey);
 
 // 下拉選單選到的利害關係人，同時決定顯示誰的檔案與上傳給誰
-const selectedFiles = computed(() =>
-  interviewFiles.value.filter((file) => file.stakeholder_id === selectedStakeholderId.value)
-);
+const selectedFiles = computed(() => filesOf(selectedStakeholderKey.value));
 
-const fileCountOf = (stakeholderId?: string): number =>
-  interviewFiles.value.filter((file) => file.stakeholder_id === stakeholderId).length;
+const selectFallbackStakeholder = (): void => {
+  if (!namedStakeholders.value.some((item) => item.key === selectedStakeholderKey.value)) {
+    selectedStakeholderKey.value = namedStakeholders.value[0]?.key ?? "";
+  }
+};
+
+// 新增、填名稱或移除利害關係人後，選到的人不在清單裡就改選第一位
+watch(() => namedStakeholders.value.map((item) => item.key).join(), selectFallbackStakeholder);
+
+// 總成本儲存前先在畫面上試算，儲存後的值以後端加總為準
+const totalCost = computed(() =>
+  costs.value.reduce((total, cost) => total + Number(cost.price) * Number(cost.quantity), 0)
+);
 
 const hydrate = (project: WorkspaceProject): void => {
   draft.name = project.name;
   draft.organization = project.organization;
   draft.description = project.description;
-  costs.value = project.costs ?? [];
-  totalCost.value = Number(project.actual_input_cost ?? 0);
+  costs.value = (project.costs ?? []).map((cost) => ({
+    key: cost.cost_id,
+    cost_id: cost.cost_id,
+    name: cost.name,
+    price: Number(cost.price),
+    quantity: Number(cost.quantity),
+    funding_source: cost.funding_source
+  }));
   beginMonth.value = toMonthValue(project.begin);
   endMonth.value = toMonthValue(project.end);
   draft.status = project.status;
   draft.stakeholders = project.stakeholders.map(({ stakeholder_id, name, role, notes, pre_form_id, post_form_id }) => ({
+    key: stakeholder_id ?? newKey(),
     stakeholder_id,
     name,
     role,
@@ -109,17 +138,21 @@ const hydrate = (project: WorkspaceProject): void => {
     post_form_id: post_form_id ?? null
   }));
   draft.outcomes = project.outcomes.map(({ outcome_id, name }) => ({ outcome_id, name }));
-  interviewFiles.value = project.interview_files ?? [];
+  interviewFiles.value = (project.interview_files ?? []).map((file) => ({
+    key: file.file_id,
+    stakeholderKey: file.stakeholder_id,
+    original_name: file.original_name,
+    size_bytes: file.size_bytes,
+    file_id: file.file_id
+  }));
   projectForms.value = project.forms ?? [];
-  if (!savedStakeholders.value.some((item) => item.stakeholder_id === selectedStakeholderId.value)) {
-    selectedStakeholderId.value = savedStakeholders.value[0]?.stakeholder_id ?? "";
-  }
+  selectFallbackStakeholder();
   ownerGroupId.value = project.group_id;
   myRole.value = project.my_role ?? "leader";
   savedSnapshot.value = snapshot();
 };
 
-const confirmOutcome = async (): Promise<void> => {
+const confirmOutcome = (): void => {
   const name = newOutcomeName.value.trim();
   if (!name) return;
   if (draft.outcomes.some((outcome) => outcome.name.trim().toLowerCase() === name.toLowerCase())) {
@@ -129,12 +162,10 @@ const confirmOutcome = async (): Promise<void> => {
   draft.outcomes.push({ name });
   newOutcomeName.value = "";
   error.value = "";
-  if (!isNew.value) await persist();
 };
 
-const removeOutcome = async (index: number): Promise<void> => {
+const removeOutcome = (index: number): void => {
   draft.outcomes.splice(index, 1);
-  if (!isNew.value) await persist();
 };
 
 const formatFileSize = (size: number): string =>
@@ -144,16 +175,25 @@ const uploadInterviewFile = async (event: Event): Promise<void> => {
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0];
   if (!file) return;
-  if (!projectId.value || !selectedStakeholderId.value) {
+  if (!projectId.value || !selectedStakeholderKey.value) {
     error.value = "請先選擇要上傳給哪位利害關係人";
     input.value = "";
     return;
   }
+  // 上傳期間切換下拉選單，檔案仍歸給按下上傳時選的人
+  const stakeholderKey = selectedStakeholderKey.value;
   uploadingInterviewFile.value = true;
   error.value = "";
   try {
-    const uploaded = await uploadProjectInterviewFile(projectId.value, selectedStakeholderId.value, file);
-    interviewFiles.value = [...interviewFiles.value, uploaded];
+    const uploaded = await uploadTempInterviewFile(projectId.value, file);
+    interviewFiles.value = [...interviewFiles.value, {
+      key: uploaded.temp_file_id,
+      stakeholderKey,
+      original_name: uploaded.original_name,
+      size_bytes: uploaded.size_bytes,
+      temp_file_id: uploaded.temp_file_id,
+      file
+    }];
   } catch (caught) {
     error.value = toProjectErrorMessage(caught, "上傳訪綱失敗");
   } finally {
@@ -162,113 +202,96 @@ const uploadInterviewFile = async (event: Event): Promise<void> => {
   }
 };
 
-const downloadInterviewFile = async (file: ProjectInterviewFile): Promise<void> => {
+const saveBlob = (blob: Blob, filename: string): void => {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+};
+
+const downloadInterviewFile = async (file: DraftInterviewFile): Promise<void> => {
+  if (file.file) {
+    saveBlob(file.file, file.original_name);
+    return;
+  }
+  if (!file.file_id) return;
   try {
-    const blob = await downloadProjectInterviewFile(projectId.value, file.file_id);
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = file.original_name;
-    link.click();
-    URL.revokeObjectURL(url);
+    saveBlob(await downloadProjectInterviewFile(projectId.value, file.file_id), file.original_name);
   } catch (caught) {
     error.value = toProjectErrorMessage(caught, "下載訪綱失敗");
   }
 };
 
-const removeInterviewFile = async (file: ProjectInterviewFile): Promise<void> => {
-  if (!window.confirm(`確定刪除「${file.original_name}」嗎？`)) return;
-  try {
-    await deleteProjectInterviewFile(projectId.value, file.file_id);
-    interviewFiles.value = interviewFiles.value.filter((item) => item.file_id !== file.file_id);
-  } catch (caught) {
-    error.value = toProjectErrorMessage(caught, "刪除訪綱失敗");
-  }
+const removeInterviewFile = (file: DraftInterviewFile): void => {
+  interviewFiles.value = interviewFiles.value.filter((item) => item.key !== file.key);
 };
 
 const addStakeholder = (): void => {
-  draft.stakeholders.push({ name: "", role: "", notes: "", pre_form_id: null, post_form_id: null });
+  draft.stakeholders.push({ key: newKey(), name: "", role: "", notes: "", pre_form_id: null, post_form_id: null });
 };
 
 const removeStakeholder = (index: number): void => {
   const target = draft.stakeholders[index];
-  const fileCount = interviewFiles.value.filter((file) => file.stakeholder_id === target.stakeholder_id).length;
+  const fileCount = filesOf(target.key).length;
   if (fileCount && !window.confirm(`「${target.name}」有 ${fileCount} 個訪綱檔案，儲存後會一併刪除，確定移除嗎？`)) return;
   draft.stakeholders.splice(index, 1);
+  interviewFiles.value = interviewFiles.value.filter((file) => file.stakeholderKey !== target.key);
 };
 
 const formatMoney = (value: number | string): string =>
   `NT$ ${Number(value || 0).toLocaleString("zh-TW")}`;
 
-// 總成本只由後端加總，前端不自行計算
-const applyCosts = (data: ProjectCostsResponse): void => {
-  costs.value = data.costs;
-  totalCost.value = Number(data.total_cost);
-  const cached = projectStore.projects.find((item) => item.project_id === projectId.value);
-  if (cached) projectStore.upsert({ ...cached, costs: data.costs, actual_input_cost: totalCost.value });
-};
-
-const openCostDialog = (cost: ProjectCost | null = null): void => {
+const openCostDialog = (cost: DraftCost | null = null): void => {
   editingCost.value = cost;
-  costError.value = "";
   costDialogOpen.value = true;
 };
 
 const closeCostDialog = (): void => {
-  if (costSaving.value) return;
   costDialogOpen.value = false;
   editingCost.value = null;
 };
 
-const submitCost = async (payload: ProjectCostPayload): Promise<void> => {
-  costSaving.value = true;
-  costError.value = "";
-  try {
-    applyCosts(editingCost.value
-      ? await updateProjectCost(projectId.value, editingCost.value.cost_id, payload)
-      : await createProjectCost(projectId.value, payload));
-    costDialogOpen.value = false;
-    editingCost.value = null;
-  } catch (caught) {
-    costError.value = toProjectErrorMessage(caught, "儲存成本失敗");
-  } finally {
-    costSaving.value = false;
-  }
+const submitCost = (payload: ProjectCostPayload): void => {
+  if (editingCost.value) Object.assign(editingCost.value, payload);
+  else costs.value.push({ key: newKey(), ...payload });
+  closeCostDialog();
 };
 
-const confirmDeleteCost = async (): Promise<void> => {
-  if (!deletingCost.value) return;
-  costSaving.value = true;
-  try {
-    applyCosts(await deleteProjectCost(projectId.value, deletingCost.value.cost_id));
-  } catch (caught) {
-    error.value = toProjectErrorMessage(caught, "刪除成本失敗");
-  } finally {
-    deletingCost.value = null;
-    costSaving.value = false;
-  }
+const confirmDeleteCost = (): void => {
+  const target = deletingCost.value;
+  if (target) costs.value = costs.value.filter((cost) => cost.key !== target.key);
+  deletingCost.value = null;
 };
 
 const normalizedPayload = (): ProjectPayload => ({
-  ...draft,
-  begin: monthStartIso(beginMonth.value),
-  end: monthEndIso(endMonth.value),
   name: draft.name.trim(),
   organization: draft.organization.trim(),
   description: draft.description.trim(),
-  stakeholders: draft.stakeholders
-    .filter((item) => item.name.trim())
-    .map((item) => ({
-      stakeholder_id: item.stakeholder_id,
-      name: item.name.trim(),
-      role: item.role.trim(),
-      notes: item.notes.trim(),
-      pre_form_id: item.pre_form_id || null,
-      post_form_id: item.post_form_id || null
-    })),
+  status: draft.status,
+  begin: monthStartIso(beginMonth.value),
+  end: monthEndIso(endMonth.value),
+  stakeholders: namedStakeholders.value.map((item) => ({
+    stakeholder_id: item.stakeholder_id,
+    name: item.name.trim(),
+    role: item.role.trim(),
+    notes: item.notes.trim(),
+    pre_form_id: item.pre_form_id || null,
+    post_form_id: item.post_form_id || null,
+    interview_file_ids: filesOf(item.key).flatMap((file) => file.file_id ? [file.file_id] : []),
+    temp_file_ids: filesOf(item.key).flatMap((file) => file.temp_file_id ? [file.temp_file_id] : [])
+  })),
   outcomes: draft.outcomes
     .filter((item) => item.name.trim())
-    .map((item) => ({ outcome_id: item.outcome_id, name: item.name.trim() }))
+    .map((item) => ({ outcome_id: item.outcome_id, name: item.name.trim() })),
+  costs: costs.value.map((cost) => ({
+    cost_id: cost.cost_id,
+    name: cost.name.trim(),
+    price: Number(cost.price),
+    quantity: Number(cost.quantity),
+    funding_source: cost.funding_source.trim()
+  }))
 });
 
 const snapshot = (): string => JSON.stringify(normalizedPayload());
@@ -293,11 +316,16 @@ const persist = async (): Promise<WorkspaceProject | null> => {
   saving.value = true;
   error.value = "";
   savedMessage.value = "";
+  // 後端回傳的利害關係人順序與送出的相同，用位置找回原本選的人（新增的人儲存後才有 id）
+  const selectedIndex = namedStakeholders.value.findIndex((item) => item.key === selectedStakeholderKey.value);
   try {
     const project = isNew.value
       ? await projectStore.create({ ...normalizedPayload(), group_id: ownerGroupId.value })
       : await projectStore.update(projectId.value, normalizedPayload());
     hydrate(project);
+    if (selectedIndex >= 0 && namedStakeholders.value[selectedIndex]) {
+      selectedStakeholderKey.value = namedStakeholders.value[selectedIndex].key;
+    }
     savedMessage.value = isNew.value ? "專案已建立，可以繼續填寫其他資料" : "專案已儲存";
     if (isNew.value) {
       // 換成編輯頁路由後，畫面會顯示其餘區塊
@@ -312,34 +340,7 @@ const persist = async (): Promise<WorkspaceProject | null> => {
   }
 };
 
-const askLeave = (): Promise<boolean> => new Promise((resolve) => {
-  resolveLeave = resolve;
-  leaveDialogOpen.value = true;
-});
-
-const answerLeave = (leave: boolean): void => {
-  leaveDialogOpen.value = false;
-  resolveLeave?.(leave);
-  resolveLeave = null;
-};
-
-// 新增頁儲存後會換成編輯頁的路由，但元件沿用同一個，用 beforeEach 才不會漏掉後續的離開
-const removeLeaveGuard = router.beforeEach((to, from) => {
-  if (!isDirty.value || to.path === from.path) return true;
-  return askLeave();
-});
-
-// 重新整理或關閉分頁，只能用瀏覽器內建的提醒
-const warnBeforeUnload = (event: BeforeUnloadEvent): void => {
-  if (!isDirty.value) return;
-  event.preventDefault();
-  event.returnValue = "";
-};
-
-onBeforeUnmount(() => {
-  removeLeaveGuard();
-  window.removeEventListener("beforeunload", warnBeforeUnload);
-});
+const { leaveDialogOpen, answerLeave } = useUnsavedChanges(isDirty);
 
 // 不會自動儲存專案；有未儲存的修改時，離開提醒會先問使用者
 const canCreateForm = computed(() => !isNew.value && !saving.value);
@@ -387,7 +388,6 @@ const openResponses = async (form: LinkedProjectForm): Promise<void> => {
 };
 
 onMounted(async () => {
-  window.addEventListener("beforeunload", warnBeforeUnload);
   loading.value = true;
   error.value = "";
   try {
@@ -429,6 +429,7 @@ onMounted(async () => {
           class="secondary-button"
           :to="{ name: 'project-sroi', params: { projectId } }"
         >SROI 計算 →</RouterLink>
+        <span v-if="isDirty && !isNew" class="dirty-hint">有未儲存的修改</span>
         <button v-if="!readOnly" class="primary-button" type="button" :disabled="saving || loading || nameMissing" @click="persist">
           {{ saving ? (isNew ? "新增中…" : "儲存中…") : (isNew ? "新增專案" : "儲存專案") }}
         </button>
@@ -472,7 +473,7 @@ onMounted(async () => {
           <div class="cost-section__heading">
             <div>
               <h3>成本明細</h3>
-              <p>總成本為各項「金額 × 個數」自動加總，無法直接修改。</p>
+              <p>總成本為各項「金額 × 個數」自動加總，無法直接修改；按「儲存專案」後才會存入。</p>
             </div>
             <button
               v-if="!readOnly"
@@ -482,12 +483,12 @@ onMounted(async () => {
             >＋ 新增成本</button>
           </div>
           <p v-if="!costs.length" class="empty-state">尚未新增成本。</p>
-          <article v-for="(cost, index) in costs" :key="cost.cost_id" class="cost-row">
+          <article v-for="(cost, index) in costs" :key="cost.key" class="cost-row">
             <span class="stakeholder-number">{{ String(index + 1).padStart(2, "0") }}</span>
             <div class="field">項目<span class="cost-value">{{ cost.name }}</span></div>
             <div class="field">金額<span class="cost-value">{{ formatMoney(cost.price) }}</span></div>
             <div class="field">個數<span class="cost-value">{{ cost.quantity }}</span></div>
-            <div class="field">小計<span class="cost-value">{{ formatMoney(Number(cost.price) * cost.quantity) }}</span></div>
+            <div class="field">小計<span class="cost-value">{{ formatMoney(cost.price * cost.quantity) }}</span></div>
             <div class="field">經費來源<span class="cost-value">{{ cost.funding_source || "—" }}</span></div>
             <div v-if="!readOnly" class="cost-actions">
               <button class="remove-button" type="button" @click="openCostDialog(cost)">修改</button>
@@ -508,7 +509,7 @@ onMounted(async () => {
         </div>
         <p v-if="!draft.stakeholders.length" class="empty-state">尚未設定利害關係人。</p>
         <p v-else-if="!projectForms.length" class="form-hint">這個專案還沒有表單，請先在「專案表單」新增後，再選擇前測與後測。</p>
-        <article v-for="(stakeholder, index) in draft.stakeholders" :key="index" class="stakeholder-row">
+        <article v-for="(stakeholder, index) in draft.stakeholders" :key="stakeholder.key" class="stakeholder-row">
           <span class="stakeholder-number">{{ String(index + 1).padStart(2, "0") }}</span>
           <label class="field">名稱<input v-model="stakeholder.name" placeholder="例：計畫參與者" required /></label>
           <label class="field">關係／類型<input v-model="stakeholder.role" placeholder="例：受益人" /></label>
@@ -555,17 +556,14 @@ onMounted(async () => {
       <CostDialog
         :open="costDialogOpen"
         :cost="editingCost"
-        :loading="costSaving"
-        :error="costError"
         @submit="submitCost"
         @cancel="closeCostDialog"
       />
       <ConfirmDialog
         :open="!!deletingCost"
         title="刪除成本"
-        :message="`確定刪除「${deletingCost?.name ?? ''}」嗎？總成本會重新計算。`"
+        :message="`確定刪除「${deletingCost?.name ?? ''}」嗎？按「儲存專案」後才會生效。`"
         confirm-text="刪除"
-        :loading="costSaving"
         danger
         @confirm="confirmDeleteCost"
         @cancel="deletingCost = null"
@@ -583,48 +581,48 @@ onMounted(async () => {
       <section v-if="!isNew" class="editor-card">
         <div class="section-heading">
           <div><span>03</span><h2>訪綱附件</h2></div>
-          <p>支援 PDF、DOC、DOCX，單一檔案上限 10 MB。</p>
+          <p>支援 PDF、DOC、DOCX，單一檔案上限 10 MB。上傳的檔案按「儲存專案」後才會正式存入。</p>
         </div>
         <label class="field upload-target">利害關係人
-          <select v-model="selectedStakeholderId" :disabled="!savedStakeholders.length || uploadingInterviewFile">
-            <option v-if="!savedStakeholders.length" value="">請先新增並儲存利害關係人</option>
-            <option v-for="item in savedStakeholders" :key="item.stakeholder_id" :value="item.stakeholder_id">
-              {{ item.name }}（{{ fileCountOf(item.stakeholder_id) }}）
+          <select v-model="selectedStakeholderKey" :disabled="!namedStakeholders.length || uploadingInterviewFile">
+            <option v-if="!namedStakeholders.length" value="">請先新增利害關係人並填寫名稱</option>
+            <option v-for="item in namedStakeholders" :key="item.key" :value="item.key">
+              {{ item.name }}（{{ filesOf(item.key).length }}）
             </option>
           </select>
         </label>
         <label
           v-if="!readOnly"
           class="upload-zone"
-          :class="{ 'upload-zone--busy': uploadingInterviewFile, 'upload-zone--disabled': !selectedStakeholderId }"
+          :class="{ 'upload-zone--busy': uploadingInterviewFile, 'upload-zone--disabled': !selectedStakeholderKey }"
         >
           <input
             type="file"
             accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            :disabled="uploadingInterviewFile || !selectedStakeholderId"
+            :disabled="uploadingInterviewFile || !selectedStakeholderKey"
             @change="uploadInterviewFile"
           />
           <strong>{{ uploadingInterviewFile ? "上傳中…" : "＋ 上傳訪綱" }}</strong>
           <span>可上傳訪談大綱、訪談題目或相關說明文件</span>
         </label>
         <div v-if="selectedFiles.length" class="file-list">
-          <article v-for="file in selectedFiles" :key="file.file_id" class="file-row">
+          <article v-for="file in selectedFiles" :key="file.key" class="file-row">
             <div>
               <strong>{{ file.original_name }}</strong>
-              <span>{{ formatFileSize(file.size_bytes) }}</span>
+              <span>{{ formatFileSize(file.size_bytes) }}{{ file.temp_file_id ? "・尚未儲存" : "" }}</span>
             </div>
             <button type="button" @click="downloadInterviewFile(file)">下載</button>
             <button v-if="!readOnly" type="button" @click="removeInterviewFile(file)">刪除</button>
           </article>
         </div>
-        <p v-else-if="selectedStakeholderId" class="empty-state">這位利害關係人尚未上傳訪綱。</p>
-        <p v-else class="empty-state">請先新增並儲存利害關係人。</p>
+        <p v-else-if="selectedStakeholderKey" class="empty-state">這位利害關係人尚未上傳訪綱。</p>
+        <p v-else class="empty-state">請先新增利害關係人並填寫名稱。</p>
 
         <div class="outcome-section">
           <div class="outcome-section__heading">
             <div>
               <h3>成果初列</h3>
-              <p>確認後會變成 hashtag：編輯中的表單會同步，已發布的表單會保留原版本。</p>
+              <p>確認後會變成 hashtag，按「儲存專案」後才會存入：編輯中的表單會同步，已發布的表單會保留原版本。</p>
             </div>
           </div>
           <div v-if="!readOnly" class="outcome-composer">
@@ -693,6 +691,8 @@ h2 { font-size: 20px; }
 .primary-button, .secondary-button, .remove-button { min-height: 40px; border: 1px solid #111; padding: 8px 14px; background: #fff; color: #111; font: inherit; font-size: 12px; font-weight: 750; cursor: pointer; }
 .primary-button { background: #111; color: #fff; }
 button:disabled { cursor: not-allowed; opacity: .5; }
+.editor-header__actions { display: flex; align-items: center; gap: 10px; }
+.dirty-hint { color: #8a5a00; font-size: 12px; font-weight: 700; }
 .message { padding: 12px 14px; border: 1px solid #ccc; }
 .message--error { border-color: #bd7676; color: #8c2020; }
 .message--success { border-color: #87aa8c; color: #286133; }

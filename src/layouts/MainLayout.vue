@@ -5,6 +5,7 @@ import { useRouter } from "vue-router";
 import { useAuth } from "@/modules/auth/composables/useAuth";
 import { ADMIN_ROLES, WORKSPACE_ROLES } from "@/modules/auth/constants";
 import { ROLE_LABELS } from "@/modules/profile/constants";
+import { confirmLeaveCurrentPage } from "@/shared/composables/useUnsavedChanges";
 
 const router = useRouter();
 const { user, logout } = useAuth();
@@ -14,6 +15,8 @@ const isAdmin = computed(() => ADMIN_ROLES.includes(user.value?.role ?? ""));
 const roleLabel = computed(() => ROLE_LABELS[user.value?.role ?? ""] ?? user.value?.role);
 
 const handleLogout = async (): Promise<void> => {
+  // 先確認可以離開目前頁面，未儲存提醒按取消就不登出
+  if (!(await confirmLeaveCurrentPage())) return;
   logout();
   await router.push({ name: "login" });
 };

@@ -2,12 +2,12 @@
 import { reactive, watch } from "vue";
 
 import BaseModal from "@/shared/components/BaseModal.vue";
-import type { ProjectCost, ProjectCostPayload } from "@/modules/workspace/types/workspace.types";
+import type { ProjectCostPayload } from "@/modules/workspace/types/workspace.types";
 
 const props = defineProps<{
   open: boolean;
   // 沒帶就是新增
-  cost?: ProjectCost | null;
+  cost?: ProjectCostPayload | null;
   loading?: boolean;
   error?: string;
 }>();
@@ -51,7 +51,7 @@ const submit = (): void => {
       <div class="cost-dialog__actions">
         <button class="button" type="button" :disabled="loading" @click="emit('cancel')">取消</button>
         <button class="button button--primary" type="submit" :disabled="loading || !form.name.trim()">
-          {{ loading ? "儲存中..." : cost ? "儲存修改" : "新增" }}
+          {{ loading ? "儲存中..." : cost ? "確定修改" : "新增" }}
         </button>
       </div>
     </form>
