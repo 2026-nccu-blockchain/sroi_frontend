@@ -43,7 +43,7 @@ const submit = (): void => {
       <h2>{{ cost ? "修改成本" : "新增成本" }}</h2>
       <label class="field">項目<input v-model="form.name" maxlength="255" placeholder="例：場地租借" required /></label>
       <div class="field-row">
-        <label class="field">金額（NT$）<input v-model.number="form.price" type="number" min="0" step="1" required /></label>
+        <label class="field">金額（元）<input v-model.number="form.price" type="number" min="0" step="1" required /></label>
         <label class="field">個數<input v-model.number="form.quantity" type="number" min="1" step="1" required /></label>
       </div>
       <label class="field">經費來源<input v-model="form.funding_source" maxlength="255" placeholder="例：教育部補助（選填）" /></label>
@@ -62,12 +62,12 @@ const submit = (): void => {
 .cost-dialog { display: grid; gap: 16px; width: min(420px, calc(100vw - 72px)); }
 h2 { margin: 0; font-size: 17px; font-weight: 700; }
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.field { display: grid; gap: 7px; color: #555; font-size: 11px; font-weight: 700; }
-.field input { width: 100%; border: 1px solid #ccc; border-radius: 0; padding: 11px 12px; background: #fff; color: #111; font: inherit; font-size: 13px; outline: none; }
+.field { display: grid; gap: 7px; color: #555; font-size: 14px; font-weight: 700; }
+.field input { width: 100%; border: 1px solid #ccc; border-radius: 0; padding: 11px 12px; background: #fff; color: #111; font: inherit; font-size: 14px; outline: none; }
 .field input:focus { border-color: #111; }
-.cost-dialog__error { margin: 0; color: #8c2020; font-size: 12px; }
+.cost-dialog__error { margin: 0; color: #8c2020; font-size: 14px; }
 .cost-dialog__actions { display: flex; justify-content: flex-end; gap: 12px; }
-.button { min-height: 40px; padding: 8px 16px; border: 1px solid #000; background: #fff; color: #000; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+.button { min-height: 40px; padding: 8px 16px; border: 1px solid #000; background: #fff; color: #000; font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; }
 .button--primary { background: #000; color: #fff; }
 .button:disabled { opacity: .5; cursor: not-allowed; }
 </style>

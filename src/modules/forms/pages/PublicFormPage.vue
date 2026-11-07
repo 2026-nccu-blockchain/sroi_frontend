@@ -88,7 +88,7 @@ const hasAnswer = (question: QuestionResponse): boolean => {
 const verifyEmail = async (): Promise<void> => {
   email.value = email.value.trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.value)) {
-    error.value = "請輸入有效的 Email";
+    error.value = "請輸入有效的電子郵件";
     return;
   }
   const missingBasic = basicQuestions.value.find((question) =>
@@ -103,7 +103,7 @@ const verifyEmail = async (): Promise<void> => {
   try {
     const availability = await checkPublicFormEmail(publicToken.value, email.value);
     if (!availability.can_submit) {
-      error.value = "這個 Email 已填寫過此表單，不能重複填寫。";
+      error.value = "這個電子郵件已填寫過此表單，不能重複填寫。";
       return;
     }
     shuffledQuestions.value = form.value?.shuffle_outcome_questions
@@ -113,7 +113,7 @@ const verifyEmail = async (): Promise<void> => {
     emailVerified.value = true;
     window.scrollTo({ top: 0, behavior: "smooth" });
   } catch (caught) {
-    error.value = caught instanceof Error ? caught.message : "無法驗證 Email，請稍後再試";
+    error.value = caught instanceof Error ? caught.message : "無法驗證電子郵件，請稍後再試";
   } finally {
     checkingEmail.value = false;
   }
@@ -194,7 +194,7 @@ onMounted(() => void load());
       <template v-else-if="form">
         <header class="public-heading">
           <div class="public-heading__accent"></div>
-          <p class="eyebrow">SROI FORM</p>
+          <p class="eyebrow">問卷填答</p>
           <h1>{{ form.title }}</h1>
           <p>{{ form.content }}</p>
           <small><b>*</b> 表示必填問題</small>
@@ -207,14 +207,14 @@ onMounted(() => void load());
             <p>{{ respondentPage?.content || '請先填寫基本資料。' }}</p>
           </section>
           <section class="answer-card respondent-card">
-            <h2>電子郵件 Email <b>*</b></h2>
-            <label class="sr-only" for="respondent-email">Email</label>
+            <h2>電子郵件 <b>*</b></h2>
+            <label class="sr-only" for="respondent-email">電子郵件</label>
             <input
               id="respondent-email"
               v-model="email"
               type="email"
               autocomplete="email"
-              placeholder="name@example.com"
+              placeholder="請輸入電子郵件"
               required
             />
           </section>
@@ -257,7 +257,7 @@ onMounted(() => void load());
 
         <form v-else @submit.prevent="submitOrContinue">
           <section class="email-confirmed">
-            <span>填答 Email：{{ email }}</span>
+            <span>填答電子郵件：{{ email }}</span>
             <button type="button" @click="changeEmail">更換</button>
           </section>
 
@@ -348,43 +348,43 @@ onMounted(() => void load());
 .public-form { display: grid; width: min(680px, 100%); margin: 0 auto; gap: 14px; }
 .public-heading, .answer-card, .description-card, .state-card { position: relative; overflow: hidden; padding: 30px 34px; border: 1px solid #e3dce8; border-radius: 12px; background: #fff; box-shadow: 0 3px 14px rgba(50, 35, 60, .05); }
 .public-heading__accent { position: absolute; top: 0; right: 0; left: 0; height: 9px; background: linear-gradient(90deg, #684486, #a27cba); }
-.eyebrow { margin: 7px 0 12px !important; color: #765292 !important; font-size: 10px !important; font-weight: 750; letter-spacing: .16em; }
-.public-heading h1 { margin: 0 0 12px; font-size: clamp(26px, 5vw, 36px); letter-spacing: -.035em; }
-.public-heading p { margin: 0; color: #6f6873; font-size: 13px; line-height: 1.7; }
-.public-heading small { display: block; margin-top: 22px; color: #99929c; font-size: 10px; }
+.eyebrow { margin: 7px 0 12px !important; color: #765292 !important; font-size: 14px !important; font-weight: 750; letter-spacing: .16em; }
+.public-heading h1 { margin: 0 0 12px; font-size: 24px; letter-spacing: -.035em; }
+.public-heading p { margin: 0; color: #6f6873; font-size: 14px; line-height: 1.7; }
+.public-heading small { display: block; margin-top: 22px; color: #99929c; font-size: 14px; }
 .public-heading b, .answer-card h2 b { color: #b1485c; }
 .basic-section-heading, .outcome-section-heading { padding: 23px 28px; border: 1px solid #d8cbe0; border-left: 5px solid #765292; border-radius: 12px; background: #faf7fc; }
 .basic-section-heading h2, .outcome-section-heading h2 { margin: 0 0 7px; color: #4b3d54; font-size: 18px; }
-.basic-section-heading p:last-child, .outcome-section-heading p:last-child { margin: 0; color: #756b79; font-size: 12px; line-height: 1.6; }
+.basic-section-heading p:last-child, .outcome-section-heading p:last-child { margin: 0; color: #756b79; font-size: 14px; line-height: 1.6; }
 form { display: grid; gap: 14px; }
 .answer-card h2 { margin: 0 0 24px; font-size: 14px; font-weight: 650; line-height: 1.6; }
 .answer-card textarea, .answer-card > input { width: 100%; padding: 10px 2px; resize: vertical; border: 0; border-bottom: 1px solid #bcb5c0; border-radius: 0; outline: 0; color: inherit; }
 .answer-card textarea:focus, .answer-card > input:focus { border-color: #765292; border-bottom-width: 2px; }
-.description-card { padding: 28px 32px; color: #4e4752; font-size: 13px; line-height: 1.8; }
+.description-card { padding: 28px 32px; color: #4e4752; font-size: 14px; line-height: 1.8; }
 .description-card h3 { margin: 0; color: #38323c; font-size: 16px; font-weight: 650; line-height: 1.6; }
 .description-card p { margin: 26px 0 0; white-space: pre-wrap; }
 .scale-answer { display: flex; justify-content: center; gap: clamp(18px, 6vw, 48px); }
-.scale-answer label { display: grid; justify-items: center; gap: 10px; color: #716a75; font-size: 12px; }
+.scale-answer label { display: grid; justify-items: center; gap: 10px; color: #716a75; font-size: 14px; }
 .scale-answer input, .choice-answer input { accent-color: #765292; }
 .choice-answer { display: grid; gap: 17px; }
-.choice-answer label { display: flex; align-items: center; gap: 10px; color: #5f5863; font-size: 13px; }
+.choice-answer label { display: flex; align-items: center; gap: 10px; color: #5f5863; font-size: 14px; }
 .respondent-card { display: grid; gap: 8px; }
-.respondent-card label { font-size: 12px; font-weight: 650; }
-.step-label { margin: 0 0 6px; color: #765292; font-size: 11px; font-weight: 700; }
-.email-hint { margin: -12px 0 14px; color: #817986; font-size: 12px; line-height: 1.6; }
-.email-confirmed { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border: 1px solid #dcd1e2; border-radius: 9px; background: #faf7fc; color: #665d6b; font-size: 12px; }
+.respondent-card label { font-size: 14px; font-weight: 650; }
+.step-label { margin: 0 0 6px; color: #765292; font-size: 14px; font-weight: 700; }
+.email-hint { margin: -12px 0 14px; color: #817986; font-size: 14px; line-height: 1.6; }
+.email-confirmed { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border: 1px solid #dcd1e2; border-radius: 9px; background: #faf7fc; color: #665d6b; font-size: 14px; }
 .email-confirmed button { border: 0; background: transparent; color: #765292; font-weight: 650; }
-.choice-answer small { color: #918996; font-size: 10px; }
+.choice-answer small { color: #918996; font-size: 14px; }
 .submit-button { justify-self: start; min-height: 44px; padding: 0 24px; border: 0; border-radius: 8px; background: #694786; color: #fff; font-weight: 650; }
 .submit-button:disabled { cursor: wait; opacity: .55; }
 .form-actions { display: flex; align-items: center; gap: 10px; }
 .previous-button { min-height: 44px; padding: 0 22px; border: 1px solid #cfc4d5; border-radius: 8px; background: #fff; color: #684884; font-weight: 650; }
 .previous-button:disabled { cursor: wait; opacity: .55; }
-.submit-error { margin: 0; padding: 13px 16px; border-radius: 8px; background: #fff0f3; color: #943c50; font-size: 12px; }
+.submit-error { margin: 0; padding: 13px 16px; border-radius: 8px; background: #fff0f3; color: #943c50; font-size: 14px; }
 .state-card { text-align: center; }
 .state-card--error { color: #943c50; }
 .state-card--success { padding: 60px 30px; }
-.state-card--success span { display: inline-grid; width: 48px; height: 48px; place-items: center; border-radius: 50%; background: #e5f1e8; color: #3d7550; font-size: 22px; }
+.state-card--success span { display: inline-grid; width: 48px; height: 48px; place-items: center; border-radius: 50%; background: #e5f1e8; color: #3d7550; font-size: 20px; }
 .state-card--success h1 { margin: 20px 0 8px; }
 .state-card--success p { margin: 0; color: #79727c; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }

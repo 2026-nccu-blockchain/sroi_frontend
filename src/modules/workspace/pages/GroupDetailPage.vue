@@ -109,7 +109,6 @@ watch(() => props.groupId, loadGroup, { immediate: true });
 .group-page {
   display: grid;
   gap: 22px;
-  margin-top: -16px;
 }
 
 .group-page__bar {
@@ -130,7 +129,7 @@ watch(() => props.groupId, loadGroup, { immediate: true });
 }
 
 .back-link span {
-  font-size: 22px;
+  font-size: 18px;
   line-height: 1;
 }
 
@@ -148,7 +147,7 @@ watch(() => props.groupId, loadGroup, { immediate: true });
   border: 1px solid #000;
   background: #000;
   color: #fff;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   text-decoration: none;
 }
@@ -168,7 +167,7 @@ watch(() => props.groupId, loadGroup, { immediate: true });
   align-items: center;
   justify-content: space-between;
   margin: 0;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   letter-spacing: 0.12em;
 }
@@ -182,7 +181,7 @@ watch(() => props.groupId, loadGroup, { immediate: true });
   border: 1px solid #000;
   background: #000;
   color: #fff;
-  font-size: 13px;
+  font-size: 14px;
   letter-spacing: 0;
   text-decoration: none;
 }
@@ -219,7 +218,7 @@ watch(() => props.groupId, loadGroup, { immediate: true });
 .group-projects__empty {
   margin: 0;
   color: #777;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .group-page__error {

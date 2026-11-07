@@ -24,8 +24,8 @@ const PASSWORD_FIELDS: { key: PasswordField; label: string; autocomplete: string
 
 const EMAIL_ERROR_MESSAGES: Record<string, string> = {
   "10001": "找不到使用者",
-  "10006": "此 Email 已被其他帳號使用",
-  "10007": "Email 格式錯誤，只需輸入 @ 前面的帳號"
+  "10006": "此電子郵件已被其他帳號使用",
+  "10007": "電子郵件格式錯誤，只需輸入 @ 前面的帳號"
 };
 
 const PASSWORD_ERROR_MESSAGES: Record<string, string> = {
@@ -63,9 +63,9 @@ const submitEmail = async (): Promise<void> => {
   account.success = "";
   account.serverError = "";
 
-  if (!account.email.trim()) account.error = "請輸入 Email";
+  if (!account.email.trim()) account.error = "請輸入電子郵件";
   else if (!emailPrefix) account.error = "只能包含英數字與 . _ % + -";
-  else if (emailPrefix === authStore.user?.email) account.error = "新 Email 與目前相同";
+  else if (emailPrefix === authStore.user?.email) account.error = "新電子郵件與目前相同";
   else account.error = "";
   if (account.error || !emailPrefix) return;
 
@@ -73,7 +73,7 @@ const submitEmail = async (): Promise<void> => {
   try {
     await changeEmail({ email_prefix: emailPrefix });
     await authStore.fetchProfile();
-    account.success = "Email 已更新";
+    account.success = "電子郵件已更新";
   } catch (err) {
     account.serverError = toMessage(err, EMAIL_ERROR_MESSAGES);
   } finally {
@@ -146,7 +146,7 @@ const submitPassword = async (): Promise<void> => {
 
     <form v-if="activeTab === 'account'" class="form" novalidate @submit.prevent="submitEmail">
       <label class="field">
-        <span class="field__label">Email <em>*</em></span>
+        <span class="field__label">電子郵件 <em>*</em></span>
         <div class="field__email" :class="{ 'field__input--error': account.error }">
           <input
             v-model="account.email"
@@ -202,7 +202,6 @@ const submitPassword = async (): Promise<void> => {
   display: grid;
   gap: 22px;
   max-width: 640px;
-  margin-top: -16px;
 }
 
 .back-link {
@@ -217,7 +216,7 @@ const submitPassword = async (): Promise<void> => {
 }
 
 .back-link span {
-  font-size: 22px;
+  font-size: 18px;
   line-height: 1;
 }
 
@@ -228,14 +227,14 @@ const submitPassword = async (): Promise<void> => {
 
 .profile-edit__eyebrow {
   margin: 0 0 8px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   letter-spacing: 0.15em;
 }
 
 h1 {
   margin: 0;
-  font-size: 26px;
+  font-size: 24px;
   font-weight: 500;
   line-height: 1;
   letter-spacing: -0.04em;
@@ -274,7 +273,7 @@ h1 {
 }
 
 .field__label {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   letter-spacing: 0.12em;
 }
@@ -331,19 +330,19 @@ h1 {
 
 .field__hint {
   color: #777;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .field__error,
 .form__server-error {
   margin: 0;
   color: #c00;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .form__success {
   margin: 0;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
 }
 
@@ -359,7 +358,7 @@ h1 {
   background: #fff;
   color: #000;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   cursor: pointer;
 }

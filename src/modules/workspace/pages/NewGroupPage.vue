@@ -57,7 +57,6 @@ const handleSubmit = async (payload: GroupPayload): Promise<void> => {
   display: grid;
   gap: 22px;
   max-width: 960px;
-  margin-top: -16px;
 }
 
 .back-link {
@@ -72,7 +71,7 @@ const handleSubmit = async (payload: GroupPayload): Promise<void> => {
 }
 
 .back-link span {
-  font-size: 22px;
+  font-size: 18px;
   line-height: 1;
 }
 
@@ -83,14 +82,14 @@ const handleSubmit = async (payload: GroupPayload): Promise<void> => {
 
 .new-group__eyebrow {
   margin: 0 0 8px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   letter-spacing: 0.15em;
 }
 
 h1 {
   margin: 0;
-  font-size: 26px;
+  font-size: 24px;
   font-weight: 500;
   line-height: 1;
   letter-spacing: -0.04em;

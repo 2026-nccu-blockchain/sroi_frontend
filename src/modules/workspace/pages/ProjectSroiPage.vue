@@ -87,16 +87,14 @@ const sroiRatio = computed(() => {
   return visibleStakeholders.value.reduce((total, stakeholder) => total + (stakeholderRatio(stakeholder) ?? 0), 0);
 });
 
-const formatMoney = (value: number): string => new Intl.NumberFormat("zh-TW", {
-  style: "currency",
-  currency: "TWD",
-  maximumFractionDigits: 0
-}).format(finite(value));
+const formatMoney = (value: number): string =>
+  `${Math.round(finite(value)).toLocaleString("zh-TW")} 元`;
 
 const hydrate = (data: ProjectSROI): void => {
   projectName.value = data.project_name;
   actualInputCost.value = Number(data.actual_input_cost);
-  discountRatePercent.value = Number(data.discount_rate) * 100;
+  // 0.035 * 100 會得到 3.5000000000000004，四捨五入到小數兩位
+  discountRatePercent.value = Math.round(Number(data.discount_rate) * 10000) / 100;
   stakeholders.value = data.stakeholders.map((stakeholder) => ({
     ...stakeholder,
     total_social_value: Number(stakeholder.total_social_value),
@@ -178,7 +176,7 @@ onMounted(async () => {
     <header class="page-header">
       <div>
         <RouterLink class="back-link" :to="{ name: 'project-edit', params: { projectId } }">← 返回專案</RouterLink>
-        <p class="eyebrow">SOCIAL RETURN ON INVESTMENT</p>
+        <p class="eyebrow">社會投資報酬率</p>
         <h1>{{ projectName || "SROI 計算" }}</h1>
       </div>
       <div class="page-header__actions">
@@ -279,16 +277,16 @@ onMounted(async () => {
                 <legend>調整係數設定（敏感度分析）</legend>
                 <p>輸入 0–100%，系統會立即試算調整後的成果價值。</p>
                 <div class="sensitivity-grid">
-                  <label>Deadweight（淨損）<input :value="outcome.deadweight_rate * 100" type="number" min="0" max="100" step="0.1" @input="outcome.deadweight_rate = clamp(Number(($event.target as HTMLInputElement).value) / 100, 0, 1)" /><small>%</small></label>
-                  <label>Attribution（歸因）<input :value="outcome.attribution_rate * 100" type="number" min="0" max="100" step="0.1" @input="outcome.attribution_rate = clamp(Number(($event.target as HTMLInputElement).value) / 100, 0, 1)" /><small>%</small></label>
-                  <label>Displacement（移轉）<input :value="outcome.displacement_rate * 100" type="number" min="0" max="100" step="0.1" @input="outcome.displacement_rate = clamp(Number(($event.target as HTMLInputElement).value) / 100, 0, 1)" /><small>%</small></label>
-                  <label>Drop-off（衰減）<input :value="outcome.dropoff_rate * 100" type="number" min="0" max="100" step="0.1" @input="outcome.dropoff_rate = clamp(Number(($event.target as HTMLInputElement).value) / 100, 0, 1)" /><small>%</small></label>
+                  <label>淨損<input :value="outcome.deadweight_rate * 100" type="number" min="0" max="100" step="0.1" @input="outcome.deadweight_rate = clamp(Number(($event.target as HTMLInputElement).value) / 100, 0, 1)" /><small>%</small></label>
+                  <label>歸因<input :value="outcome.attribution_rate * 100" type="number" min="0" max="100" step="0.1" @input="outcome.attribution_rate = clamp(Number(($event.target as HTMLInputElement).value) / 100, 0, 1)" /><small>%</small></label>
+                  <label>移轉<input :value="outcome.displacement_rate * 100" type="number" min="0" max="100" step="0.1" @input="outcome.displacement_rate = clamp(Number(($event.target as HTMLInputElement).value) / 100, 0, 1)" /><small>%</small></label>
+                  <label>衰減<input :value="outcome.dropoff_rate * 100" type="number" min="0" max="100" step="0.1" @input="outcome.dropoff_rate = clamp(Number(($event.target as HTMLInputElement).value) / 100, 0, 1)" /><small>%</small></label>
                 </div>
               </fieldset>
               <footer><span>這項成果暫估價值</span><strong>{{ outcome.is_included && outcome.financial_proxy_value <= 0 ? '等待財務代理變數' : formatMoney(outcomeValue(outcome)) }}</strong></footer>
             </article>
           </section>
-          <p v-else class="state-card">此專案尚未建立成果初列，請先回到專案頁新增成果 hashtag。</p>
+          <p v-else class="state-card">此專案尚未建立成果初列，請先回到專案頁新增成果標籤。</p>
         </article>
       </section>
 
@@ -304,76 +302,76 @@ onMounted(async () => {
 <style scoped>
 .plain-fieldset { display: contents; min-width: 0; margin: 0; padding: 0; border: 0; }
 .page-header__actions { display: flex; align-items: center; gap: 10px; }
-.dirty-hint { color: #8a5a00; font-size: 12px; font-weight: 700; }
+.dirty-hint { color: #8a5a00; font-size: 14px; font-weight: 700; }
 .sroi-page { display: grid; gap: 24px; color: #17131a; }
 .page-header { display: flex; align-items: end; justify-content: space-between; gap: 24px; padding-bottom: 22px; border-bottom: 2px solid #211827; }
-.back-link { display: inline-block; margin-bottom: 22px; color: #675d6c; font-size: 12px; text-decoration: none; }
-.eyebrow { margin: 0 0 7px; color: #765292; font-size: 10px; font-weight: 800; letter-spacing: .14em; }
+.back-link { display: inline-block; margin-bottom: 22px; color: #675d6c; font-size: 14px; text-decoration: none; }
+.eyebrow { margin: 0 0 7px; color: #765292; font-size: 14px; font-weight: 800; letter-spacing: .14em; }
 h1, h2, h3, p { margin: 0; }
-h1 { font-size: clamp(30px, 4vw, 48px); letter-spacing: -.05em; }
-h2 { font-size: 20px; }
+h1 { font-size: 24px; letter-spacing: -.05em; }
+h2 { font-size: 18px; }
 h3 { font-size: 17px; }
-.primary-button { min-height: 42px; border: 1px solid #68447f; padding: 9px 18px; background: #765292; color: #fff; font: inherit; font-size: 12px; font-weight: 800; cursor: pointer; }
+.primary-button { min-height: 42px; border: 1px solid #68447f; padding: 9px 18px; background: #765292; color: #fff; font: inherit; font-size: 14px; font-weight: 800; cursor: pointer; }
 .primary-button:disabled { cursor: not-allowed; opacity: .55; }
 .message, .state-card { padding: 14px 16px; border: 1px solid #d5cdd8; background: #fff; }
 .message--error { border-color: #bd7676; color: #8c2020; }
 .message--success { border-color: #87aa8c; color: #286133; }
 .view-context { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 15px 18px; border-left: 4px solid #765292; background: #f7f1f9; }
 .view-context div { display: grid; gap: 4px; }
-.view-context span { color: #756b79; font-size: 10px; }
+.view-context span { color: #756b79; font-size: 14px; }
 .view-context strong { color: #34263b; font-size: 16px; }
-.view-context a { color: #68447f; font-size: 11px; font-weight: 750; text-decoration: none; }
+.view-context a { color: #68447f; font-size: 14px; font-weight: 750; text-decoration: none; }
 .summary-grid { display: grid; grid-template-columns: 1.4fr 1fr 1fr 1fr; gap: 14px; }
 .summary-card { display: grid; align-content: space-between; min-height: 128px; gap: 10px; padding: 20px; border: 1px solid #ded4e2; background: #fff; }
-.summary-card span { color: #746b78; font-size: 11px; font-weight: 750; }
-.summary-card strong { font-size: clamp(22px, 3vw, 34px); letter-spacing: -.04em; }
-.summary-card p { color: #655b69; font-size: 11px; line-height: 1.6; }
+.summary-card span { color: #746b78; font-size: 14px; font-weight: 750; }
+.summary-card strong { font-size: 24px; letter-spacing: -.04em; }
+.summary-card p { color: #655b69; font-size: 14px; line-height: 1.6; }
 .summary-card--ratio { background: #765292; color: #fff; }
 .summary-card--ratio span, .summary-card--ratio p { color: #f0e7f4; }
-.summary-card--input input { width: 100%; border: 0; border-bottom: 1px solid #8f8295; padding: 8px 0; background: transparent; color: #211827; font: inherit; font-size: 20px; font-weight: 700; outline: none; }
-.cost-link { color: #765292; font-size: 11px; font-weight: 750; text-decoration: none; }
+.summary-card--input input { width: 100%; border: 0; border-bottom: 1px solid #8f8295; padding: 8px 0; background: transparent; color: #211827; font: inherit; font-size: 18px; font-weight: 700; outline: none; }
+.cost-link { color: #765292; font-size: 14px; font-weight: 750; text-decoration: none; }
 .explanation { display: grid; grid-template-columns: 180px 1fr; gap: 22px; padding: 17px 20px; border-left: 4px solid #a77bbd; background: #f7f1f9; }
-.explanation strong { font-size: 12px; }
-.explanation p { color: #675d6c; font-size: 12px; line-height: 1.7; }
+.explanation strong { font-size: 14px; }
+.explanation p { color: #675d6c; font-size: 14px; line-height: 1.7; }
 .stakeholder-list { display: grid; gap: 22px; }
 .stakeholder-card { display: grid; gap: 18px; padding: 24px; border: 1px solid #cfc0d7; background: #f8f3fa; }
 .stakeholder-card__header { display: flex; align-items: start; justify-content: space-between; gap: 20px; }
-.stakeholder-card__header small { color: #817787; font-size: 10px; }
+.stakeholder-card__header small { color: #817787; font-size: 14px; }
 .stakeholder-summary { display: grid; justify-items: end; gap: 4px; }
-.stakeholder-summary span, .stakeholder-summary small { color: #756b79; font-size: 10px; }
-.stakeholder-summary strong { color: #68447f; font-size: 25px; }
+.stakeholder-summary span, .stakeholder-summary small { color: #756b79; font-size: 14px; }
+.stakeholder-summary strong { color: #68447f; font-size: 20px; }
 .outcome-list { display: grid; gap: 18px; }
 .outcome-card { display: grid; gap: 20px; padding: 24px; border: 1px solid #d8cedd; background: #fff; }
 .outcome-card > header { display: flex; align-items: start; justify-content: space-between; gap: 20px; padding-bottom: 17px; border-bottom: 1px solid #e4dde7; }
 .outcome-status { display: grid; justify-items: end; gap: 5px; }
-.outcome-status small { color: #817787; font-size: 10px; }
-.evidence-badge { padding: 5px 9px; border-radius: 999px; background: #f0edf1; color: #736d76; font-size: 10px; font-weight: 750; }
+.outcome-status small { color: #817787; font-size: 14px; }
+.evidence-badge { padding: 5px 9px; border-radius: 999px; background: #f0edf1; color: #736d76; font-size: 14px; font-weight: 750; }
 .evidence-badge--eligible { background: #e5f3e8; color: #2f7140; }
 .evidence-badge--below { background: #f7e9e7; color: #9a4338; }
-.include-toggle { display: flex; align-items: center; gap: 8px; width: fit-content; font-size: 12px; font-weight: 750; cursor: pointer; }
+.include-toggle { display: flex; align-items: center; gap: 8px; width: fit-content; font-size: 14px; font-weight: 750; cursor: pointer; }
 .include-toggle input { accent-color: #765292; }
 .valuation-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 15px; transition: opacity .15s ease; }
 .valuation-grid--disabled { pointer-events: none; opacity: .4; }
-.valuation-grid label, .sensitivity-grid label { display: grid; gap: 7px; color: #675d6c; font-size: 10px; font-weight: 750; }
-.valuation-grid input, .sensitivity-grid input { width: 100%; min-width: 0; border: 1px solid #cfc4d3; padding: 10px; background: #fff; color: #211827; font: inherit; font-size: 12px; outline: none; }
+.valuation-grid label, .sensitivity-grid label { display: grid; gap: 7px; color: #675d6c; font-size: 14px; font-weight: 750; }
+.valuation-grid input, .sensitivity-grid input { width: 100%; min-width: 0; border: 1px solid #cfc4d3; padding: 10px; background: #fff; color: #211827; font: inherit; font-size: 14px; outline: none; }
 .valuation-grid input:focus, .sensitivity-grid input:focus { border-color: #765292; box-shadow: 0 0 0 2px #eee4f3; }
 .proxy-field { display: grid; align-content: center; gap: 5px; min-height: 64px; border: 1px dashed #bcaec2; padding: 9px 10px; background: #faf7fb; }
-.proxy-field span { color: #675d6c; font-size: 10px; font-weight: 750; }
-.proxy-field strong { color: #765292; font-size: 12px; }
-.proxy-field small { color: #8b818f; font-size: 9px; line-height: 1.4; }
+.proxy-field span { color: #675d6c; font-size: 14px; font-weight: 750; }
+.proxy-field strong { color: #765292; font-size: 14px; }
+.proxy-field small { color: #8b818f; font-size: 14px; line-height: 1.4; }
 .sensitivity-panel { display: grid; gap: 12px; margin: 0; border: 1px solid #d8cedd; padding: 16px; background: #faf7fb; transition: opacity .15s ease; }
 .sensitivity-panel:disabled { opacity: .4; }
-.sensitivity-panel legend { padding: 0 8px; color: #68447f; font-size: 12px; font-weight: 800; }
-.sensitivity-panel > p { color: #817787; font-size: 10px; line-height: 1.5; }
+.sensitivity-panel legend { padding: 0 8px; color: #68447f; font-size: 14px; font-weight: 800; }
+.sensitivity-panel > p { color: #817787; font-size: 14px; line-height: 1.5; }
 .sensitivity-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 .sensitivity-grid label { position: relative; }
-.sensitivity-grid label small { position: absolute; right: 10px; bottom: 11px; color: #8b818f; font-size: 10px; }
+.sensitivity-grid label small { position: absolute; right: 10px; bottom: 11px; color: #8b818f; font-size: 14px; }
 .sensitivity-grid input { padding-right: 27px; }
 .outcome-card footer { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding-top: 16px; border-top: 1px solid #e4dde7; }
-.outcome-card footer span { color: #675d6c; font-size: 11px; }
-.outcome-card footer strong { color: #68447f; font-size: 22px; }
+.outcome-card footer span { color: #675d6c; font-size: 14px; }
+.outcome-card footer strong { color: #68447f; font-size: 18px; }
 .empty-state { display: grid; justify-items: center; gap: 9px; padding: 48px; text-align: center; }
-.empty-state p { color: #675d6c; font-size: 12px; }
+.empty-state p { color: #675d6c; font-size: 14px; }
 @media (max-width: 1050px) { .summary-grid { grid-template-columns: repeat(2, 1fr); } .valuation-grid, .sensitivity-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 650px) { .page-header, .view-context, .stakeholder-card__header, .outcome-card > header, .outcome-card footer { align-items: stretch; flex-direction: column; } .summary-grid, .valuation-grid, .sensitivity-grid, .explanation { grid-template-columns: 1fr; } .outcome-status, .stakeholder-summary { justify-items: start; } }
 </style>

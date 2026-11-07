@@ -96,7 +96,6 @@ const statusLabel = (project: WorkspaceProject): string => {
 .projects {
   display: grid;
   gap: 22px;
-  margin-top: -16px;
 }
 
 .projects__intro {
@@ -108,14 +107,14 @@ const statusLabel = (project: WorkspaceProject): string => {
 
 .projects__eyebrow {
   margin: 0 0 8px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   letter-spacing: 0.15em;
 }
 
 h1 {
   margin: 0;
-  font-size: 26px;
+  font-size: 24px;
   font-weight: 500;
   line-height: 1;
   letter-spacing: -0.04em;
@@ -131,7 +130,7 @@ h1 {
   border: 1px solid #000;
   color: #000;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   text-decoration: none;
   cursor: pointer;
@@ -168,7 +167,7 @@ h1 {
 .project-list__header,
 .project-row {
   display: grid;
-  grid-template-columns: minmax(190px, 1.6fr) minmax(140px, 1fr) 60px 90px minmax(140px, 1fr) 110px;
+  grid-template-columns: minmax(190px, 1.6fr) minmax(140px, 1fr) 150px 90px minmax(140px, 1fr) 110px;
   gap: 20px;
   align-items: center;
 }
@@ -176,7 +175,7 @@ h1 {
 .project-list__header {
   min-height: 45px;
   border-bottom: 1px solid #000;
-  font-size: 10px;
+  font-size: 14px;
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -189,7 +188,7 @@ h1 {
 .project-row {
   min-height: 82px;
   border-bottom: 1px solid #000;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .project-row__title {
@@ -204,16 +203,16 @@ h1 {
   display: block;
   margin-top: 5px;
   color: #666;
-  font-size: 11px;
+  font-size: 14px;
   text-transform: uppercase;
 }
 
 .project-name-cell { display: grid; gap: 5px; }
 .outcome-tags { display: flex; flex-wrap: wrap; gap: 5px; }
-.outcome-tags span { padding: 3px 7px; border-radius: 999px; background: #f0e8f4; color: #765292; font-size: 9px; font-weight: 700; }
+.outcome-tags span { padding: 3px 7px; border-radius: 999px; background: #f0e8f4; color: #765292; font-size: 14px; font-weight: 700; }
 
 .linked-form { display: flex; align-items: center; gap: 7px; }
-.form-badge { display: inline-flex; padding: 4px 8px; border-radius: 999px; background: #f0e8f4; color: #765292; font-size: 10px; font-weight: 700; white-space: nowrap; }
+.form-badge { display: inline-flex; padding: 4px 8px; border-radius: 999px; background: #f0e8f4; color: #765292; font-size: 14px; font-weight: 700; white-space: nowrap; }
 .form-badge--published { background: #e5f3e8; color: #2f7140; }
 
 .project-row__actions {
@@ -230,7 +229,7 @@ h1 {
   background: transparent;
   color: #000;
   font: inherit;
-  font-size: 12px;
+  font-size: 14px;
   text-decoration: none;
   cursor: pointer;
 }

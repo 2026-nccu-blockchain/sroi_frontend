@@ -101,7 +101,7 @@ const onSubmit = (): void => {
 }
 
 .login-form__eyebrow {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   letter-spacing: 0.14em;
 }
@@ -112,7 +112,7 @@ p {
 }
 
 h1 {
-  font-size: clamp(28px, 5vw, 40px);
+  font-size: 26px;
   line-height: 1;
   letter-spacing: -0.04em;
 }
@@ -124,7 +124,7 @@ h1 {
 label {
   display: grid;
   gap: 4px;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
 }
 
@@ -175,7 +175,7 @@ input:focus {
   background: transparent;
   color: #000;
   font: inherit;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   white-space: nowrap;
   cursor: pointer;
@@ -217,7 +217,7 @@ button:disabled {
 .login-form__back {
   justify-self: center;
   color: #000;
-  font-size: 13px;
+  font-size: 14px;
   text-underline-offset: 4px;
 }
 </style>

@@ -78,14 +78,14 @@ const formatDate = (iso: string): string => new Date(iso).toLocaleDateString("zh
 
 .group-detail__eyebrow {
   margin: 0 0 8px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   letter-spacing: 0.15em;
 }
 
 h1 {
   margin: 0;
-  font-size: 26px;
+  font-size: 24px;
   font-weight: 500;
   line-height: 1.2;
   letter-spacing: -0.04em;
@@ -96,7 +96,7 @@ h2 {
   align-items: center;
   justify-content: space-between;
   margin: 0;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   letter-spacing: 0.12em;
 }
@@ -108,7 +108,7 @@ h2 {
   padding: 14px 0;
   border-top: 2px solid #000;
   border-bottom: 1px solid #000;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .group-detail__meta dt {
@@ -139,10 +139,25 @@ h2 {
   color: #c00;
 }
 
+/*
+ * 成員欄固定在視窗內並獨立捲動，成員很多時不用捲整個頁面
+ * contain: size 讓成員欄不撐高頁面，高度跟著左側內容（stretch）
+ * 高度上限扣掉上方 24px 與 MainLayout 內容區的下方留白，捲到頁面底部時頂端才不會被切掉
+ */
 .people {
+  position: sticky;
+  top: 24px;
+  align-self: stretch;
+  contain: size;
   display: grid;
+  align-content: start;
   gap: 32px;
+  min-height: min(480px, calc(100vh - 24px - clamp(40px, 7vw, 88px)));
+  max-height: calc(100vh - 24px - clamp(40px, 7vw, 88px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding-left: 32px;
+  padding-right: 8px;
   border-left: 1px solid #000;
 }
 
@@ -156,7 +171,7 @@ h2 {
   padding: 2px 6px;
   background: #000;
   color: #fff;
-  font-size: 11px;
+  font-size: 14px;
   text-align: center;
 }
 
@@ -183,7 +198,7 @@ h2 {
 
 .people__id {
   color: #777;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .people__empty {
@@ -191,7 +206,7 @@ h2 {
   padding: 12px 0;
   border-top: 2px solid #000;
   color: #777;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 @media (max-width: 960px) {
@@ -200,6 +215,11 @@ h2 {
   }
 
   .people {
+    position: static;
+    contain: none;
+    min-height: 0;
+    max-height: none;
+    overflow: visible;
     padding: 24px 0 0;
     border-left: 0;
     border-top: 1px solid #000;

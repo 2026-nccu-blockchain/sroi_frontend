@@ -154,7 +154,7 @@ const handleSubmit = (): void => {
 }
 
 .field__label {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   letter-spacing: 0.12em;
 }
@@ -198,7 +198,7 @@ const handleSubmit = (): void => {
 .form__server-error {
   margin: 0;
   color: #c00;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .form__actions {
@@ -217,7 +217,7 @@ const handleSubmit = (): void => {
   background: #fff;
   color: #000;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   text-decoration: none;
   cursor: pointer;

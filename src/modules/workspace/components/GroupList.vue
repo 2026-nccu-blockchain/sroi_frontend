@@ -106,7 +106,6 @@ const formatDate = (iso: string): string => new Date(iso).toLocaleDateString("zh
 .groups {
   display: grid;
   gap: 22px;
-  margin-top: -16px;
 }
 
 .groups__intro {
@@ -118,14 +117,14 @@ const formatDate = (iso: string): string => new Date(iso).toLocaleDateString("zh
 
 .groups__eyebrow {
   margin: 0 0 8px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   letter-spacing: 0.15em;
 }
 
 h1 {
   margin: 0;
-  font-size: 26px;
+  font-size: 24px;
   font-weight: 500;
   line-height: 1;
   letter-spacing: -0.04em;
@@ -141,7 +140,7 @@ h1 {
   border: 1px solid #000;
   color: #000;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   text-decoration: none;
   cursor: pointer;
@@ -168,7 +167,7 @@ h1 {
   background: transparent;
   color: #000;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   cursor: pointer;
 }
@@ -180,7 +179,7 @@ h1 {
 
 .tab-bar__count {
   margin-left: 6px;
-  font-size: 11px;
+  font-size: 14px;
   opacity: 0.7;
 }
 
@@ -246,7 +245,7 @@ h1 {
 .group-list__header {
   min-height: 45px;
   border-bottom: 1px solid #000;
-  font-size: 10px;
+  font-size: 14px;
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -259,7 +258,7 @@ h1 {
 .group-row {
   min-height: 82px;
   border-bottom: 1px solid #000;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .group-row__title {

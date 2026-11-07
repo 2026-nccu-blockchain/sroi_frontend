@@ -98,7 +98,7 @@ const filteredUsers = computed(() => {
 
 .member-row__id {
   color: #777;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .member-row__action {
@@ -111,6 +111,6 @@ const filteredUsers = computed(() => {
 .member-table__empty {
   margin: 0;
   color: #777;
-  font-size: 13px;
+  font-size: 14px;
 }
 </style>
