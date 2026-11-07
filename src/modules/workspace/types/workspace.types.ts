@@ -175,6 +175,8 @@ export interface Group {
   end: string;
   // 只有不同意的群組會帶
   reason?: string;
+  // 只有管理員的所有群組會帶
+  creator?: GroupUser | null;
 }
 
 export interface GroupBuckets {
