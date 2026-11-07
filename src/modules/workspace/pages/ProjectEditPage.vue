@@ -472,7 +472,7 @@ onMounted(async () => {
           <div class="cost-section__heading">
             <div>
               <h3>成本明細</h3>
-              <p>總成本會依下方成本自動加總，無法直接修改。</p>
+              <p>總成本為各項「金額 × 個數」自動加總，無法直接修改。</p>
             </div>
             <button
               v-if="!readOnly"
@@ -484,9 +484,11 @@ onMounted(async () => {
           <p v-if="!costs.length" class="empty-state">尚未新增成本。</p>
           <article v-for="(cost, index) in costs" :key="cost.cost_id" class="cost-row">
             <span class="stakeholder-number">{{ String(index + 1).padStart(2, "0") }}</span>
-            <div class="field">名稱<span class="cost-value">{{ cost.name }}</span></div>
+            <div class="field">項目<span class="cost-value">{{ cost.name }}</span></div>
             <div class="field">金額<span class="cost-value">{{ formatMoney(cost.price) }}</span></div>
-            <div class="field field--notes">說明<span class="cost-value">{{ cost.description || "—" }}</span></div>
+            <div class="field">個數<span class="cost-value">{{ cost.quantity }}</span></div>
+            <div class="field">小計<span class="cost-value">{{ formatMoney(Number(cost.price) * cost.quantity) }}</span></div>
+            <div class="field">經費來源<span class="cost-value">{{ cost.funding_source || "—" }}</span></div>
             <div v-if="!readOnly" class="cost-actions">
               <button class="remove-button" type="button" @click="openCostDialog(cost)">修改</button>
               <button class="remove-button" type="button" @click="deletingCost = cost">刪除</button>
@@ -718,7 +720,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .cost-section__heading { display: flex; align-items: start; justify-content: space-between; gap: 20px; }
 .cost-section__heading h3 { margin-bottom: 6px; font-size: 16px; }
 .cost-section__heading p { color: #666; font-size: 11px; line-height: 1.6; }
-.cost-row { display: grid; grid-template-columns: 32px 1fr 1fr 1.6fr auto; align-items: end; gap: 12px; padding-bottom: 18px; border-bottom: 1px solid #eee; }
+.cost-row { display: grid; grid-template-columns: 32px 1.4fr 1fr .6fr 1fr 1.2fr auto; align-items: end; gap: 12px; padding-bottom: 18px; border-bottom: 1px solid #eee; }
 .cost-value { overflow: hidden; border: 1px solid #e3e3e3; padding: 11px 12px; background: #f7f7f7; color: #111; font-size: 13px; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
 .cost-actions { display: flex; gap: 8px; }
 .cost-total { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 14px 16px; background: #111; color: #fff; }

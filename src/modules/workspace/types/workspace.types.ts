@@ -21,8 +21,10 @@ export interface ProjectOutcome {
 export interface ProjectCost {
   cost_id: string;
   name: string;
+  // 單價，小計 = price × quantity
   price: number;
-  description: string;
+  quantity: number;
+  funding_source: string;
   position: number;
   create_time?: string | null;
   update_time?: string | null;
@@ -31,7 +33,8 @@ export interface ProjectCost {
 export interface ProjectCostPayload {
   name: string;
   price: number;
-  description: string;
+  quantity: number;
+  funding_source: string;
 }
 
 export interface ProjectCostsResponse {
