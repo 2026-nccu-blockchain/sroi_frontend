@@ -10,7 +10,7 @@ import {
 import ConfirmDialog from "@/modules/workspace/components/ConfirmDialog.vue";
 import CostDialog from "@/modules/workspace/components/CostDialog.vue";
 import { useVerifiedGroups } from "@/modules/workspace/composables/useVerifiedGroups";
-import { GROUP_ROLE_LABELS, toProjectErrorMessage } from "@/modules/workspace/constants";
+import { toProjectErrorMessage } from "@/modules/workspace/constants";
 import { useProjectStore } from "@/modules/workspace/store/project.store";
 import type {
   Group,
@@ -77,9 +77,8 @@ const readOnly = computed(() => myRole.value === "viewer");
 const backTo = computed(() =>
   ownerGroupId.value ? { name: "group-detail", params: { groupId: ownerGroupId.value } } : { name: "my-projects" }
 );
-const ownerLabel = computed(() =>
-  ownerGroupId.value ? `群組・${titleOf(ownerGroupId.value)}（${GROUP_ROLE_LABELS[myRole.value]}）` : "個人專案"
-);
+// 編輯時只有群組專案顯示所屬群組
+const ownerLabel = computed(() => `群組・${titleOf(ownerGroupId.value)}`);
 
 const draft = reactive<Omit<ProjectPayload, "begin" | "end" | "stakeholders" | "costs"> & { stakeholders: DraftStakeholder[] }>({
   name: "",
@@ -465,7 +464,7 @@ onMounted(async () => {
               </option>
             </select>
           </label>
-          <p v-else class="field">專案位置<span class="owner-label">{{ ownerLabel }}</span></p>
+          <p v-else-if="ownerGroupId" class="field">專案位置<span class="owner-label">{{ ownerLabel }}</span></p>
           <label class="field field--wide">專案說明<textarea v-model="draft.description" rows="4"></textarea></label>
         </div>
 

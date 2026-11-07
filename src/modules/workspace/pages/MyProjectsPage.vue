@@ -1,16 +1,16 @@
 <script setup lang="ts">
-import { onMounted } from "vue";
+import { computed, onMounted } from "vue";
 import { storeToRefs } from "pinia";
 
 import ProjectList from "@/modules/workspace/components/ProjectList.vue";
-import { useVerifiedGroups } from "@/modules/workspace/composables/useVerifiedGroups";
 import { toProjectErrorMessage } from "@/modules/workspace/constants";
 import { useProjectStore } from "@/modules/workspace/store/project.store";
 import type { WorkspaceProject } from "@/modules/workspace/types/workspace.types";
 
 const projectStore = useProjectStore();
-const { projectsWithForms: projects, loading, error } = storeToRefs(projectStore);
-const { load: loadGroups, titleOf } = useVerifiedGroups();
+const { projectsWithForms, loading, error } = storeToRefs(projectStore);
+// 群組專案只在各群組頁顯示，這裡只列個人專案
+const projects = computed(() => projectsWithForms.value.filter((project) => !project.group_id));
 
 const loadProjects = async (): Promise<void> => {
   await projectStore.ensureLoaded().catch(() => undefined);
@@ -27,8 +27,6 @@ const removeProject = async (project: WorkspaceProject): Promise<void> => {
 
 onMounted(() => {
   void loadProjects();
-  // 只用來顯示群組名稱
-  void loadGroups().catch(() => undefined);
 });
 </script>
 
@@ -37,7 +35,6 @@ onMounted(() => {
     :projects="projects"
     :loading="loading"
     :error="error"
-    :group-title="titleOf"
     @delete="removeProject"
   />
 </template>
