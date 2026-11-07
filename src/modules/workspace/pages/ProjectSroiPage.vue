@@ -2,9 +2,11 @@
 import { computed, onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
 
-import { getProjectSROI, saveProjectSROI } from "@/modules/workspace/api/workspace.api";
+import { getProject, getProjectSROI, saveProjectSROI } from "@/modules/workspace/api/workspace.api";
 import ConfirmDialog from "@/modules/workspace/components/ConfirmDialog.vue";
+import { useProjectStore } from "@/modules/workspace/store/project.store";
 import type {
+  GroupRole,
   OutcomeValuation,
   ProjectSROI,
   ProjectSROIPayload,
@@ -13,7 +15,11 @@ import type {
 import { useUnsavedChanges } from "@/shared/composables/useUnsavedChanges";
 
 const route = useRoute();
+const projectStore = useProjectStore();
 const projectId = computed(() => String(route.params.projectId ?? ""));
+// 個人專案沒有 my_role，視為擁有者
+const myRole = ref<GroupRole>("leader");
+const readOnly = computed(() => myRole.value === "viewer");
 const loading = ref(true);
 const saving = ref(false);
 const error = ref("");
@@ -130,10 +136,11 @@ const payload = (): ProjectSROIPayload => ({
 });
 
 const snapshot = (): string => JSON.stringify(payload());
-const isDirty = computed(() => !loading.value && snapshot() !== savedSnapshot.value);
+const isDirty = computed(() => !readOnly.value && !loading.value && snapshot() !== savedSnapshot.value);
 const { leaveDialogOpen, answerLeave } = useUnsavedChanges(isDirty);
 
 const save = async (): Promise<void> => {
+  if (readOnly.value) return;
   saving.value = true;
   error.value = "";
   savedMessage.value = "";
@@ -151,7 +158,13 @@ const save = async (): Promise<void> => {
 onMounted(async () => {
   loading.value = true;
   try {
-    hydrate(await getProjectSROI(projectId.value));
+    const cached = projectStore.projects.find((item) => item.project_id === projectId.value);
+    const [sroi, project] = await Promise.all([
+      getProjectSROI(projectId.value),
+      cached ? Promise.resolve(cached) : getProject(projectId.value)
+    ]);
+    myRole.value = project.my_role ?? "leader";
+    hydrate(sroi);
   } catch (caught) {
     error.value = caught instanceof Error ? caught.message : "無法載入 SROI 資料";
   } finally {
@@ -170,7 +183,7 @@ onMounted(async () => {
       </div>
       <div class="page-header__actions">
         <span v-if="isDirty" class="dirty-hint">有未儲存的修改</span>
-        <button class="primary-button" type="button" :disabled="loading || saving" @click="save">
+        <button v-if="!readOnly" class="primary-button" type="button" :disabled="loading || saving" @click="save">
           {{ saving ? "儲存中…" : "儲存 SROI" }}
         </button>
       </div>
@@ -191,6 +204,8 @@ onMounted(async () => {
     <p v-if="loading" class="state-card">正在載入 SROI 資料…</p>
 
     <template v-else>
+      <p v-if="readOnly" class="message">你在這個群組是檢視者，只能查看 SROI 計算結果。</p>
+      <fieldset class="plain-fieldset" :disabled="readOnly">
       <section v-if="selectedStakeholder" class="view-context">
         <div>
           <span>目前查看利害關係人</span>
@@ -215,7 +230,7 @@ onMounted(async () => {
         <article class="summary-card">
           <span>實際投入成本</span>
           <strong>{{ formatMoney(actualInputCost) }}</strong>
-          <RouterLink class="cost-link" :to="{ name: 'project-edit', params: { projectId } }">到專案基本資料修改成本 →</RouterLink>
+          <RouterLink v-if="!readOnly" class="cost-link":to="{ name: 'project-edit', params: { projectId } }">到專案基本資料修改成本 →</RouterLink>
         </article>
         <label class="summary-card summary-card--input">
           <span>折現率（%）</span>
@@ -281,11 +296,13 @@ onMounted(async () => {
         <h2>尚未設定利害關係人</h2>
         <p>請先回到專案頁新增利害關係人，再進行個別 SROI 計算。</p>
       </section>
+      </fieldset>
     </template>
   </section>
 </template>
 
 <style scoped>
+.plain-fieldset { display: contents; min-width: 0; margin: 0; padding: 0; border: 0; }
 .page-header__actions { display: flex; align-items: center; gap: 10px; }
 .dirty-hint { color: #8a5a00; font-size: 12px; font-weight: 700; }
 .sroi-page { display: grid; gap: 24px; color: #17131a; }

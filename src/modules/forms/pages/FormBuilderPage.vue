@@ -25,6 +25,7 @@ import type {
 import { useFormStore } from "@/modules/forms/store/form.store";
 import { getProject } from "@/modules/workspace/api/workspace.api";
 import { useProjectStore } from "@/modules/workspace/store/project.store";
+import type { GroupRole } from "@/modules/workspace/types/workspace.types";
 import { HttpError } from "@/shared/api/http";
 
 type QuestionType = "description" | "text" | "scale" | "date" | "choice";
@@ -61,6 +62,9 @@ const router = useRouter();
 const { user, isAuthenticated } = useAuth();
 const formStore = useFormStore();
 const projectStore = useProjectStore();
+// 個人專案沒有 my_role，視為擁有者；群組檢視者只能看表單，不會自動儲存
+const myRole = ref<GroupRole>("leader");
+const readOnly = computed(() => myRole.value === "viewer");
 const formId = ref("");
 const sourceProjectId = computed(() => typeof route.params.projectId === "string" ? route.params.projectId : "");
 const blocks = ref<Block[]>([]);
@@ -192,8 +196,14 @@ const initializeForm = async (): Promise<void> => {
     // 編輯器必須以後端最新結構為準，避免 Pinia 舊快取蓋掉剛儲存的區段。
     const project = await getProject(sourceProjectId.value);
     projectStore.upsert(project);
+    myRole.value = project.my_role ?? "leader";
 
     const requestedFormId = String(route.params.formId ?? "");
+    // 檢視者不能新增表單
+    if (!requestedFormId && readOnly.value) {
+      await router.replace({ name: "project-edit", params: { projectId: sourceProjectId.value } });
+      return;
+    }
     if (requestedFormId) {
       if (!project.forms.some((form) => form.form_id === requestedFormId)) {
         throw new Error("這份表單沒有連結到目前專案");
@@ -267,7 +277,7 @@ const goBack = async (): Promise<void> => {
 };
 
 const persistDraft = (): Promise<void> => {
-  if (!formId.value) return Promise.resolve();
+  if (readOnly.value || !formId.value) return Promise.resolve();
   if (activeSave) {
     pendingSave = true;
     return activeSave.then(() => pendingSave ? persistDraft() : undefined);
@@ -389,6 +399,7 @@ const persistDraft = (): Promise<void> => {
 };
 
 const touch = (): void => {
+  if (readOnly.value) return;
   editRevision += 1;
   saved.value = false;
   pendingSave = true;
@@ -809,6 +820,7 @@ const publishIssues = (): string[] => {
 };
 
 const openPublishDialog = (): void => {
+  if (readOnly.value) return;
   validationIssues.value = publishIssues();
   if (validationIssues.value.length) {
     saveError.value = "發布前請先完成以下內容";
@@ -1154,10 +1166,10 @@ onMounted(() => void initializeForm());
         </button>
         <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
         <div class="document-meta">
-          <input v-model="formTitle" class="document-meta__title" aria-label="表單名稱" @input="touch" />
+          <input v-model="formTitle" class="document-meta__title" aria-label="表單名稱" :readonly="readOnly" @input="touch" />
           <span class="document-meta__status" :class="{ 'document-meta__status--error': saveError }">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 18a4.6 4.6 0 0 1-.4-9.2A6 6 0 0 1 18.1 8a4 4 0 0 1-.1 8H7Z" /><path d="m9.5 13 1.7 1.7 3.5-4" /></svg>
-            {{ saveError || (initializing ? "載入中…" : saving ? "儲存中…" : saved ? "已儲存" : "尚未儲存") }}
+            {{ readOnly ? "僅供檢視" : (saveError || (initializing ? "載入中…" : saving ? "儲存中…" : saved ? "已儲存" : "尚未儲存")) }}
           </span>
         </div>
       </div>
@@ -1166,7 +1178,7 @@ onMounted(() => void initializeForm());
 
         <button type="button" class="worksheet-export-btn" @click="exportWorksheet">匯出學習單</button>
 
-        <button class="publish-button" type="button" :disabled="initializing || saving || publishing" @click="openPublishDialog">
+        <button v-if="!readOnly" class="publish-button" type="button" :disabled="initializing || saving || publishing" @click="openPublishDialog">
           {{ formStatus === "published" ? "重新發布" : "發布" }}
         </button>
         <RouterLink
@@ -1219,6 +1231,7 @@ onMounted(() => void initializeForm());
           </div>
           <button type="button" @click="copyPublishedLink">複製連結</button>
         </section>
+        <fieldset class="readonly-fieldset" :disabled="readOnly">
         <section class="form-heading">
           <div class="form-heading__accent"></div>
           <label>
@@ -1283,7 +1296,7 @@ onMounted(() => void initializeForm());
           <button
             class="drag-handle"
             type="button"
-            draggable="true"
+            :draggable="!readOnly"
             aria-label="拖曳以調整題目順序"
             title="拖曳以排序"
             @dragstart.stop="startQuestionDrag($event, question.id)"
@@ -1398,8 +1411,9 @@ onMounted(() => void initializeForm());
           <button class="block-add-question" type="button" @click.stop="activeBlockId = block.id; showQuestionTypeMenu = true">＋ 在此區塊新增問題</button>
         </section>
 
-        <button class="add-block" type="button" @click="addBlock">＋ 新增成果區塊</button>
-        <button class="mobile-add" type="button" @click="showQuestionTypeMenu = true">＋ 新增問題</button>
+        <button v-if="!readOnly" class="add-block" type="button" @click="addBlock">＋ 新增成果區塊</button>
+        <button v-if="!readOnly" class="mobile-add" type="button" @click="showQuestionTypeMenu = true">＋ 新增問題</button>
+        </fieldset>
         <p class="canvas-footer">請勿透過表單提交密碼或其他機密資訊。</p>
       </div>
 
@@ -1457,6 +1471,7 @@ onMounted(() => void initializeForm());
 </template>
 
 <style scoped>
+.readonly-fieldset { display: contents; min-width: 0; margin: 0; padding: 0; border: 0; }
 .builder-shell {
   min-height: 100vh;
   color: #292631;

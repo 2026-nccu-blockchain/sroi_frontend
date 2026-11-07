@@ -472,7 +472,7 @@ onMounted(async () => {
           <div class="cost-section__heading">
             <div>
               <h3>成本明細</h3>
-              <p>總成本為各項「金額 × 個數」自動加總，無法直接修改；按「儲存專案」後才會存入。</p>
+              <p v-if="!readOnly">總成本為各項「金額 × 個數」自動加總，無法直接修改；按「儲存專案」後才會存入。</p>
             </div>
             <button
               v-if="!readOnly"
@@ -504,7 +504,7 @@ onMounted(async () => {
       <section v-if="!isNew" class="editor-card">
         <div class="section-heading section-heading--action">
           <div><span>02</span><h2>利害關係人</h2></div>
-          <button class="secondary-button" type="button" @click="addStakeholder">＋ 新增利害關係人</button>
+          <button v-if="!readOnly" class="secondary-button" type="button" @click="addStakeholder">＋ 新增利害關係人</button>
         </div>
         <p v-if="!draft.stakeholders.length" class="empty-state">尚未設定利害關係人。</p>
         <p v-else-if="!projectForms.length" class="form-hint">這個專案還沒有表單，請先在「專案表單」新增後，再選擇前測與後測。</p>
@@ -546,7 +546,7 @@ onMounted(async () => {
               }"
             >查看 SROI</RouterLink>
             <span v-else class="sroi-link sroi-link--disabled">儲存後查看 SROI</span>
-            <button class="remove-button" type="button" @click="removeStakeholder(index)">移除</button>
+            <button v-if="!readOnly" class="remove-button" type="button" @click="removeStakeholder(index)">移除</button>
           </div>
         </article>
       </section>
@@ -580,7 +580,7 @@ onMounted(async () => {
       <section v-if="!isNew" class="editor-card">
         <div class="section-heading">
           <div><span>03</span><h2>訪綱附件</h2></div>
-          <p>支援 PDF、DOC、DOCX，單一檔案上限 10 MB。上傳的檔案按「儲存專案」後才會正式存入。</p>
+          <p v-if="!readOnly">支援 PDF、DOC、DOCX，單一檔案上限 10 MB。上傳的檔案按「儲存專案」後才會正式存入。</p>
         </div>
         <label class="field upload-target">利害關係人
           <select v-model="selectedStakeholderKey" :disabled="!namedStakeholders.length || uploadingInterviewFile">
@@ -621,7 +621,7 @@ onMounted(async () => {
           <div class="outcome-section__heading">
             <div>
               <h3>成果初列</h3>
-              <p>確認後會變成 hashtag，按「儲存專案」後才會存入：編輯中的表單會同步，已發布的表單會保留原版本。</p>
+              <p v-if="!readOnly">確認後會變成 hashtag，按「儲存專案」後才會存入：編輯中的表單會同步，已發布的表單會保留原版本。</p>
             </div>
           </div>
           <div v-if="!readOnly" class="outcome-composer">
