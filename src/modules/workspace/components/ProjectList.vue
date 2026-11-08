@@ -135,9 +135,6 @@ const statusLabel = (project: WorkspaceProject): string => {
             {{ project.name }}
           </RouterLink>
           <small class="project-row__status">{{ statusLabel(project) }}</small>
-          <div v-if="project.outcomes.length" class="outcome-tags">
-            <span v-for="outcome in project.outcomes" :key="outcome.outcome_id">#{{ outcome.name }}</span>
-          </div>
         </div>
         <span data-label="所屬單位">{{ project.organization }}</span>
         <span data-label="專案期間">{{ formatProjectPeriod(project.begin, project.end) }}</span>
@@ -302,8 +299,6 @@ const statusLabel = (project: WorkspaceProject): string => {
 }
 
 .project-name-cell { display: grid; gap: 5px; }
-.outcome-tags { display: flex; flex-wrap: wrap; gap: 5px; }
-.outcome-tags span { padding: 3px 7px; border-radius: 999px; background: #f0e8f4; color: #765292; font-size: 14px; font-weight: 700; }
 
 .project-row__actions {
   display: flex;

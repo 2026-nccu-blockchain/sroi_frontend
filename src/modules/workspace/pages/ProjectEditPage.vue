@@ -95,9 +95,10 @@ const activeTab = computed<EditorTab>({
   }
 });
 
-// 從列表進來時網址帶著 ?phase=，返回時回到原本的分頁
+// 從列表進來時網址帶著 ?phase=，返回時回到原本的分頁；去 SROI 頁也帶著，繞回來才不會弄丟
+const phaseQuery = computed(() => (isProjectPhaseTab(route.query.phase) ? { phase: route.query.phase } : {}));
 const backTo = computed(() => {
-  const query = isProjectPhaseTab(route.query.phase) ? { phase: route.query.phase } : {};
+  const query = phaseQuery.value;
   return ownerGroupId.value
     ? { name: "group-detail", params: { groupId: ownerGroupId.value }, query }
     : { name: "my-projects", query };
@@ -465,7 +466,7 @@ onMounted(async () => {
             <RouterLink
               v-if="!isNew"
               class="secondary-button"
-              :to="{ name: 'project-sroi', params: { projectId } }"
+              :to="{ name: 'project-sroi', params: { projectId }, query: phaseQuery }"
             >SROI 計算 →</RouterLink>
             <button v-if="!readOnly" class="primary-button" type="button" :disabled="saving || loading || nameMissing" @click="persist">
               {{ saving ? (isNew ? "新增中…" : "儲存中…") : (isNew ? "新增專案" : "儲存專案") }}
@@ -550,7 +551,7 @@ onMounted(async () => {
               :to="{
                 name: 'project-sroi',
                 params: { projectId },
-                query: { stakeholder: stakeholder.stakeholder_id }
+                query: { ...phaseQuery, stakeholder: stakeholder.stakeholder_id }
               }"
             >查看 SROI</RouterLink>
             <span v-else class="sroi-link sroi-link--disabled">儲存後查看 SROI</span>

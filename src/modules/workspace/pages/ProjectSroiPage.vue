@@ -4,6 +4,7 @@ import { useRoute } from "vue-router";
 
 import { getProject, getProjectSROI, saveProjectSROI } from "@/modules/workspace/api/workspace.api";
 import ConfirmDialog from "@/modules/workspace/components/ConfirmDialog.vue";
+import { isProjectPhaseTab } from "@/modules/workspace/composables/useProjectPhaseTab";
 import { useProjectStore } from "@/modules/workspace/store/project.store";
 import type {
   GroupRole,
@@ -17,6 +18,14 @@ import { useUnsavedChanges } from "@/shared/composables/useUnsavedChanges";
 const route = useRoute();
 const projectStore = useProjectStore();
 const projectId = computed(() => String(route.params.projectId ?? ""));
+// 從專案列表一路帶進來的分頁，返回時原樣帶回去
+const phaseQuery = computed(() => (isProjectPhaseTab(route.query.phase) ? { phase: route.query.phase } : {}));
+// 返回專案時停在利害關係人分頁
+const projectEditLink = computed(() => ({
+  name: "project-edit",
+  params: { projectId: projectId.value },
+  query: { ...phaseQuery.value, tab: "stakeholders" }
+}));
 // 個人專案沒有 my_role，視為擁有者
 const myRole = ref<GroupRole>("leader");
 const readOnly = computed(() => myRole.value === "viewer");
@@ -175,7 +184,7 @@ onMounted(async () => {
   <section class="sroi-page">
     <header class="page-header">
       <div>
-        <RouterLink class="back-link" :to="{ name: 'project-edit', params: { projectId } }">← 返回專案</RouterLink>
+        <RouterLink class="back-link" :to="projectEditLink">← 返回專案</RouterLink>
         <p class="eyebrow">社會投資報酬率</p>
         <h1>{{ projectName || "SROI 計算" }}</h1>
       </div>
@@ -209,7 +218,7 @@ onMounted(async () => {
           <span>目前查看利害關係人</span>
           <strong>{{ selectedStakeholder.stakeholder_name }}</strong>
         </div>
-        <RouterLink :to="{ name: 'project-sroi', params: { projectId } }">查看專案全部 SROI</RouterLink>
+        <RouterLink :to="{ name: 'project-sroi', params: { projectId }, query: phaseQuery }">查看專案全部 SROI</RouterLink>
       </section>
 
       <section class="summary-grid">
@@ -228,7 +237,7 @@ onMounted(async () => {
         <article class="summary-card">
           <span>實際投入成本</span>
           <strong>{{ formatMoney(actualInputCost) }}</strong>
-          <RouterLink v-if="!readOnly" class="cost-link":to="{ name: 'project-edit', params: { projectId } }">到專案基本資料修改成本 →</RouterLink>
+          <RouterLink v-if="!readOnly" class="cost-link" :to="projectEditLink">到利害關係人修改成本 →</RouterLink>
         </article>
         <label class="summary-card summary-card--input">
           <span>折現率（%）</span>
