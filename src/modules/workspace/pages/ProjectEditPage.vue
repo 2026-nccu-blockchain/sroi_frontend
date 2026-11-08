@@ -8,6 +8,7 @@ import {
   uploadTempInterviewFile
 } from "@/modules/workspace/api/workspace.api";
 import ConfirmDialog from "@/modules/workspace/components/ConfirmDialog.vue";
+import InterviewUploadDialog from "@/modules/workspace/components/InterviewUploadDialog.vue";
 import ProjectPhaseBadge from "@/modules/workspace/components/ProjectPhaseBadge.vue";
 import StakeholderDialog from "@/modules/workspace/components/StakeholderDialog.vue";
 import { isProjectPhaseTab } from "@/modules/workspace/composables/useProjectPhaseTab";
@@ -22,9 +23,15 @@ import type {
   StakeholderDraft,
   WorkspaceProject
 } from "@/modules/workspace/types/workspace.types";
+import { ApiError } from "@/shared/api/error-handler";
+import { HttpError } from "@/shared/api/http";
+import BaseModal from "@/shared/components/BaseModal.vue";
 import DateInput from "@/shared/components/DateInput.vue";
+import { useDeleteConfirm } from "@/shared/composables/useDeleteConfirm";
+import DeleteConfirmDialog from "@/shared/components/DeleteConfirmDialog.vue";
 import { useUnsavedChanges } from "@/shared/composables/useUnsavedChanges";
 import { currentTaipeiYear, monthEndIso, monthStartIso, toMonthValue } from "@/shared/utils/date";
+import { formatFileSize } from "@/shared/utils/format";
 
 // 所有內容（含利害關係人的成果、成本與訪綱）都先改在畫面上，按「儲存專案」才一次存入
 
@@ -55,7 +62,6 @@ const savedMessage = ref("");
 const uploadingInterviewFile = ref(false);
 const interviewFiles = ref<DraftInterviewFile[]>([]);
 const projectForms = ref<LinkedProjectForm[]>([]);
-const selectedStakeholderKey = ref("");
 const currentYear = currentTaipeiYear();
 const beginMonth = ref(`${currentYear}-01`);
 const endMonth = ref(`${currentYear}-12`);
@@ -120,17 +126,30 @@ const namedStakeholders = computed(() => draft.stakeholders.filter((item) => ite
 const filesOf = (stakeholderKey: string): DraftInterviewFile[] =>
   interviewFiles.value.filter((file) => file.stakeholderKey === stakeholderKey);
 
-// 下拉選單選到的利害關係人，同時決定顯示誰的檔案與上傳給誰
-const selectedFiles = computed(() => filesOf(selectedStakeholderKey.value));
+const MAX_INTERVIEW_FILE_SIZE = 10 * 1024 * 1024;
 
-const selectFallbackStakeholder = (): void => {
-  if (!namedStakeholders.value.some((item) => item.key === selectedStakeholderKey.value)) {
-    selectedStakeholderKey.value = namedStakeholders.value[0]?.key ?? "";
+// 訪綱列表的篩選，空字串表示全部訪綱；選到某位利害關係人才能上傳，檔案就歸給他
+const interviewFilter = ref("");
+const visibleFiles = computed(() =>
+  interviewFilter.value ? filesOf(interviewFilter.value) : interviewFiles.value
+);
+const stakeholderNameOf = (key: string): string =>
+  draft.stakeholders.find((item) => item.key === key)?.name ?? "";
+
+// 正在篩選的利害關係人被移除時，改回全部訪綱
+watch(
+  () => namedStakeholders.value.map((item) => item.key).join(),
+  () => {
+    if (interviewFilter.value && !namedStakeholders.value.some((item) => item.key === interviewFilter.value)) {
+      interviewFilter.value = "";
+    }
   }
-};
+);
 
-// 新增、填名稱或移除利害關係人後，選到的人不在清單裡就改選第一位
-watch(() => namedStakeholders.value.map((item) => item.key).join(), selectFallbackStakeholder);
+const uploadDialogOpen = ref(false);
+// 有值時跳出「上傳失敗」的提醒
+const uploadFailure = ref("");
+const TOO_LARGE_MESSAGE = "檔案超過 10 MB 上限，請壓縮或拆分後再上傳。";
 
 const stakeholderCost = (stakeholder: StakeholderDraft): number =>
   stakeholder.costs.reduce((total, cost) => total + Number(cost.price) * Number(cost.quantity), 0);
@@ -183,28 +202,21 @@ const hydrate = (project: WorkspaceProject): void => {
     file_id: file.file_id
   }));
   projectForms.value = project.forms ?? [];
-  selectFallbackStakeholder();
   ownerGroupId.value = project.group_id;
   myRole.value = project.my_role ?? "leader";
   savedSnapshot.value = snapshot();
 };
 
-const formatFileSize = (size: number): string =>
-  size >= 1024 * 1024 ? `${(size / 1024 / 1024).toFixed(1)} MB` : `${Math.ceil(size / 1024)} KB`;
-
-const uploadInterviewFile = async (event: Event): Promise<void> => {
-  const input = event.target as HTMLInputElement;
-  const file = input.files?.[0];
-  if (!file) return;
-  if (!projectId.value || !selectedStakeholderKey.value) {
-    error.value = "請先選擇要上傳給哪位利害關係人";
-    input.value = "";
+const uploadInterviewFile = async (file: File): Promise<void> => {
+  // 上傳期間切換下拉選單，檔案仍歸給打開彈窗時選的人
+  const stakeholderKey = interviewFilter.value;
+  if (!projectId.value || !stakeholderKey) return;
+  // 先在前端擋，不用等檔案傳完才知道太大
+  if (file.size > MAX_INTERVIEW_FILE_SIZE) {
+    uploadFailure.value = `「${file.name}」大小為 ${formatFileSize(file.size)}。${TOO_LARGE_MESSAGE}`;
     return;
   }
-  // 上傳期間切換下拉選單，檔案仍歸給按下上傳時選的人
-  const stakeholderKey = selectedStakeholderKey.value;
   uploadingInterviewFile.value = true;
-  error.value = "";
   try {
     const uploaded = await uploadTempInterviewFile(projectId.value, file);
     interviewFiles.value = [...interviewFiles.value, {
@@ -215,11 +227,14 @@ const uploadInterviewFile = async (event: Event): Promise<void> => {
       temp_file_id: uploaded.temp_file_id,
       file
     }];
+    uploadDialogOpen.value = false;
   } catch (caught) {
-    error.value = toProjectErrorMessage(caught, "上傳訪綱失敗");
+    // 30005 是後端的大小限制；413 是伺服器前面的代理擋下來的
+    const tooLarge = (caught instanceof HttpError && caught.status === 413)
+      || (caught instanceof ApiError && caught.statusCode === "30005");
+    uploadFailure.value = tooLarge ? TOO_LARGE_MESSAGE : toProjectErrorMessage(caught, "上傳訪綱失敗");
   } finally {
     uploadingInterviewFile.value = false;
-    input.value = "";
   }
 };
 
@@ -245,8 +260,16 @@ const downloadInterviewFile = async (file: DraftInterviewFile): Promise<void> =>
   }
 };
 
-const removeInterviewFile = (file: DraftInterviewFile): void => {
-  interviewFiles.value = interviewFiles.value.filter((item) => item.key !== file.key);
+const { deleteDialog, askDelete, answerDelete } = useDeleteConfirm();
+
+const removeInterviewFile = async (file: DraftInterviewFile): Promise<void> => {
+  const confirmed = await askDelete({
+    title: "刪除訪綱",
+    message: file.temp_file_id
+      ? `確定要刪除「${file.original_name}」嗎？`
+      : `確定要刪除「${file.original_name}」嗎？按「儲存專案」後才會生效。`
+  });
+  if (confirmed) interviewFiles.value = interviewFiles.value.filter((item) => item.key !== file.key);
 };
 
 const openStakeholderDialog = (stakeholder: StakeholderDraft | null = null): void => {
@@ -267,16 +290,27 @@ const saveStakeholder = (stakeholder: StakeholderDraft): void => {
   closeStakeholderDialog();
 };
 
-const removeStakeholder = (index: number): void => {
+const removeStakeholder = async (index: number): Promise<void> => {
   const target = draft.stakeholders[index];
+  if (!target) return;
   const fileCount = filesOf(target.key).length;
-  const related = [
+  const details = [
     target.outcomes.length ? `${target.outcomes.length} 個成果` : "",
     target.costs.length ? `${target.costs.length} 筆成本` : "",
     fileCount ? `${fileCount} 個訪綱檔案` : ""
   ].filter(Boolean);
-  if (related.length && !window.confirm(`「${target.name}」有 ${related.join("、")}，儲存後會一併刪除，確定移除嗎？`)) return;
-  draft.stakeholders.splice(index, 1);
+  const confirmed = await askDelete({
+    title: "移除利害關係人",
+    message: details.length
+      ? `確定要移除「${target.name}」嗎？以下資料會一併刪除，按「儲存專案」後才會生效：`
+      : `確定要移除「${target.name}」嗎？按「儲存專案」後才會生效。`,
+    details,
+    confirmText: "移除"
+  });
+  if (!confirmed) return;
+  // 等待期間清單可能變動，用 key 重新找位置
+  const current = draft.stakeholders.findIndex((item) => item.key === target.key);
+  if (current >= 0) draft.stakeholders.splice(current, 1);
   interviewFiles.value = interviewFiles.value.filter((file) => file.stakeholderKey !== target.key);
 };
 
@@ -315,7 +349,12 @@ const normalizedPayload = (): ProjectPayload => ({
 
 const snapshot = (): string => JSON.stringify(normalizedPayload());
 
-const isDirty = computed(() => !readOnly.value && !loading.value && snapshot() !== savedSnapshot.value);
+// 找不到專案或沒有權限時，只顯示錯誤，不畫出編輯器
+const loadFailed = ref(false);
+
+const isDirty = computed(() =>
+  !loadFailed.value && !readOnly.value && !loading.value && snapshot() !== savedSnapshot.value
+);
 const nameMissing = computed(() => !draft.name.trim());
 
 const persist = async (): Promise<WorkspaceProject | null> => {
@@ -335,15 +374,15 @@ const persist = async (): Promise<WorkspaceProject | null> => {
   saving.value = true;
   error.value = "";
   savedMessage.value = "";
-  // 後端回傳的利害關係人順序與送出的相同，用位置找回原本選的人（新增的人儲存後才有 id）
-  const selectedIndex = namedStakeholders.value.findIndex((item) => item.key === selectedStakeholderKey.value);
+  // 後端回傳的利害關係人順序與送出的相同，用位置找回原本篩選的人（新增的人儲存後才有 id）
+  const filterIndex = namedStakeholders.value.findIndex((item) => item.key === interviewFilter.value);
   try {
     const project = isNew.value
       ? await projectStore.create({ ...normalizedPayload(), group_id: ownerGroupId.value })
       : await projectStore.update(projectId.value, normalizedPayload());
     hydrate(project);
-    if (selectedIndex >= 0 && namedStakeholders.value[selectedIndex]) {
-      selectedStakeholderKey.value = namedStakeholders.value[selectedIndex].key;
+    if (filterIndex >= 0 && namedStakeholders.value[filterIndex]) {
+      interviewFilter.value = namedStakeholders.value[filterIndex].key;
     }
     savedMessage.value = isNew.value ? "專案已建立，可以繼續填寫其他資料" : "專案已儲存";
     if (isNew.value) {
@@ -427,6 +466,8 @@ onMounted(async () => {
     }
   } catch (caught) {
     error.value = toProjectErrorMessage(caught, "無法載入專案");
+    // 新增專案時只是群組清單載不到，還是能建立個人專案
+    loadFailed.value = !isNew.value;
   } finally {
     loading.value = false;
     if (isNew.value) savedSnapshot.value = snapshot();
@@ -442,9 +483,9 @@ onMounted(async () => {
           <RouterLink class="back-link" :to="backTo">{{ ownerGroupId ? "← 返回群組" : "← 返回我的專案" }}</RouterLink>
           <p class="eyebrow">專案工作區</p>
           <div class="editor-title">
-            <h1>{{ isNew ? "新增專案" : readOnly ? "檢視專案" : "編輯專案" }}</h1>
+            <h1>{{ loadFailed ? "無法開啟專案" : isNew ? "新增專案" : readOnly ? "檢視專案" : "編輯專案" }}</h1>
             <ProjectPhaseBadge v-if="projectPhase" :phase="projectPhase" />
-            <div class="tab-bar" role="tablist" aria-label="專案工作區分頁">
+            <div v-if="!loadFailed" class="tab-bar" role="tablist" aria-label="專案工作區分頁">
               <button
                 v-for="tab in EDITOR_TABS"
                 :key="tab.key"
@@ -460,7 +501,7 @@ onMounted(async () => {
             </div>
           </div>
         </div>
-        <div class="editor-header__actions">
+        <div v-if="!loadFailed" class="editor-header__actions">
           <span v-if="isDirty && !isNew" class="dirty-hint">● 有未儲存的修改</span>
           <div class="editor-header__buttons">
             <RouterLink
@@ -481,7 +522,7 @@ onMounted(async () => {
 
     <p v-if="loading" class="message">專案載入中…</p>
 
-    <template v-else>
+    <template v-else-if="!loadFailed">
       <p v-if="readOnly" class="message">你在這個群組是檢視者，只能查看專案內容。</p>
 
       <fieldset class="plain-fieldset" :disabled="readOnly">
@@ -560,7 +601,6 @@ onMounted(async () => {
                 query: { ...phaseQuery, stakeholder: stakeholder.stakeholder_id }
               }"
             >查看 SROI</RouterLink>
-            <span v-else class="sroi-link sroi-link--disabled">儲存後查看 SROI</span>
             <button v-if="!readOnly" class="remove-button" type="button" @click="removeStakeholder(index)">移除</button>
           </div>
         </article>
@@ -575,6 +615,22 @@ onMounted(async () => {
         @save="saveStakeholder"
         @close="closeStakeholderDialog"
       />
+      <InterviewUploadDialog
+        :open="uploadDialogOpen"
+        :stakeholder-name="stakeholderNameOf(interviewFilter)"
+        :uploading="uploadingInterviewFile"
+        @upload="uploadInterviewFile"
+        @close="uploadDialogOpen = false"
+      />
+      <DeleteConfirmDialog v-bind="deleteDialog" @confirm="answerDelete(true)" @cancel="answerDelete(false)" />
+      <!-- 放在上傳彈窗後面，才會蓋在它上面 -->
+      <BaseModal :open="!!uploadFailure">
+        <div class="upload-failure" role="alertdialog" aria-modal="true" aria-label="上傳失敗">
+          <h2>上傳失敗</h2>
+          <p>{{ uploadFailure }}</p>
+          <button class="primary-button" type="button" @click="uploadFailure = ''">知道了</button>
+        </div>
+      </BaseModal>
       <ConfirmDialog
         :open="leaveDialogOpen"
         title="尚未儲存"
@@ -586,44 +642,42 @@ onMounted(async () => {
       />
 
       <section v-if="!isNew" v-show="activeTab === 'interviews'" class="editor-card">
-        <div class="section-heading">
+        <div class="section-heading section-heading--action">
           <div><span>03</span><h2>訪綱附件</h2></div>
-          <p v-if="!readOnly">支援 PDF、DOC、DOCX，單一檔案上限 10 MB。上傳的檔案按「儲存專案」後才會正式存入。</p>
+          <button
+            v-if="!readOnly && interviewFilter"
+            class="secondary-button"
+            type="button"
+            @click="uploadDialogOpen = true"
+          >＋ 上傳訪綱</button>
         </div>
-        <label class="field upload-target">利害關係人
-          <select v-model="selectedStakeholderKey" :disabled="!namedStakeholders.length || uploadingInterviewFile">
-            <option v-if="!namedStakeholders.length" value="">請先新增利害關係人並填寫名稱</option>
-            <option v-for="item in namedStakeholders" :key="item.key" :value="item.key">
-              {{ item.name }}（{{ filesOf(item.key).length }}）
-            </option>
-          </select>
-        </label>
-        <label
-          v-if="!readOnly"
-          class="upload-zone"
-          :class="{ 'upload-zone--busy': uploadingInterviewFile, 'upload-zone--disabled': !selectedStakeholderKey }"
-        >
-          <input
-            type="file"
-            accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            :disabled="uploadingInterviewFile || !selectedStakeholderKey"
-            @change="uploadInterviewFile"
-          />
-          <strong>{{ uploadingInterviewFile ? "上傳中…" : "＋ 上傳訪綱" }}</strong>
-          <span>可上傳訪談大綱、訪談題目或相關說明文件</span>
-        </label>
-        <div v-if="selectedFiles.length" class="file-list">
-          <article v-for="file in selectedFiles" :key="file.key" class="file-row">
-            <div>
-              <strong>{{ file.original_name }}</strong>
-              <span>{{ formatFileSize(file.size_bytes) }}{{ file.temp_file_id ? "・尚未儲存" : "" }}</span>
-            </div>
-            <button type="button" @click="downloadInterviewFile(file)">下載</button>
-            <button v-if="!readOnly" type="button" @click="removeInterviewFile(file)">刪除</button>
-          </article>
-        </div>
-        <p v-else-if="selectedStakeholderKey" class="empty-state">這位利害關係人尚未上傳訪綱。</p>
-        <p v-else class="empty-state">請先新增利害關係人並填寫名稱。</p>
+
+        <template v-if="namedStakeholders.length">
+          <label class="field upload-target">顯示
+            <select v-model="interviewFilter">
+              <option value="">全部訪綱（{{ interviewFiles.length }}）</option>
+              <option v-for="item in namedStakeholders" :key="item.key" :value="item.key">
+                {{ item.name }}（{{ filesOf(item.key).length }}）
+              </option>
+            </select>
+          </label>
+          <p v-if="!readOnly && !interviewFilter" class="upload-hint">選擇利害關係人後，右上角會出現「上傳訪綱」按鈕。</p>
+
+          <div v-if="visibleFiles.length" class="file-list">
+            <article v-for="file in visibleFiles" :key="file.key" class="file-row">
+              <div>
+                <strong>{{ file.original_name }}</strong>
+                <span>
+                  <template v-if="!interviewFilter">{{ stakeholderNameOf(file.stakeholderKey) }}・</template>{{ formatFileSize(file.size_bytes) }}{{ file.temp_file_id ? "・尚未儲存" : "" }}
+                </span>
+              </div>
+              <button class="secondary-button file-button" type="button" @click="downloadInterviewFile(file)">下載</button>
+              <button v-if="!readOnly" class="remove-button file-button" type="button" @click="removeInterviewFile(file)">刪除</button>
+            </article>
+          </div>
+          <p v-else class="empty-state">{{ interviewFilter ? "這位利害關係人尚未上傳訪綱。" : "尚未上傳任何訪綱。" }}</p>
+        </template>
+        <p v-else class="empty-state">請先到「利害關係人」分頁新增利害關係人。</p>
       </section>
 
       <section v-if="!isNew" v-show="activeTab === 'forms'" class="editor-card">
@@ -726,25 +780,26 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .stakeholder-number { padding-top: 3px; color: #999; font-size: 14px; }
 .stakeholder-actions { display: grid; gap: 7px; }
 .sroi-link { display: grid; min-height: 40px; box-sizing: border-box; place-items: center; border: 1px solid #765292; padding: 8px 12px; color: #68447f; font-size: 14px; font-weight: 750; text-align: center; text-decoration: none; white-space: nowrap; }
-.sroi-link--disabled { border-color: #ddd; color: #999; cursor: not-allowed; }
-.remove-button { border-color: #ccc; }
+/* 會刪掉資料的按鈕：紅框，滑過變紅底 */
+.remove-button { border-color: #c00; color: #c00; }
+.remove-button:hover { background: #c00; color: #fff; }
 .empty-state { padding: 24px; background: #f7f7f7; color: #666; text-align: center; }
 .cost-total { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 14px 16px; background: #111; color: #fff; }
 .cost-total span { font-size: 14px; font-weight: 700; }
 .cost-total strong { font-size: 18px; }
 .outcome-tags { display: flex; flex-wrap: wrap; gap: 8px; }
-.upload-zone { display: grid; justify-items: center; gap: 7px; padding: 32px 20px; border: 1px dashed #a994b4; background: #faf7fc; color: #765292; cursor: pointer; }
-.upload-zone input { position: absolute; width: 1px; height: 1px; opacity: 0; }
-.upload-zone strong { font-size: 14px; }
-.upload-zone span { color: #817786; font-size: 14px; }
-.upload-zone--busy { cursor: wait; opacity: .6; }
-.upload-zone--disabled { cursor: not-allowed; opacity: .5; }
+.upload-hint { margin: -8px 0 0; color: #888; font-size: 14px; }
+.upload-failure { display: grid; gap: 14px; width: min(420px, calc(100vw - 72px)); }
+.upload-failure h2 { margin: 0; color: #a12626; font-size: 20px; }
+.upload-failure p { margin: 0; color: #333; line-height: 1.6; }
+.upload-failure button { justify-self: end; }
 .file-list { display: grid; border-top: 1px solid #ddd; }
 .file-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 12px; padding: 13px 0; border-bottom: 1px solid #eee; }
 .file-row div { display: grid; min-width: 0; gap: 4px; }
 .file-row strong { overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
 .file-row span { color: #888; font-size: 14px; }
-.file-row button { border: 0; border-bottom: 1px solid #777; padding: 2px 0; background: transparent; color: #555; font-size: 14px; cursor: pointer; }
+/* 訪綱列的按鈕比卡片上的小一號 */
+.file-button { min-height: 34px; padding: 5px 14px; }
 .linked-form-card { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 18px; border: 1px solid #ded6e3; background: #faf7fc; }
 .linked-form-card > div:first-child { display: grid; gap: 7px; }
 .linked-form-card strong { font-size: 15px; }

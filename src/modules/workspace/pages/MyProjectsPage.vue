@@ -7,6 +7,8 @@ import { useProjectPhaseTab } from "@/modules/workspace/composables/useProjectPh
 import { toProjectErrorMessage } from "@/modules/workspace/constants";
 import { useProjectStore } from "@/modules/workspace/store/project.store";
 import type { WorkspaceProject } from "@/modules/workspace/types/workspace.types";
+import { useDeleteConfirm } from "@/shared/composables/useDeleteConfirm";
+import DeleteConfirmDialog from "@/shared/components/DeleteConfirmDialog.vue";
 
 const projectStore = useProjectStore();
 const { projectsWithForms, loading, error } = storeToRefs(projectStore);
@@ -18,8 +20,14 @@ const loadProjects = async (): Promise<void> => {
   await projectStore.ensureLoaded().catch(() => undefined);
 };
 
+const { deleteDialog, askDelete, answerDelete } = useDeleteConfirm();
+
 const removeProject = async (project: WorkspaceProject): Promise<void> => {
-  if (!window.confirm(`確定要刪除「${project.name}」嗎？`)) return;
+  const confirmed = await askDelete({
+    title: "刪除專案",
+    message: `確定要刪除「${project.name}」嗎？刪除後專案內的所有資料都無法再查看，且無法復原。`
+  });
+  if (!confirmed) return;
   try {
     await projectStore.remove(project.project_id);
   } catch (caught) {
@@ -41,4 +49,5 @@ onMounted(() => {
     :error="error"
     @delete="removeProject"
   />
+  <DeleteConfirmDialog v-bind="deleteDialog" @confirm="answerDelete(true)" @cancel="answerDelete(false)" />
 </template>

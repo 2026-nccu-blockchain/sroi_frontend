@@ -5,6 +5,7 @@ import { useRoute } from "vue-router";
 import { getProject, getProjectSROI, saveProjectSROI } from "@/modules/workspace/api/workspace.api";
 import ConfirmDialog from "@/modules/workspace/components/ConfirmDialog.vue";
 import { isProjectPhaseTab } from "@/modules/workspace/composables/useProjectPhaseTab";
+import { toProjectErrorMessage } from "@/modules/workspace/constants";
 import { useProjectStore } from "@/modules/workspace/store/project.store";
 import type {
   GroupRole,
@@ -26,6 +27,12 @@ const projectEditLink = computed(() => ({
   params: { projectId: projectId.value },
   query: { ...phaseQuery.value, tab: "stakeholders" }
 }));
+// 找不到專案或沒有權限時，只顯示錯誤
+const loadFailed = ref(false);
+// 進不了專案時，返回專案頁也一樣進不去，直接回列表
+const backLink = computed(() =>
+  loadFailed.value ? { name: "my-projects", query: phaseQuery.value } : projectEditLink.value
+);
 // 個人專案沒有 my_role，視為擁有者
 const myRole = ref<GroupRole>("leader");
 const readOnly = computed(() => myRole.value === "viewer");
@@ -143,7 +150,9 @@ const payload = (): ProjectSROIPayload => ({
 });
 
 const snapshot = (): string => JSON.stringify(payload());
-const isDirty = computed(() => !readOnly.value && !loading.value && snapshot() !== savedSnapshot.value);
+const isDirty = computed(() =>
+  !loadFailed.value && !readOnly.value && !loading.value && snapshot() !== savedSnapshot.value
+);
 const { leaveDialogOpen, answerLeave } = useUnsavedChanges(isDirty);
 
 const save = async (): Promise<void> => {
@@ -173,7 +182,8 @@ onMounted(async () => {
     myRole.value = project.my_role ?? "leader";
     hydrate(sroi);
   } catch (caught) {
-    error.value = caught instanceof Error ? caught.message : "無法載入 SROI 資料";
+    error.value = toProjectErrorMessage(caught, "無法載入 SROI 資料");
+    loadFailed.value = true;
   } finally {
     loading.value = false;
   }
@@ -184,11 +194,11 @@ onMounted(async () => {
   <section class="sroi-page">
     <header class="page-header">
       <div>
-        <RouterLink class="back-link" :to="projectEditLink">← 返回專案</RouterLink>
+        <RouterLink class="back-link" :to="backLink">{{ loadFailed ? "← 返回我的專案" : "← 返回專案" }}</RouterLink>
         <p class="eyebrow">社會投資報酬率</p>
         <h1>{{ projectName || "SROI 計算" }}</h1>
       </div>
-      <div class="page-header__actions">
+      <div v-if="!loadFailed" class="page-header__actions">
         <span v-if="isDirty" class="dirty-hint">有未儲存的修改</span>
         <button v-if="!readOnly" class="primary-button" type="button" :disabled="loading || saving" @click="save">
           {{ saving ? "儲存中…" : "儲存 SROI" }}
@@ -210,7 +220,7 @@ onMounted(async () => {
     <p v-if="savedMessage" class="message message--success">{{ savedMessage }}</p>
     <p v-if="loading" class="state-card">正在載入 SROI 資料…</p>
 
-    <template v-else>
+    <template v-else-if="!loadFailed">
       <p v-if="readOnly" class="message">你在這個群組是檢視者，只能查看 SROI 計算結果。</p>
       <fieldset class="plain-fieldset" :disabled="readOnly">
       <section v-if="selectedStakeholder" class="view-context">

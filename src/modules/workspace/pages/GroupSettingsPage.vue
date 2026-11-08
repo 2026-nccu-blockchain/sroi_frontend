@@ -25,6 +25,7 @@ import type {
   GroupUser
 } from "@/modules/workspace/types/workspace.types";
 import { ApiError, toErrorMessage } from "@/shared/api/error-handler";
+import DeleteConfirmDialog from "@/shared/components/DeleteConfirmDialog.vue";
 
 const props = defineProps<{ groupId: string }>();
 
@@ -339,24 +340,32 @@ const handleDeleteGroup = async (): Promise<void> => {
       </MemberTable>
     </template>
 
+    <!-- 加入成員用一般確認窗，移除成員用刪除警示窗 -->
     <ConfirmDialog
-      :open="pending !== null"
+      :open="pending?.type === 'add'"
       :title="confirmDialog.title"
       :message="confirmDialog.message"
       :confirm-text="confirmDialog.confirmText"
       :loading="confirming"
-      :danger="pending?.type === 'remove'"
+      @confirm="handleConfirm"
+      @cancel="pending = null"
+    />
+    <DeleteConfirmDialog
+      :open="pending?.type === 'remove'"
+      :title="confirmDialog.title"
+      :message="confirmDialog.message"
+      :confirm-text="confirmDialog.confirmText"
+      :loading="confirming"
       @confirm="handleConfirm"
       @cancel="pending = null"
     />
 
-    <ConfirmDialog
+    <DeleteConfirmDialog
       :open="confirmingDeleteGroup"
       title="刪除群組"
       :message="`確定要刪除「${group?.title}」嗎？此動作無法復原。`"
       confirm-text="刪除"
       :loading="deletingGroup"
-      danger
       @confirm="handleDeleteGroup"
       @cancel="confirmingDeleteGroup = false"
     />

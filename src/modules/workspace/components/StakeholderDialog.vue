@@ -4,6 +4,8 @@ import { computed, onBeforeUnmount, reactive, ref, watch } from "vue";
 import ConfirmDialog from "@/modules/workspace/components/ConfirmDialog.vue";
 import CostDialog from "@/modules/workspace/components/CostDialog.vue";
 import { STAKEHOLDER_OTHER, STAKEHOLDER_RELATIONS, STAKEHOLDER_TYPES } from "@/modules/workspace/constants";
+import { useDeleteConfirm } from "@/shared/composables/useDeleteConfirm";
+import DeleteConfirmDialog from "@/shared/components/DeleteConfirmDialog.vue";
 import type {
   LinkedProjectForm,
   ProjectCostPayload,
@@ -47,7 +49,7 @@ const newOutcomeName = ref("");
 const error = ref("");
 const costDialogOpen = ref(false);
 const editingCost = ref<DraftCost | null>(null);
-const deletingCost = ref<DraftCost | null>(null);
+const { deleteDialog, askDelete, answerDelete } = useDeleteConfirm();
 const discardDialogOpen = ref(false);
 // 打開時的內容，用來判斷關閉時要不要提醒
 const initialSnapshot = ref("");
@@ -131,8 +133,13 @@ const confirmOutcome = (): void => {
   error.value = "";
 };
 
-const removeOutcome = (index: number): void => {
-  form.outcomes.splice(index, 1);
+const removeOutcome = async (index: number): Promise<void> => {
+  const target = form.outcomes[index];
+  if (!target) return;
+  const confirmed = await askDelete({ title: "刪除成果", message: `確定要刪除成果「${target.name}」嗎？` });
+  if (!confirmed) return;
+  const current = form.outcomes.indexOf(target);
+  if (current >= 0) form.outcomes.splice(current, 1);
 };
 
 const openCostDialog = (cost: DraftCost | null = null): void => {
@@ -151,10 +158,12 @@ const submitCost = (payload: ProjectCostPayload): void => {
   closeCostDialog();
 };
 
-const confirmDeleteCost = (): void => {
-  const target = deletingCost.value;
-  if (target) form.costs = form.costs.filter((cost) => cost.key !== target.key);
-  deletingCost.value = null;
+const removeCost = async (cost: DraftCost): Promise<void> => {
+  const confirmed = await askDelete({
+    title: "刪除成本",
+    message: `確定要刪除「${cost.name}」嗎？按「儲存專案」後才會生效。`
+  });
+  if (confirmed) form.costs = form.costs.filter((item) => item.key !== cost.key);
 };
 
 const save = (): void => {
@@ -276,7 +285,7 @@ const confirmDiscard = (): void => {
             <div class="field">經費來源<span class="cost-value">{{ cost.funding_source || "—" }}</span></div>
             <div v-if="!readOnly" class="cost-actions">
               <button class="secondary-button" type="button" @click="openCostDialog(cost)">修改</button>
-              <button class="secondary-button" type="button" @click="deletingCost = cost">刪除</button>
+              <button class="secondary-button" type="button" @click="removeCost(cost)">刪除</button>
             </div>
           </article>
           <div class="cost-total">
@@ -329,15 +338,7 @@ const confirmDiscard = (): void => {
     </div>
 
     <CostDialog :open="costDialogOpen" :cost="editingCost" @submit="submitCost" @cancel="closeCostDialog" />
-    <ConfirmDialog
-      :open="!!deletingCost"
-      title="刪除成本"
-      :message="`確定刪除「${deletingCost?.name ?? ''}」嗎？按「儲存專案」後才會生效。`"
-      confirm-text="刪除"
-      danger
-      @confirm="confirmDeleteCost"
-      @cancel="deletingCost = null"
-    />
+    <DeleteConfirmDialog v-bind="deleteDialog" @confirm="answerDelete(true)" @cancel="answerDelete(false)" />
     <ConfirmDialog
       :open="discardDialogOpen"
       title="放棄修改"
