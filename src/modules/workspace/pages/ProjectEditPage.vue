@@ -21,6 +21,7 @@ import type {
   ProjectStakeholder,
   WorkspaceProject
 } from "@/modules/workspace/types/workspace.types";
+import DateInput from "@/shared/components/DateInput.vue";
 import { useUnsavedChanges } from "@/shared/composables/useUnsavedChanges";
 import { monthEndIso, monthStartIso, toMonthValue } from "@/shared/utils/date";
 
@@ -451,8 +452,8 @@ onMounted(async () => {
         <div class="field-grid">
           <label class="field field--wide">專案名稱（必填）<input v-model="draft.name" maxlength="255" placeholder="請輸入專案名稱" required /></label>
           <label class="field">所屬單位<input v-model="draft.organization" maxlength="255" /></label>
-          <label class="field">開始年月<input v-model="beginMonth" type="month" required /></label>
-          <label class="field">結束年月<input v-model="endMonth" type="month" :min="beginMonth" required /></label>
+          <label class="field">開始年月<DateInput v-model="beginMonth" type="month" required /></label>
+          <label class="field">結束年月<DateInput v-model="endMonth" type="month" :min="beginMonth" required /></label>
           <label class="field">狀態
             <select v-model="draft.status"><option value="draft">草稿</option><option value="published">已發布</option></select>
           </label>
@@ -706,8 +707,8 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .upload-target { max-width: 320px; }
 .field--wide { grid-column: 1 / -1; }
 .field { display: grid; gap: 7px; color: #555; font-size: 14px; font-weight: 700; }
-.field input, .field select, .field textarea { width: 100%; border: 1px solid #ccc; border-radius: 0; padding: 11px 12px; background: #fff; color: #111; font: inherit; font-size: 14px; outline: none; }
-.field input:focus, .field select:focus, .field textarea:focus { border-color: #111; }
+.field input, .field select, .field textarea, .field .date-input { width: 100%; border: 1px solid #ccc; border-radius: 0; padding: 11px 12px; background: #fff; color: #111; font: inherit; font-size: 14px; outline: none; }
+.field input:focus, .field select:focus, .field textarea:focus, .field .date-input:focus-within { border-color: #111; }
 .stakeholder-row { display: grid; grid-template-columns: 32px repeat(4, 1fr) 1.2fr auto; align-items: end; gap: 12px; padding-bottom: 18px; border-bottom: 1px solid #eee; }
 .stakeholder-number { align-self: center; color: #999; font-size: 14px; }
 .stakeholder-actions { display: grid; gap: 7px; }

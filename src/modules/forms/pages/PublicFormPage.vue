@@ -4,6 +4,7 @@ import { useRoute } from "vue-router";
 
 import { checkPublicFormEmail, getPublicForm, submitPublicForm } from "@/modules/forms/api/forms.api";
 import type { AnswerPayload, PublicFormResponse, QuestionResponse } from "@/modules/forms/types/form.types";
+import DateInput from "@/shared/components/DateInput.vue";
 
 const route = useRoute();
 const form = ref<PublicFormResponse | null>(null);
@@ -239,7 +240,12 @@ onMounted(() => void load());
                   <input v-model.number="answers[question.question_id]" type="radio" :name="question.question_id" :value="score + (question.scale_begin ?? 1) - 1" :required="question.is_required" />
                 </label>
               </div>
-              <input v-else-if="question.question_type === 'DT'" v-model="answers[question.question_id]" type="date" :required="question.is_required" />
+              <DateInput
+                v-else-if="question.question_type === 'DT'"
+                :model-value="String(answers[question.question_id] ?? '')"
+                :required="question.is_required"
+                @update:model-value="answers[question.question_id] = $event"
+              />
               <div v-else class="choice-answer">
                 <label v-for="option in question.options" :key="option.option_id">
                   <input v-model="answers[question.question_id]" :type="question.is_multiple ? 'checkbox' : 'radio'" :name="question.question_id" :value="option.option_id" :required="question.is_required && !question.is_multiple" />
@@ -297,11 +303,11 @@ onMounted(() => void load());
                 </label>
               </div>
 
-              <input
+              <DateInput
                 v-else-if="question.question_type === 'DT'"
-                v-model="answers[question.question_id]"
-                type="date"
+                :model-value="String(answers[question.question_id] ?? '')"
                 :required="question.is_required"
+                @update:model-value="answers[question.question_id] = $event"
               />
 
               <div v-else class="choice-answer">
@@ -358,8 +364,8 @@ onMounted(() => void load());
 .basic-section-heading p:last-child, .outcome-section-heading p:last-child { margin: 0; color: #756b79; font-size: 14px; line-height: 1.6; }
 form { display: grid; gap: 14px; }
 .answer-card h2 { margin: 0 0 24px; font-size: 14px; font-weight: 650; line-height: 1.6; }
-.answer-card textarea, .answer-card > input { width: 100%; padding: 10px 2px; resize: vertical; border: 0; border-bottom: 1px solid #bcb5c0; border-radius: 0; outline: 0; color: inherit; }
-.answer-card textarea:focus, .answer-card > input:focus { border-color: #765292; border-bottom-width: 2px; }
+.answer-card textarea, .answer-card > input, .answer-card > .date-input { width: 100%; padding: 10px 2px; resize: vertical; border: 0; border-bottom: 1px solid #bcb5c0; border-radius: 0; outline: 0; color: inherit; }
+.answer-card textarea:focus, .answer-card > input:focus, .answer-card > .date-input:focus-within { border-color: #765292; border-bottom-width: 2px; }
 .description-card { padding: 28px 32px; color: #4e4752; font-size: 14px; line-height: 1.8; }
 .description-card h3 { margin: 0; color: #38323c; font-size: 16px; font-weight: 650; line-height: 1.6; }
 .description-card p { margin: 26px 0 0; white-space: pre-wrap; }

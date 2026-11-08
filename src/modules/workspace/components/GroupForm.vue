@@ -3,6 +3,7 @@ import { reactive } from "vue";
 import type { RouteLocationRaw } from "vue-router";
 
 import type { GroupPayload } from "@/modules/workspace/types/workspace.types";
+import DateInput from "@/shared/components/DateInput.vue";
 
 const props = withDefaults(
   defineProps<{
@@ -34,22 +35,13 @@ const errors = reactive<Record<Field, string>>({ title: "", desc: "", begin: "",
 const validate = (): boolean => {
   errors.title = form.title.trim() ? "" : "請輸入群組名稱";
   errors.desc = form.desc.trim() ? "" : "請輸入群組描述";
-  errors.begin = form.begin ? "" : "請選擇開始日期";
+  errors.begin = form.begin ? "" : "請輸入或選擇開始日期（YYYY/MM/DD）";
 
-  if (!form.end) errors.end = "請選擇結束日期";
+  if (!form.end) errors.end = "請輸入或選擇結束日期（YYYY/MM/DD）";
   else if (form.begin && form.end < form.begin) errors.end = "結束日期不可早於開始日期";
   else errors.end = "";
 
   return Object.values(errors).every((message) => !message);
-};
-
-// 點擊輸入框任何位置都跳出月曆
-const openPicker = (event: MouseEvent): void => {
-  try {
-    (event.currentTarget as HTMLInputElement).showPicker();
-  } catch {
-    // 不支援 showPicker 的瀏覽器仍可點右側月曆圖示
-  }
 };
 
 const toDateTime = (date: string): string => `${date}T00:00:00`;
@@ -96,13 +88,11 @@ const handleSubmit = (): void => {
     <div class="form__row">
       <label class="field">
         <span class="field__label">開始日期 <em>*</em></span>
-        <input
+        <DateInput
           v-model="form.begin"
-          type="date"
           required
           :max="form.end || undefined"
           :class="{ 'field__input--error': errors.begin }"
-          @click="openPicker"
           @change="errors.begin = ''"
         />
         <span v-if="errors.begin" class="field__error">{{ errors.begin }}</span>
@@ -110,13 +100,11 @@ const handleSubmit = (): void => {
 
       <label class="field">
         <span class="field__label">結束日期 <em>*</em></span>
-        <input
+        <DateInput
           v-model="form.end"
-          type="date"
           required
           :min="form.begin || undefined"
           :class="{ 'field__input--error': errors.end }"
-          @click="openPicker"
           @change="errors.end = ''"
         />
         <span v-if="errors.end" class="field__error">{{ errors.end }}</span>
@@ -165,7 +153,8 @@ const handleSubmit = (): void => {
 }
 
 .field input,
-.field textarea {
+.field textarea,
+.field .date-input {
   width: 100%;
   border: 1px solid #000;
   border-radius: 0;
@@ -182,12 +171,9 @@ const handleSubmit = (): void => {
 }
 
 .field input:focus,
-.field textarea:focus {
+.field textarea:focus,
+.field .date-input:focus-within {
   box-shadow: inset 0 0 0 1px #000;
-}
-
-.field input[type="date"] {
-  cursor: pointer;
 }
 
 .field .field__input--error {
