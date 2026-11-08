@@ -67,7 +67,7 @@ p {
   background: #fff;
   color: #000;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   cursor: pointer;
 }

@@ -242,19 +242,18 @@ function formatValue(value: number) {
 .proxy-variables {
   display: grid;
   gap: 12px;
-  margin-top: -16px;
 }
 
 .proxy-variables__eyebrow {
   margin: 0;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   letter-spacing: 0.15em;
 }
 
 h1 {
   margin: 0;
-  font-size: 26px;
+  font-size: 24px;
   font-weight: 500;
   line-height: 1;
   letter-spacing: -0.04em;
@@ -271,7 +270,7 @@ h1 {
 .description {
   margin: 0;
   color: #666;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .primary-button {
@@ -280,7 +279,7 @@ h1 {
   padding: 10px 16px;
   background: #222;
   color: white;
-  font-size: 13px;
+  font-size: 14px;
   cursor: pointer;
 }
 
@@ -304,12 +303,12 @@ h1 {
   background: transparent;
   color: inherit;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .search-bar span {
   color: #777;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .table-wrapper {
@@ -329,7 +328,7 @@ th,
 td {
   padding: 14px 12px;
   border-bottom: 1px solid #eee;
-  font-size: 13px;
+  font-size: 14px;
   vertical-align: middle;
 }
 
@@ -385,7 +384,7 @@ tbody tr:last-child td {
 .local-hint {
   margin: 0;
   color: #888;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .modal-overlay {
@@ -419,13 +418,13 @@ tbody tr:last-child td {
 
 .modal-header h2 {
   margin: 0;
-  font-size: 20px;
+  font-size: 18px;
 }
 
 .close-button {
   border: none;
   background: transparent;
-  font-size: 26px;
+  font-size: 20px;
   cursor: pointer;
 }
 
@@ -437,7 +436,7 @@ form {
 form label {
   display: grid;
   gap: 8px;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
 }
 
@@ -465,7 +464,7 @@ form textarea {
 
 .error-message {
   margin: 0;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .form-actions {

@@ -69,7 +69,6 @@ const handleSubmit = async (campusId: string): Promise<void> => {
   display: grid;
   gap: 22px;
   max-width: 640px;
-  margin-top: -16px;
 }
 
 .back-link {
@@ -84,7 +83,7 @@ const handleSubmit = async (campusId: string): Promise<void> => {
 }
 
 .back-link span {
-  font-size: 22px;
+  font-size: 18px;
   line-height: 1;
 }
 
@@ -95,14 +94,14 @@ const handleSubmit = async (campusId: string): Promise<void> => {
 
 .campus-request__eyebrow {
   margin: 0 0 8px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   letter-spacing: 0.15em;
 }
 
 h1 {
   margin: 0;
-  font-size: 26px;
+  font-size: 24px;
   font-weight: 500;
   line-height: 1;
   letter-spacing: -0.04em;
@@ -136,7 +135,7 @@ h1 {
   border: 1px solid #000;
   background: #000;
   color: #fff;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   text-decoration: none;
 }

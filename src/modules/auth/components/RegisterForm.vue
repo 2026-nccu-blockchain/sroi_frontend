@@ -244,7 +244,7 @@ const onSubmit = (): void => {
 }
 
 .register-form__eyebrow {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   letter-spacing: 0.14em;
 }
@@ -255,7 +255,7 @@ p {
 }
 
 h1 {
-  font-size: clamp(28px, 5vw, 40px);
+  font-size: 26px;
   line-height: 1;
   letter-spacing: -0.04em;
 }
@@ -273,7 +273,7 @@ h1 {
   padding: 0;
   list-style: none;
   color: #8a8a8a;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .register-form__step--active {
@@ -282,7 +282,7 @@ h1 {
 }
 
 .register-form__info {
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.6;
   color: #5f5f5f;
 }
@@ -290,7 +290,7 @@ h1 {
 label {
   display: grid;
   gap: 8px;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
 }
 
@@ -355,7 +355,7 @@ input:focus {
   border: 0;
   background: transparent;
   color: #000;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 400;
   text-decoration: underline;
   text-underline-offset: 4px;
@@ -376,7 +376,7 @@ input:focus {
   background: transparent;
   color: #000;
   font: inherit;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   white-space: nowrap;
   cursor: pointer;
@@ -389,7 +389,7 @@ input:focus {
 
 .register-form__field-error {
   margin: 0;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 400;
   color: #ff0000;
 }
@@ -425,7 +425,7 @@ button:disabled {
 .register-form__back {
   justify-self: center;
   color: #000;
-  font-size: 13px;
+  font-size: 14px;
   text-underline-offset: 4px;
 }
 </style>

@@ -124,7 +124,7 @@ const handleDecision = async (): Promise<void> => {
           <dd>{{ user.name }}</dd>
         </div>
         <div class="info__row">
-          <dt>Email</dt>
+          <dt>電子郵件</dt>
           <dd>{{ user.email }}</dd>
         </div>
         <div class="info__row">
@@ -193,7 +193,7 @@ const handleDecision = async (): Promise<void> => {
 .user-detail__back {
   justify-self: start;
   color: #000;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   text-decoration: none;
 }
@@ -204,14 +204,14 @@ const handleDecision = async (): Promise<void> => {
 
 .user-detail__eyebrow {
   margin: 0 0 8px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   letter-spacing: 0.15em;
 }
 
 h1 {
   margin: 0;
-  font-size: 26px;
+  font-size: 24px;
   font-weight: 500;
   line-height: 1;
   letter-spacing: -0.04em;
@@ -251,7 +251,7 @@ h2 {
 
 .info dt {
   color: #777;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .info dd {
@@ -277,11 +277,11 @@ h2 {
 
 .review__label {
   color: #777;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .review__campus-id {
-  font-size: 22px;
+  font-size: 18px;
   font-weight: 700;
   letter-spacing: 0.05em;
   word-break: break-all;
@@ -300,7 +300,7 @@ h2 {
 }
 
 .review__arrow {
-  font-size: 22px;
+  font-size: 18px;
 }
 
 .review__question {
@@ -325,7 +325,7 @@ h2 {
   background: #fff;
   color: #000;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   cursor: pointer;
 }
@@ -358,6 +358,6 @@ h2 {
 .muted {
   margin: 0;
   color: #777;
-  font-size: 13px;
+  font-size: 14px;
 }
 </style>

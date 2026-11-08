@@ -21,17 +21,22 @@ export interface ProjectOutcome {
 export interface ProjectCost {
   cost_id: string;
   name: string;
+  // 單價，小計 = price × quantity
   price: number;
-  description: string;
+  quantity: number;
+  funding_source: string;
   position: number;
   create_time?: string | null;
   update_time?: string | null;
 }
 
 export interface ProjectCostPayload {
+  // 沒帶就是新增
+  cost_id?: string;
   name: string;
   price: number;
-  description: string;
+  quantity: number;
+  funding_source: string;
 }
 
 export interface ProjectCostsResponse {
@@ -49,11 +54,23 @@ export interface ProjectInterviewFile {
   create_time: string | null;
 }
 
+// 上傳到暫存資料夾的訪綱，儲存專案前不會寫入資料庫
+export interface TempInterviewFile {
+  temp_file_id: string;
+  original_name: string;
+  content_type: string;
+  size_bytes: number;
+}
+
 export interface LinkedProjectForm {
   form_id: string;
   title?: string | null;
   status: "draft" | "published" | "closed";
 }
+
+// 依專案期間計算的進度狀態；closed 之後再接上結案邏輯
+export type ProjectPhase = "not_started" | "in_progress" | "pending_close" | "closed";
+export type ProjectPhaseTab = ProjectPhase | "all";
 
 export interface WorkspaceProject {
   project_id: string;
@@ -85,8 +102,14 @@ export interface ProjectPayload {
   begin: string;
   end: string;
   status: ProjectStatus;
-  stakeholders: Array<Omit<ProjectStakeholder, "position">>;
+  stakeholders: Array<Omit<ProjectStakeholder, "position"> & {
+    // 只有更新時會帶：要保留的已儲存訪綱，以及這次要存入的暫存訪綱
+    interview_file_ids?: string[];
+    temp_file_ids?: string[];
+  }>;
   outcomes: Array<Omit<ProjectOutcome, "position">>;
+  // 只有更新時會帶
+  costs?: ProjectCostPayload[];
 }
 
 export interface OutcomeValuation {
@@ -156,6 +179,8 @@ export interface Group {
   end: string;
   // 只有不同意的群組會帶
   reason?: string;
+  // 只有管理員的所有群組會帶
+  creator?: GroupUser | null;
 }
 
 export interface GroupBuckets {
@@ -175,8 +200,8 @@ export interface GroupListResponse extends ApiEnvelope {
 export interface GroupPayload {
   title: string;
   desc: string;
-  begin: string; // "YYYY-MM-DDT00:00:00"
-  end: string;
+  begin: string; // "YYYY-MM-DDT00:00:00+08:00"
+  end: string; // "YYYY-MM-DDT23:59:59+08:00"
 }
 
 export interface GroupUser {

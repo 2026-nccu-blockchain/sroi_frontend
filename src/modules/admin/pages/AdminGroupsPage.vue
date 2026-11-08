@@ -36,5 +36,5 @@ const linkTo = (group: Group) => ({ name: "admin-group-detail", params: { groupI
 <template>
   <p v-if="loading">載入中...</p>
   <p v-else-if="error">{{ error }}</p>
-  <GroupList v-else v-model:tab="tab" :groups="groups" eyebrow="管理" title="所有群組" :link-to="linkTo" />
+  <GroupList v-else v-model:tab="tab" :groups="groups" eyebrow="管理" title="所有群組" :link-to="linkTo" show-creator />
 </template>

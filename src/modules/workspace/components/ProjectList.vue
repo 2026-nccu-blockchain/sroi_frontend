@@ -1,64 +1,120 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
+import type { RouteLocationRaw } from "vue-router";
 
-import { GROUP_ROLE_LABELS } from "@/modules/workspace/constants";
-import type { WorkspaceProject } from "@/modules/workspace/types/workspace.types";
+import ProjectPhaseBadge from "@/modules/workspace/components/ProjectPhaseBadge.vue";
+import { getProjectPhase, PROJECT_PHASE_TAB_LABELS, PROJECT_PHASE_TABS } from "@/modules/workspace/constants";
+import type { ProjectPhaseTab, WorkspaceProject } from "@/modules/workspace/types/workspace.types";
 import { formatProjectPeriod } from "@/shared/utils/date";
 
+// 我的專案、群組專案共用；權限由父層判斷後傳進來
 const props = withDefaults(
   defineProps<{
     projects: WorkspaceProject[];
     loading?: boolean;
     error?: string;
-    groupTitle?: (groupId: string) => string;
+    title?: string;
+    // 給 null 就不顯示
+    eyebrow?: string | null;
+    // 群組頁裡已經有群組名稱當 h1，列表標題改用 h2
+    headingTag?: "h1" | "h2";
+    // 不給就不顯示新增按鈕
+    createTo?: RouteLocationRaw;
+    createLabel?: string;
+    canDelete?: (project: WorkspaceProject) => boolean;
+    // 完全沒有專案時的提示
+    emptyText?: string;
   }>(),
-  { groupTitle: () => "群組" }
+  {
+    title: "我的專案",
+    eyebrow: "工作區",
+    headingTag: "h1",
+    createLabel: "新增專案",
+    canDelete: () => true,
+    emptyText: "找不到符合的專案。"
+  }
 );
 
 defineEmits<{
   delete: [project: WorkspaceProject];
 }>();
 
+// 父層可以用 v-model:tab 綁到網址，不綁就只存在元件內
+const activeTab = defineModel<ProjectPhaseTab>("tab", { default: "all" });
 const search = ref("");
-const filteredProjects = computed(() => {
+
+// 每個專案的狀態只算一次，列表、分頁數量、篩選共用
+const rows = computed(() => {
+  const now = new Date();
+  return props.projects.map((project) => ({ project, phase: getProjectPhase(project, now) }));
+});
+
+const tabCounts = computed(() => {
+  const counts: Record<ProjectPhaseTab, number> = {
+    all: rows.value.length,
+    not_started: 0,
+    in_progress: 0,
+    pending_close: 0,
+    closed: 0
+  };
+  for (const { phase } of rows.value) counts[phase] += 1;
+  return counts;
+});
+
+const filteredRows = computed(() => {
   const keyword = search.value.trim().toLowerCase();
-  if (!keyword) return props.projects;
-  return props.projects.filter(
-    (project) =>
-      project.name.toLowerCase().includes(keyword) ||
-      project.organization.toLowerCase().includes(keyword)
+  return rows.value.filter(
+    ({ project, phase }) =>
+      (activeTab.value === "all" || phase === activeTab.value) &&
+      (!keyword ||
+        project.name.toLowerCase().includes(keyword) ||
+        project.organization.toLowerCase().includes(keyword))
   );
+});
+
+// 進入專案時帶著目前分頁，返回時才回得來
+const projectLink = (project: WorkspaceProject): RouteLocationRaw => ({
+  name: "project-edit",
+  params: { projectId: project.project_id },
+  query: activeTab.value === "all" ? {} : { phase: activeTab.value }
 });
 
 const statusLabel = (project: WorkspaceProject): string => {
   const status = project.forms.some((form) => form.status === "published") ? "published" : project.status;
   return status === "published" ? "已發布" : "草稿";
 };
-
-const ownerLabel = (project: WorkspaceProject): string =>
-  project.group_id
-    ? `${props.groupTitle(project.group_id)}・${GROUP_ROLE_LABELS[project.my_role ?? "viewer"]}`
-    : "個人";
-
-// 後端規則：檢視者只能看，刪除專案要組長（個人專案的擁有者視同組長）
-const canEdit = (project: WorkspaceProject): boolean => project.my_role !== "viewer";
-const canDelete = (project: WorkspaceProject): boolean => (project.my_role ?? "leader") === "leader";
 </script>
 
 <template>
   <section class="projects">
     <div class="projects__intro">
       <div>
-        <p class="projects__eyebrow">工作區</p>
-        <h1>我的專案</h1>
+        <p v-if="eyebrow" class="projects__eyebrow">{{ eyebrow }}</p>
+        <component :is="headingTag" class="projects__title">{{ title }}</component>
       </div>
-      <RouterLink class="button button--primary" to="/workspace/projects/new">
-        <span>＋</span> 新增專案
+      <RouterLink v-if="createTo" class="button button--primary" :to="createTo">
+        <span>＋</span> {{ createLabel }}
       </RouterLink>
     </div>
 
+    <div class="tab-bar" role="tablist">
+      <button
+        v-for="key in PROJECT_PHASE_TABS"
+        :key="key"
+        type="button"
+        class="tab-bar__item"
+        :class="{ 'tab-bar__item--active': activeTab === key }"
+        role="tab"
+        :aria-selected="activeTab === key"
+        @click="activeTab = key"
+      >
+        {{ PROJECT_PHASE_TAB_LABELS[key] }}
+        <span class="tab-bar__count">{{ tabCounts[key] }}</span>
+      </button>
+    </div>
+
     <div class="search-bar">
-      <input v-model="search" type="search" placeholder="搜尋專案名稱或單位..." aria-label="搜尋我的專案" />
+      <input v-model="search" type="search" placeholder="搜尋專案名稱或單位..." :aria-label="`搜尋${title}`" />
     </div>
 
     <p v-if="error" class="state-message state-message--error">{{ error }}</p>
@@ -69,50 +125,43 @@ const canDelete = (project: WorkspaceProject): boolean => (project.my_role ?? "l
         <span>專案名稱</span>
         <span>所屬單位</span>
         <span>專案期間</span>
-        <span>利害關係人</span>
-        <span>連結表單</span>
+        <span>專案狀態</span>
         <span>操作</span>
       </div>
 
-      <article v-for="project in filteredProjects" :key="project.project_id" class="project-row">
+      <article v-for="{ project, phase } in filteredRows" :key="project.project_id" class="project-row">
         <div class="project-name-cell">
-          <RouterLink class="project-row__title" :to="`/workspace/projects/${project.project_id}/edit`">
+          <RouterLink class="project-row__title" :to="projectLink(project)">
             {{ project.name }}
           </RouterLink>
-          <small class="project-row__status">
-            {{ statusLabel(project) }}
-            <span :class="['owner-badge', { 'owner-badge--group': project.group_id }]">{{ ownerLabel(project) }}</span>
-          </small>
+          <small class="project-row__status">{{ statusLabel(project) }}</small>
           <div v-if="project.outcomes.length" class="outcome-tags">
             <span v-for="outcome in project.outcomes" :key="outcome.outcome_id">#{{ outcome.name }}</span>
           </div>
         </div>
         <span data-label="所屬單位">{{ project.organization }}</span>
         <span data-label="專案期間">{{ formatProjectPeriod(project.begin, project.end) }}</span>
-        <span data-label="利害關係人">{{ project.stakeholders.length }} 位</span>
-        <span v-if="project.forms.length" data-label="連結表單" class="linked-form">
-          {{ project.forms.length }} 份表單
-          <small :class="['form-badge', { 'form-badge--published': project.forms.some((form) => form.status === 'published') }]">
-            {{ project.forms.filter((form) => form.status === "published").length }} 已發布
-          </small>
+        <span data-label="專案狀態">
+          <ProjectPhaseBadge :phase="phase" />
         </span>
-        <span v-else data-label="連結表單">尚未連結</span>
         <div class="project-row__actions">
-          <RouterLink :to="`/workspace/projects/${project.project_id}/edit`">{{ canEdit(project) ? "編輯" : "檢視" }}</RouterLink>
-          <button v-if="canDelete(project)" type="button" @click="$emit('delete', project)">刪除</button>
+          <button v-if="canDelete(project)" class="delete-button" type="button" @click="$emit('delete', project)">刪除</button>
         </div>
       </article>
 
-      <p v-if="filteredProjects.length === 0" class="project-list__empty">找不到符合的專案。</p>
+      <p v-if="filteredRows.length === 0" class="project-list__empty">
+        {{ projects.length === 0 ? emptyText : "找不到符合的專案。" }}
+      </p>
     </div>
   </section>
 </template>
 
 <style scoped>
+/* 依元件本身寬度切換版面，放在群組頁較窄的主欄裡也不會擠壞 */
 .projects {
   display: grid;
   gap: 22px;
-  margin-top: -16px;
+  container-type: inline-size;
 }
 
 .projects__intro {
@@ -124,14 +173,14 @@ const canDelete = (project: WorkspaceProject): boolean => (project.my_role ?? "l
 
 .projects__eyebrow {
   margin: 0 0 8px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   letter-spacing: 0.15em;
 }
 
-h1 {
+.projects__title {
   margin: 0;
-  font-size: 26px;
+  font-size: 24px;
   font-weight: 500;
   line-height: 1;
   letter-spacing: -0.04em;
@@ -147,7 +196,7 @@ h1 {
   border: 1px solid #000;
   color: #000;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   text-decoration: none;
   cursor: pointer;
@@ -161,6 +210,34 @@ h1 {
 .button--primary:hover {
   background: #fff;
   color: #000;
+}
+
+.tab-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tab-bar__item {
+  border: 1px solid #000;
+  padding: 8px 16px;
+  background: transparent;
+  color: #000;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.tab-bar__item--active {
+  background: #000;
+  color: #fff;
+}
+
+.tab-bar__count {
+  margin-left: 6px;
+  font-size: 14px;
+  opacity: 0.7;
 }
 
 .search-bar {
@@ -184,7 +261,7 @@ h1 {
 .project-list__header,
 .project-row {
   display: grid;
-  grid-template-columns: minmax(190px, 1.6fr) minmax(140px, 1fr) 60px 90px minmax(140px, 1fr) 110px;
+  grid-template-columns: minmax(190px, 1.6fr) minmax(140px, 1fr) 150px 100px 110px;
   gap: 20px;
   align-items: center;
 }
@@ -192,7 +269,7 @@ h1 {
 .project-list__header {
   min-height: 45px;
   border-bottom: 1px solid #000;
-  font-size: 10px;
+  font-size: 14px;
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -205,7 +282,7 @@ h1 {
 .project-row {
   min-height: 82px;
   border-bottom: 1px solid #000;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .project-row__title {
@@ -220,19 +297,13 @@ h1 {
   display: block;
   margin-top: 5px;
   color: #666;
-  font-size: 11px;
+  font-size: 14px;
   text-transform: uppercase;
 }
 
 .project-name-cell { display: grid; gap: 5px; }
-.owner-badge { margin-left: 8px; padding: 2px 7px; border: 1px solid #bbb; color: #555; font-size: 10px; text-transform: none; }
-.owner-badge--group { border-color: #000; color: #000; }
 .outcome-tags { display: flex; flex-wrap: wrap; gap: 5px; }
-.outcome-tags span { padding: 3px 7px; border-radius: 999px; background: #f0e8f4; color: #765292; font-size: 9px; font-weight: 700; }
-
-.linked-form { display: flex; align-items: center; gap: 7px; }
-.form-badge { display: inline-flex; padding: 4px 8px; border-radius: 999px; background: #f0e8f4; color: #765292; font-size: 10px; font-weight: 700; white-space: nowrap; }
-.form-badge--published { background: #e5f3e8; color: #2f7140; }
+.outcome-tags span { padding: 3px 7px; border-radius: 999px; background: #f0e8f4; color: #765292; font-size: 14px; font-weight: 700; }
 
 .project-row__actions {
   display: flex;
@@ -240,17 +311,20 @@ h1 {
   gap: 12px;
 }
 
-.project-row__actions button,
-.project-row__actions a {
-  border: 0;
-  border-bottom: 1px solid #000;
-  padding: 2px 0;
-  background: transparent;
-  color: #000;
+.delete-button {
+  border: 1px solid #c00;
+  padding: 6px 14px;
+  background: #fff;
+  color: #c00;
   font: inherit;
-  font-size: 12px;
-  text-decoration: none;
+  font-size: 14px;
+  font-weight: 700;
   cursor: pointer;
+}
+
+.delete-button:hover {
+  background: #c00;
+  color: #fff;
 }
 
 .state-message { margin: 0; padding: 14px 0; color: #555; }
@@ -263,7 +337,7 @@ h1 {
   color: #555;
 }
 
-@media (max-width: 840px) {
+@container (max-width: 800px) {
   .project-list__header {
     display: none;
   }
@@ -284,7 +358,7 @@ h1 {
   }
 }
 
-@media (max-width: 560px) {
+@container (max-width: 520px) {
   .projects__intro {
     align-items: stretch;
     flex-direction: column;

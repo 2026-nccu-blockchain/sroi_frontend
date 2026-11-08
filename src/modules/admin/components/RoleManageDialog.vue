@@ -158,7 +158,7 @@ h2 {
 
 .manage__message {
   margin: 0;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
 }
 
@@ -177,7 +177,7 @@ h2 {
   background: #fff;
   color: #000;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   cursor: pointer;
 }
@@ -209,6 +209,6 @@ h2 {
 
 .muted {
   color: #777;
-  font-size: 12px;
+  font-size: 14px;
 }
 </style>

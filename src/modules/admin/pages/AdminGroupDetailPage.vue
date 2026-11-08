@@ -158,13 +158,12 @@ const handleSubmit = async (): Promise<void> => {
 .group-page {
   display: grid;
   gap: 22px;
-  margin-top: -16px;
 }
 
 .back-link {
   justify-self: start;
   color: #000;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   text-decoration: none;
 }
@@ -212,7 +211,7 @@ const handleSubmit = async (): Promise<void> => {
   background: #fff;
   color: #000;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   cursor: pointer;
 }
@@ -235,7 +234,7 @@ const handleSubmit = async (): Promise<void> => {
 .review__reason {
   display: grid;
   gap: 8px;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .review__reason strong {

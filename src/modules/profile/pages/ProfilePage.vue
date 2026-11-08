@@ -45,7 +45,6 @@ onMounted(async () => {
 .profile-page {
   display: grid;
   gap: 22px;
-  margin-top: -16px;
 }
 
 .profile-page__error {
