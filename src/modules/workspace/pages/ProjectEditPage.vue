@@ -80,6 +80,27 @@ const creatableGroups = ref<Group[]>([]);
 const ownerGroupId = ref<string | null>(null);
 const myRole = ref<GroupRole>("leader");
 const readOnly = computed(() => myRole.value === "viewer");
+type EditorTab = "info" | "stakeholders" | "interviews" | "forms";
+
+const EDITOR_TABS: { key: EditorTab; label: string }[] = [
+  { key: "info", label: "專案資料" },
+  { key: "stakeholders", label: "利害關係人" },
+  { key: "interviews", label: "訪綱附件" },
+  { key: "forms", label: "專案表單" }
+];
+
+const isEditorTab = (value: unknown): value is EditorTab =>
+  typeof value === "string" && EDITOR_TABS.some((tab) => tab.key === value);
+
+// 分頁存在網址的 ?tab=；新增專案只有「專案資料」可以用
+const activeTab = computed<EditorTab>({
+  get: () => (!isNew.value && isEditorTab(route.query.tab) ? route.query.tab : "info"),
+  set: (tab) => {
+    const { tab: _removed, ...rest } = route.query;
+    void router.replace({ query: tab === "info" ? rest : { ...rest, tab } });
+  }
+});
+
 // 從列表進來時網址帶著 ?phase=，返回時回到原本的分頁
 const backTo = computed(() => {
   const query = isProjectPhaseTab(route.query.phase) ? { phase: route.query.phase } : {};
@@ -427,37 +448,54 @@ onMounted(async () => {
 
 <template>
   <section class="project-editor">
-    <header class="editor-header">
-      <div>
-        <RouterLink class="back-link" :to="backTo">{{ ownerGroupId ? "← 返回群組" : "← 返回我的專案" }}</RouterLink>
-        <p class="eyebrow">專案工作區</p>
-        <div class="editor-title">
-          <h1>{{ isNew ? "新增專案" : readOnly ? "檢視專案" : "編輯專案" }}</h1>
-          <ProjectPhaseBadge v-if="projectPhase" :phase="projectPhase" />
+    <div class="editor-sticky">
+      <header class="editor-header">
+        <div>
+          <RouterLink class="back-link" :to="backTo">{{ ownerGroupId ? "← 返回群組" : "← 返回我的專案" }}</RouterLink>
+          <p class="eyebrow">專案工作區</p>
+          <div class="editor-title">
+            <h1>{{ isNew ? "新增專案" : readOnly ? "檢視專案" : "編輯專案" }}</h1>
+            <ProjectPhaseBadge v-if="projectPhase" :phase="projectPhase" />
+            <div class="tab-bar" role="tablist" aria-label="專案工作區分頁">
+              <button
+                v-for="tab in EDITOR_TABS"
+                :key="tab.key"
+                type="button"
+                class="tab-bar__item"
+                :class="{ 'tab-bar__item--active': activeTab === tab.key }"
+                role="tab"
+                :aria-selected="activeTab === tab.key"
+                :disabled="isNew && tab.key !== 'info'"
+                :title="isNew && tab.key !== 'info' ? '新增專案後才能使用' : undefined"
+                @click="activeTab = tab.key"
+              >{{ tab.label }}</button>
+            </div>
+          </div>
         </div>
-      </div>
-      <div class="editor-header__actions">
-        <RouterLink
-          v-if="!isNew"
-          class="secondary-button"
-          :to="{ name: 'project-sroi', params: { projectId } }"
-        >SROI 計算 →</RouterLink>
-        <span v-if="isDirty && !isNew" class="dirty-hint">有未儲存的修改</span>
-        <button v-if="!readOnly" class="primary-button" type="button" :disabled="saving || loading || nameMissing" @click="persist">
-          {{ saving ? (isNew ? "新增中…" : "儲存中…") : (isNew ? "新增專案" : "儲存專案") }}
-        </button>
-      </div>
-    </header>
+        <div class="editor-header__actions">
+          <RouterLink
+            v-if="!isNew"
+            class="secondary-button"
+            :to="{ name: 'project-sroi', params: { projectId } }"
+          >SROI 計算 →</RouterLink>
+          <span v-if="isDirty && !isNew" class="dirty-hint">有未儲存的修改</span>
+          <button v-if="!readOnly" class="primary-button" type="button" :disabled="saving || loading || nameMissing" @click="persist">
+            {{ saving ? (isNew ? "新增中…" : "儲存中…") : (isNew ? "新增專案" : "儲存專案") }}
+          </button>
+        </div>
+      </header>
 
-    <p v-if="error" class="message message--error">{{ error }}</p>
-    <p v-if="savedMessage" class="message message--success">{{ savedMessage }}</p>
+      <p v-if="error" class="message message--error">{{ error }}</p>
+      <p v-if="savedMessage" class="message message--success">{{ savedMessage }}</p>
+    </div>
+
     <p v-if="loading" class="message">專案載入中…</p>
 
     <template v-else>
       <p v-if="readOnly" class="message">你在這個群組是檢視者，只能查看專案內容。</p>
 
       <fieldset class="plain-fieldset" :disabled="readOnly">
-      <section class="editor-card">
+      <section v-show="activeTab === 'info'" class="editor-card">
         <div class="section-heading">
           <div><span>01</span><h2>專案資料</h2></div>
           <p>{{ isNew ? "先填寫基本資料，新增專案後即可設定成本、利害關係人與表單。" : "這些資料會顯示在專案總覽。" }}</p>
@@ -515,7 +553,7 @@ onMounted(async () => {
         </div>
       </section>
 
-      <section v-if="!isNew" class="editor-card">
+      <section v-if="!isNew" v-show="activeTab === 'stakeholders'" class="editor-card">
         <div class="section-heading section-heading--action">
           <div><span>02</span><h2>利害關係人</h2></div>
           <button v-if="!readOnly" class="secondary-button" type="button" @click="addStakeholder">＋ 新增利害關係人</button>
@@ -591,7 +629,7 @@ onMounted(async () => {
         @cancel="answerLeave(false)"
       />
 
-      <section v-if="!isNew" class="editor-card">
+      <section v-if="!isNew" v-show="activeTab === 'interviews'" class="editor-card">
         <div class="section-heading">
           <div><span>03</span><h2>訪綱附件</h2></div>
           <p v-if="!readOnly">支援 PDF、DOC、DOCX，單一檔案上限 10 MB。上傳的檔案按「儲存專案」後才會正式存入。</p>
@@ -667,7 +705,7 @@ onMounted(async () => {
         </div>
       </section>
 
-      <section v-if="!isNew" class="editor-card">
+      <section v-if="!isNew" v-show="activeTab === 'forms'" class="editor-card">
         <div class="section-heading">
           <div><span>04</span><h2>專案表單</h2></div>
           <button v-if="!readOnly" class="secondary-button" type="button" :disabled="!canCreateForm" @click="createProjectForm">＋ 新增表單</button>
@@ -695,8 +733,15 @@ onMounted(async () => {
 
 <style scoped>
 .project-editor { display: grid; gap: 24px; color: #161616; }
-.editor-header { display: flex; align-items: end; justify-content: space-between; gap: 20px; padding-bottom: 22px; border-bottom: 2px solid #111; }
-.back-link { display: inline-block; margin-bottom: 24px; color: #555; font-size: 14px; text-decoration: none; }
+/* 標題、儲存按鈕、分頁、訊息一起凍結在最上方；往上延伸蓋住 MainLayout 的上方留白，捲動時內容不會從縫隙露出 */
+.editor-sticky { position: sticky; top: 0; z-index: 10; display: grid; gap: 14px; margin-top: -30px; padding: 30px 0 14px; background: #fff; border-bottom: 1px solid #ddd; }
+/* 分頁跟標題在同一列，和標題之間多留一點距離 */
+.tab-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-left: 12px; }
+.tab-bar__item { border: 1px solid #111; padding: 6px 14px; background: #fff; color: #111; font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; }
+.tab-bar__item--active { background: #111; color: #fff; }
+.tab-bar__item:disabled { border-color: #ccc; color: #999; }
+.editor-header { display: flex; align-items: end; justify-content: space-between; gap: 20px; padding-bottom: 16px; border-bottom: 2px solid #111; }
+.back-link { display: inline-block; margin-bottom: 12px; color: #555; font-size: 14px; text-decoration: none; }
 .eyebrow { margin: 0 0 8px; font-size: 14px; font-weight: 800; letter-spacing: .15em; }
 h1, h2, h3, p { margin: 0; }
 h1 { font-size: 24px; letter-spacing: -.05em; }
@@ -775,5 +820,5 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .form-hint { margin: -10px 0 0; color: #7b647f; font-size: 14px; }
 @media (max-width: 900px) { .field-grid, .stakeholder-row, .cost-row { grid-template-columns: 1fr; } .stakeholder-number { display: none; } }
 @media (max-width: 700px) { .linked-form-card, .form-linker, .form-actions { align-items: stretch; flex-direction: column; } }
-@media (max-width: 600px) { .editor-header, .section-heading { align-items: stretch; flex-direction: column; } .editor-card { padding: 18px; } .outcome-composer { grid-template-columns: 1fr; } }
+@media (max-width: 600px) { .tab-bar { margin-left: 0; } .editor-header, .section-heading { align-items: stretch; flex-direction: column; } .editor-card { padding: 18px; } .outcome-composer { grid-template-columns: 1fr; } }
 </style>

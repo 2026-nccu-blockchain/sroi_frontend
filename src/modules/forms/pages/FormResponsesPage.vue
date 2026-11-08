@@ -19,7 +19,7 @@ const router = useRouter();
 const { logout } = useAuth();
 const projectId = computed(() => String(route.params.projectId ?? ""));
 const formId = computed(() => String(route.params.formId ?? ""));
-const projectPath = computed(() => ({ name: "project-edit", params: { projectId: projectId.value } }));
+const projectPath = computed(() => ({ name: "project-edit", params: { projectId: projectId.value }, query: { tab: "forms" } }));
 const formEditPath = computed(() => ({
   name: "form-builder-edit",
   params: { projectId: projectId.value, formId: formId.value }
