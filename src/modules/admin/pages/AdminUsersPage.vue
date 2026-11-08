@@ -17,6 +17,7 @@ import type {
 import { ROLE_LABELS } from "@/modules/profile/constants";
 import ConfirmDialog from "@/modules/workspace/components/ConfirmDialog.vue";
 import MemberTable from "@/modules/workspace/components/MemberTable.vue";
+import DeleteConfirmDialog from "@/shared/components/DeleteConfirmDialog.vue";
 
 const ROLE_TABS: { key: UserRole; field: UserListField }[] = [
   { key: "admin", field: "admin" },
@@ -205,13 +206,22 @@ const handleConfirm = async (): Promise<void> => {
     />
 
     <!-- 放在搜尋視窗後面，才會疊在上層 -->
+    <!-- 新增權限用一般確認窗，刪除權限用刪除警示窗 -->
     <ConfirmDialog
-      :open="pending !== null"
+      :open="pending !== null && manage?.action === 'add'"
       :title="confirmDialog.title"
       :message="confirmDialog.message"
       :confirm-text="confirmDialog.confirmText"
       :loading="confirming"
-      :danger="manage?.action === 'remove'"
+      @confirm="handleConfirm"
+      @cancel="pending = null"
+    />
+    <DeleteConfirmDialog
+      :open="pending !== null && manage?.action === 'remove'"
+      :title="confirmDialog.title"
+      :message="confirmDialog.message"
+      :confirm-text="confirmDialog.confirmText"
+      :loading="confirming"
       @confirm="handleConfirm"
       @cancel="pending = null"
     />

@@ -8,6 +8,8 @@ import {
   deleteFinancialProxy,
   type FinancialProxy,
 } from "../api/financialProxy.api";
+import { useDeleteConfirm } from "@/shared/composables/useDeleteConfirm";
+import DeleteConfirmDialog from "@/shared/components/DeleteConfirmDialog.vue";
 
 const proxies = ref<FinancialProxy[]>([]);
 const search = ref("");
@@ -17,6 +19,7 @@ const error = ref("");
 const loading = ref(false);
 const saving = ref(false);
 const deletingId = ref<string | null>(null);
+const { deleteDialog, askDelete, answerDelete } = useDeleteConfirm();
 const form = ref({ name: "", value: "", note: "" });
 
 const filteredProxies = computed(() => {
@@ -87,7 +90,12 @@ async function saveProxy() {
   }
 }
 async function deleteProxy(item: FinancialProxy) {
-  if (deletingId.value || !confirm(`確定要刪除「${item.name}」嗎？`)) return;
+  if (deletingId.value) return;
+  const confirmed = await askDelete({
+    title: "刪除財務代理變數",
+    message: `確定要刪除「${item.name}」嗎？此動作無法復原。`
+  });
+  if (!confirmed) return;
   deletingId.value = item.proxy_id;
   error.value = "";
   try {
@@ -235,6 +243,7 @@ function formatValue(value: number) {
         </form>
       </div>
     </div>
+    <DeleteConfirmDialog v-bind="deleteDialog" @confirm="answerDelete(true)" @cancel="answerDelete(false)" />
   </section>
 </template>
 

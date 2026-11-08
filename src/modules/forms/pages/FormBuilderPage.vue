@@ -215,8 +215,15 @@ const initializeForm = async (): Promise<void> => {
       return;
     }
 
-    const outcomePages = project.outcomes.length
-      ? project.outcomes.map((outcome, index) => ({
+    // 成果屬於各利害關係人，依「利害關係人順序 → 成果順序」排列；舊的共用成果排最前面
+    const stakeholderOrder = new Map(project.stakeholders.map((stakeholder, index) => [stakeholder.stakeholder_id, index]));
+    const orderOf = (stakeholderId?: string | null): number =>
+      stakeholderId ? stakeholderOrder.get(stakeholderId) ?? Number.MAX_SAFE_INTEGER : -1;
+    const outcomes = [...project.outcomes].sort(
+      (a, b) => orderOf(a.stakeholder_id) - orderOf(b.stakeholder_id) || (a.position ?? 0) - (b.position ?? 0)
+    );
+    const outcomePages = outcomes.length
+      ? outcomes.map((outcome, index) => ({
         project_outcome_id: outcome.outcome_id ?? null,
         is_respondent_info: false,
         title: outcome.name,
@@ -270,7 +277,7 @@ const initializeForm = async (): Promise<void> => {
 
 const goBack = async (): Promise<void> => {
   if (sourceProjectId.value) {
-    await router.push({ name: "project-edit", params: { projectId: sourceProjectId.value } });
+    await router.push({ name: "project-edit", params: { projectId: sourceProjectId.value }, query: { tab: "forms" } });
     return;
   }
   await router.push({ name: "my-projects" });

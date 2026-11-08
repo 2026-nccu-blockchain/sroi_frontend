@@ -9,6 +9,8 @@ import { GROUP_BUCKET_LABELS, STATUS_TO_BUCKET, toProjectErrorMessage } from "@/
 import { useProjectStore } from "@/modules/workspace/store/project.store";
 import type { GroupInfo, GroupRole, WorkspaceProject } from "@/modules/workspace/types/workspace.types";
 import { ApiError, toErrorMessage } from "@/shared/api/error-handler";
+import { useDeleteConfirm } from "@/shared/composables/useDeleteConfirm";
+import DeleteConfirmDialog from "@/shared/components/DeleteConfirmDialog.vue";
 
 const props = defineProps<{ groupId: string }>();
 
@@ -33,8 +35,14 @@ const phaseTab = useProjectPhaseTab();
 const canCreateProject = computed(() => role.value === "leader" || role.value === "editor");
 const canDeleteProject = (): boolean => role.value === "leader";
 
+const { deleteDialog, askDelete, answerDelete } = useDeleteConfirm();
+
 const removeProject = async (project: WorkspaceProject): Promise<void> => {
-  if (!window.confirm(`確定要刪除「${project.name}」嗎？`)) return;
+  const confirmed = await askDelete({
+    title: "刪除專案",
+    message: `確定要刪除「${project.name}」嗎？刪除後專案內的所有資料都無法再查看，且無法復原。`
+  });
+  if (!confirmed) return;
   try {
     await projectStore.remove(project.project_id);
   } catch (caught) {
@@ -110,6 +118,7 @@ watch(() => props.groupId, loadGroup, { immediate: true });
         @delete="removeProject"
       />
     </GroupDetail>
+    <DeleteConfirmDialog v-bind="deleteDialog" @confirm="answerDelete(true)" @cancel="answerDelete(false)" />
   </section>
 </template>
 

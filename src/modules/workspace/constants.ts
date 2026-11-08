@@ -73,3 +73,22 @@ export const getProjectPhase = (
   if (current <= new Date(project.end).getTime()) return "in_progress";
   return "pending_close";
 };
+
+// 利害關係人的關係（影響力／參與度）與類型；選「其他」時改存自訂文字
+export const STAKEHOLDER_OTHER = "其他";
+
+export const STAKEHOLDER_RELATIONS = [
+  "高影響、高參與",
+  "高影響、低參與",
+  "低影響、高參與",
+  "低影響、低參與",
+  STAKEHOLDER_OTHER
+];
+
+export const STAKEHOLDER_TYPES = [
+  "直接受益者",
+  "間接受益者",
+  "執行者/投入者",
+  "資源提供者/合作夥伴",
+  STAKEHOLDER_OTHER
+];

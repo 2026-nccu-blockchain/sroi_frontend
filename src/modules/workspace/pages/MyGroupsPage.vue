@@ -2,11 +2,11 @@
 import { onMounted, ref } from "vue";
 
 import { deleteGroup, getGroups } from "@/modules/workspace/api/workspace.api";
-import ConfirmDialog from "@/modules/workspace/components/ConfirmDialog.vue";
 import GroupList from "@/modules/workspace/components/GroupList.vue";
 import { useGroupTab } from "@/modules/workspace/composables/useGroupTab";
 import type { Group, GroupBucketKey, GroupBuckets } from "@/modules/workspace/types/workspace.types";
 import { ApiError, toErrorMessage } from "@/shared/api/error-handler";
+import DeleteConfirmDialog from "@/shared/components/DeleteConfirmDialog.vue";
 
 const tab = useGroupTab();
 const groups = ref<GroupBuckets>({ verified: [], inProgress: [], unverified: [] });
@@ -86,13 +86,12 @@ const handleDelete = async (): Promise<void> => {
     />
   </template>
 
-  <ConfirmDialog
+  <DeleteConfirmDialog
     :open="pendingDelete !== null"
     title="刪除群組"
     :message="`確定要刪除「${pendingDelete?.title}」嗎？此動作無法復原。`"
     confirm-text="刪除"
     :loading="deleting"
-    danger
     @confirm="handleDelete"
     @cancel="pendingDelete = null"
   />

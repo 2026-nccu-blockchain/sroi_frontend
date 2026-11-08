@@ -16,6 +16,7 @@ defineProps<{
 .base-modal {
   position: fixed;
   inset: 0;
+  z-index: 100;
   display: grid;
   place-items: center;
   background: rgba(17, 24, 39, 0.4);

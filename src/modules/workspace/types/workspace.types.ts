@@ -5,7 +5,9 @@ export type ProjectStatus = "draft" | "published";
 export interface ProjectStakeholder {
   stakeholder_id?: string;
   name: string;
-  role: string;
+  // 關係、類型：選「其他」時是自訂文字
+  relation: string;
+  stakeholder_type: string;
   notes: string;
   pre_form_id?: string | null;
   post_form_id?: string | null;
@@ -14,12 +16,15 @@ export interface ProjectStakeholder {
 
 export interface ProjectOutcome {
   outcome_id?: string;
+  // 所屬利害關係人；舊資料可能沒有
+  stakeholder_id?: string | null;
   name: string;
   position?: number;
 }
 
 export interface ProjectCost {
   cost_id: string;
+  stakeholder_id?: string | null;
   name: string;
   // 單價，小計 = price × quantity
   price: number;
@@ -37,6 +42,21 @@ export interface ProjectCostPayload {
   price: number;
   quantity: number;
   funding_source: string;
+}
+
+// 編輯頁上尚未儲存的利害關係人（含他的成果與成本）
+// key：已儲存的用後端 id，新增的用 new-n，讓尚未儲存的項目也能互相對應
+export interface StakeholderDraft {
+  key: string;
+  stakeholder_id?: string;
+  name: string;
+  relation: string;
+  stakeholder_type: string;
+  notes: string;
+  pre_form_id: string | null;
+  post_form_id: string | null;
+  outcomes: Array<Pick<ProjectOutcome, "outcome_id" | "name">>;
+  costs: Array<ProjectCostPayload & { key: string }>;
 }
 
 export interface ProjectCostsResponse {
@@ -102,14 +122,14 @@ export interface ProjectPayload {
   begin: string;
   end: string;
   status: ProjectStatus;
+  // 成果與成本放在各利害關係人底下
   stakeholders: Array<Omit<ProjectStakeholder, "position"> & {
+    outcomes?: Array<Pick<ProjectOutcome, "outcome_id" | "name">>;
+    costs?: ProjectCostPayload[];
     // 只有更新時會帶：要保留的已儲存訪綱，以及這次要存入的暫存訪綱
     interview_file_ids?: string[];
     temp_file_ids?: string[];
   }>;
-  outcomes: Array<Omit<ProjectOutcome, "position">>;
-  // 只有更新時會帶
-  costs?: ProjectCostPayload[];
 }
 
 export interface OutcomeValuation {
