@@ -4,6 +4,7 @@ import type { RouteLocationRaw } from "vue-router";
 
 import { GROUP_BUCKET_LABELS, GROUP_BUCKETS } from "@/modules/workspace/constants";
 import type { Group, GroupBucketKey, GroupBuckets } from "@/modules/workspace/types/workspace.types";
+import { formatTaipeiDate } from "@/shared/utils/date";
 
 const props = withDefaults(
   defineProps<{
@@ -47,8 +48,6 @@ const rows = computed(() => {
     : groups;
   return matched.map((group) => ({ group, to: props.linkTo(group, activeTab.value) }));
 });
-
-const formatDate = (iso: string): string => new Date(iso).toLocaleDateString("zh-TW");
 </script>
 
 <template>
@@ -109,7 +108,7 @@ const formatDate = (iso: string): string => new Date(iso).toLocaleDateString("zh
         </span>
         <span data-label="群組描述" class="desc">{{ group.desc }}</span>
         <span v-if="showReason" data-label="不同意原因" class="reason">{{ group.reason || "—" }}</span>
-        <span data-label="期間" class="group-list__period">{{ formatDate(group.begin) }} — {{ formatDate(group.end) }}</span>
+        <span data-label="期間" class="group-list__period">{{ formatTaipeiDate(group.begin) }} — {{ formatTaipeiDate(group.end) }}</span>
         <div v-if="showAction" class="group-row__action">
           <button class="button button--danger" type="button" @click="emit('delete', group)">刪除</button>
         </div>

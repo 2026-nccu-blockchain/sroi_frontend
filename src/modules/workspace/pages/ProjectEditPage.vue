@@ -9,8 +9,10 @@ import {
 } from "@/modules/workspace/api/workspace.api";
 import ConfirmDialog from "@/modules/workspace/components/ConfirmDialog.vue";
 import CostDialog from "@/modules/workspace/components/CostDialog.vue";
+import ProjectPhaseBadge from "@/modules/workspace/components/ProjectPhaseBadge.vue";
+import { isProjectPhaseTab } from "@/modules/workspace/composables/useProjectPhaseTab";
 import { useVerifiedGroups } from "@/modules/workspace/composables/useVerifiedGroups";
-import { toProjectErrorMessage } from "@/modules/workspace/constants";
+import { getProjectPhase, toProjectErrorMessage } from "@/modules/workspace/constants";
 import { useProjectStore } from "@/modules/workspace/store/project.store";
 import type {
   Group,
@@ -23,7 +25,7 @@ import type {
 } from "@/modules/workspace/types/workspace.types";
 import DateInput from "@/shared/components/DateInput.vue";
 import { useUnsavedChanges } from "@/shared/composables/useUnsavedChanges";
-import { monthEndIso, monthStartIso, toMonthValue } from "@/shared/utils/date";
+import { currentTaipeiYear, monthEndIso, monthStartIso, toMonthValue } from "@/shared/utils/date";
 
 // 所有內容（含成本、訪綱）都先改在畫面上，按「儲存專案」才一次存入
 // key：已儲存的用後端 id，新增的用 new-n，讓尚未儲存的項目也能互相對應
@@ -59,7 +61,7 @@ const interviewFiles = ref<DraftInterviewFile[]>([]);
 const projectForms = ref<LinkedProjectForm[]>([]);
 const newOutcomeName = ref("");
 const selectedStakeholderKey = ref("");
-const currentYear = new Date().getFullYear();
+const currentYear = currentTaipeiYear();
 const beginMonth = ref(`${currentYear}-01`);
 const endMonth = ref(`${currentYear}-12`);
 const costs = ref<DraftCost[]>([]);
@@ -68,6 +70,9 @@ const editingCost = ref<DraftCost | null>(null);
 const deletingCost = ref<DraftCost | null>(null);
 // 最後一次儲存（或載入）時的內容，用來判斷有沒有未儲存的修改
 const savedSnapshot = ref("");
+// 已儲存（或載入）的專案期間；狀態只依這份計算，畫面上改年月要等儲存後才會變
+const savedPeriod = ref<Pick<WorkspaceProject, "begin" | "end"> | null>(null);
+const projectPhase = computed(() => (savedPeriod.value ? getProjectPhase(savedPeriod.value) : null));
 
 // 專案位置：null 是個人專案。新增時可選擇，入口網址 ?group= 帶入預設群組，建立後不能移動
 const { load: loadGroups, loadCreatable, titleOf } = useVerifiedGroups();
@@ -75,9 +80,13 @@ const creatableGroups = ref<Group[]>([]);
 const ownerGroupId = ref<string | null>(null);
 const myRole = ref<GroupRole>("leader");
 const readOnly = computed(() => myRole.value === "viewer");
-const backTo = computed(() =>
-  ownerGroupId.value ? { name: "group-detail", params: { groupId: ownerGroupId.value } } : { name: "my-projects" }
-);
+// 從列表進來時網址帶著 ?phase=，返回時回到原本的分頁
+const backTo = computed(() => {
+  const query = isProjectPhaseTab(route.query.phase) ? { phase: route.query.phase } : {};
+  return ownerGroupId.value
+    ? { name: "group-detail", params: { groupId: ownerGroupId.value }, query }
+    : { name: "my-projects", query };
+});
 // 編輯時只有群組專案顯示所屬群組
 const ownerLabel = computed(() => `群組・${titleOf(ownerGroupId.value)}`);
 
@@ -127,6 +136,7 @@ const hydrate = (project: WorkspaceProject): void => {
   }));
   beginMonth.value = toMonthValue(project.begin);
   endMonth.value = toMonthValue(project.end);
+  savedPeriod.value = { begin: project.begin, end: project.end };
   draft.status = project.status;
   draft.stakeholders = project.stakeholders.map(({ stakeholder_id, name, role, notes, pre_form_id, post_form_id }) => ({
     key: stakeholder_id ?? newKey(),
@@ -421,7 +431,10 @@ onMounted(async () => {
       <div>
         <RouterLink class="back-link" :to="backTo">{{ ownerGroupId ? "← 返回群組" : "← 返回我的專案" }}</RouterLink>
         <p class="eyebrow">專案工作區</p>
-        <h1>{{ isNew ? "新增專案" : readOnly ? "檢視專案" : "編輯專案" }}</h1>
+        <div class="editor-title">
+          <h1>{{ isNew ? "新增專案" : readOnly ? "檢視專案" : "編輯專案" }}</h1>
+          <ProjectPhaseBadge v-if="projectPhase" :phase="projectPhase" />
+        </div>
       </div>
       <div class="editor-header__actions">
         <RouterLink
@@ -691,6 +704,7 @@ h2 { font-size: 18px; }
 .primary-button, .secondary-button, .remove-button { min-height: 40px; border: 1px solid #111; padding: 8px 14px; background: #fff; color: #111; font: inherit; font-size: 14px; font-weight: 750; cursor: pointer; }
 .primary-button { background: #111; color: #fff; }
 button:disabled { cursor: not-allowed; opacity: .5; }
+.editor-title { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 .editor-header__actions { display: flex; align-items: center; gap: 10px; }
 .dirty-hint { color: #8a5a00; font-size: 14px; font-weight: 700; }
 .message { padding: 12px 14px; border: 1px solid #ccc; }

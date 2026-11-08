@@ -4,6 +4,7 @@ import type { RouteLocationRaw } from "vue-router";
 
 import type { GroupPayload } from "@/modules/workspace/types/workspace.types";
 import DateInput from "@/shared/components/DateInput.vue";
+import { dayEndIso, dayStartIso, toDateValue } from "@/shared/utils/date";
 
 const props = withDefaults(
   defineProps<{
@@ -21,8 +22,8 @@ const emit = defineEmits<{ submit: [payload: GroupPayload] }>();
 
 type Field = "title" | "desc" | "begin" | "end";
 
-// 後端回傳 "YYYY-MM-DDTHH:mm:ss"，date input 只吃 "YYYY-MM-DD"
-const toDate = (iso?: string): string => iso?.slice(0, 10) ?? "";
+// 後端回傳帶時區的 ISO 字串，轉成台灣時間的 "YYYY-MM-DD"
+const toDate = (iso?: string): string => (iso ? toDateValue(iso) : "");
 
 const form = reactive<Record<Field, string>>({
   title: props.initial?.title ?? "",
@@ -44,15 +45,13 @@ const validate = (): boolean => {
   return Object.values(errors).every((message) => !message);
 };
 
-const toDateTime = (date: string): string => `${date}T00:00:00`;
-
 const handleSubmit = (): void => {
   if (!validate()) return;
   emit("submit", {
     title: form.title.trim(),
     desc: form.desc.trim(),
-    begin: toDateTime(form.begin),
-    end: toDateTime(form.end)
+    begin: dayStartIso(form.begin),
+    end: dayEndIso(form.end)
   });
 };
 </script>

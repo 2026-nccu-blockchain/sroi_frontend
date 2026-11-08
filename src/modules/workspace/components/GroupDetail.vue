@@ -3,6 +3,7 @@ import { computed } from "vue";
 
 import { GROUP_ROLE_LABELS } from "@/modules/workspace/constants";
 import type { GroupInfo, GroupRole } from "@/modules/workspace/types/workspace.types";
+import { formatTaipeiDate } from "@/shared/utils/date";
 
 const props = withDefaults(defineProps<{ group: GroupInfo; eyebrow?: string }>(), { eyebrow: "我的群組" });
 
@@ -14,8 +15,6 @@ const sections = computed(() => [
   { title: GROUP_ROLE_LABELS.editor, users: membersWithRole("editor") },
   { title: GROUP_ROLE_LABELS.viewer, users: membersWithRole("viewer") }
 ]);
-
-const formatDate = (iso: string): string => new Date(iso).toLocaleDateString("zh-TW");
 </script>
 
 <template>
@@ -28,7 +27,7 @@ const formatDate = (iso: string): string => new Date(iso).toLocaleDateString("zh
 
       <dl class="group-detail__meta">
         <dt>期間</dt>
-        <dd>{{ formatDate(group.begin) }} — {{ formatDate(group.end) }}</dd>
+        <dd>{{ formatTaipeiDate(group.begin) }} — {{ formatTaipeiDate(group.end) }}</dd>
       </dl>
 
       <section v-if="group.status === 'unverified' && group.reason" class="group-detail__section group-detail__reason">
@@ -66,9 +65,11 @@ const formatDate = (iso: string): string => new Date(iso).toLocaleDateString("zh
 <style scoped>
 .group-detail {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 280px;
-  gap: 48px;
+  grid-template-columns: minmax(0, 1fr) 240px;
+  gap: 40px;
   align-items: start;
+  /* 讓組員欄吃掉 MainLayout 右側內距，貼近畫面右邊；數值要跟 MainLayout 的 padding 一致 */
+  margin-right: calc(-1 * clamp(20px, 5vw, 72px));
 }
 
 .group-detail__main {
@@ -156,8 +157,8 @@ h2 {
   max-height: calc(100vh - 24px - clamp(40px, 7vw, 88px));
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding-left: 32px;
-  padding-right: 8px;
+  padding-left: 24px;
+  padding-right: 20px;
   border-left: 1px solid #000;
 }
 
@@ -212,6 +213,7 @@ h2 {
 @media (max-width: 960px) {
   .group-detail {
     grid-template-columns: 1fr;
+    margin-right: 0;
   }
 
   .people {

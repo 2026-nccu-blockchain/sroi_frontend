@@ -68,6 +68,10 @@ export interface LinkedProjectForm {
   status: "draft" | "published" | "closed";
 }
 
+// 依專案期間計算的進度狀態；closed 之後再接上結案邏輯
+export type ProjectPhase = "not_started" | "in_progress" | "pending_close" | "closed";
+export type ProjectPhaseTab = ProjectPhase | "all";
+
 export interface WorkspaceProject {
   project_id: string;
   // 個人專案只有 owner_id，群組專案只有 group_id
@@ -196,8 +200,8 @@ export interface GroupListResponse extends ApiEnvelope {
 export interface GroupPayload {
   title: string;
   desc: string;
-  begin: string; // "YYYY-MM-DDT00:00:00"
-  end: string;
+  begin: string; // "YYYY-MM-DDT00:00:00+08:00"
+  end: string; // "YYYY-MM-DDT23:59:59+08:00"
 }
 
 export interface GroupUser {

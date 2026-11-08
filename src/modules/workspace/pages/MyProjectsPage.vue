@@ -3,6 +3,7 @@ import { computed, onMounted } from "vue";
 import { storeToRefs } from "pinia";
 
 import ProjectList from "@/modules/workspace/components/ProjectList.vue";
+import { useProjectPhaseTab } from "@/modules/workspace/composables/useProjectPhaseTab";
 import { toProjectErrorMessage } from "@/modules/workspace/constants";
 import { useProjectStore } from "@/modules/workspace/store/project.store";
 import type { WorkspaceProject } from "@/modules/workspace/types/workspace.types";
@@ -11,6 +12,7 @@ const projectStore = useProjectStore();
 const { projectsWithForms, loading, error } = storeToRefs(projectStore);
 // 群組專案只在各群組頁顯示，這裡只列個人專案
 const projects = computed(() => projectsWithForms.value.filter((project) => !project.group_id));
+const phaseTab = useProjectPhaseTab();
 
 const loadProjects = async (): Promise<void> => {
   await projectStore.ensureLoaded().catch(() => undefined);
@@ -32,7 +34,9 @@ onMounted(() => {
 
 <template>
   <ProjectList
+    v-model:tab="phaseTab"
     :projects="projects"
+    create-to="/workspace/projects/new"
     :loading="loading"
     :error="error"
     @delete="removeProject"
