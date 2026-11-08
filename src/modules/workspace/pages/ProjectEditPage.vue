@@ -517,7 +517,7 @@ onMounted(async () => {
       </section>
       </fieldset>
 
-      <!-- 利害關係人改在彈窗裡編輯，不放進 fieldset：檢視者也要能按「檢視」打開彈窗 -->
+      <!-- 利害關係人改在彈窗裡編輯，不放進 fieldset：檢視者也要能按名稱打開彈窗 -->
       <section v-if="!isNew" v-show="activeTab === 'stakeholders'" class="editor-card">
         <div class="section-heading section-heading--action">
           <div><span>02</span><h2>利害關係人</h2></div>
@@ -528,7 +528,14 @@ onMounted(async () => {
           <span class="stakeholder-number">{{ String(index + 1).padStart(2, "0") }}</span>
           <div class="stakeholder-card__body">
             <div class="stakeholder-card__title">
-              <h3>{{ stakeholder.name }}</h3>
+              <h3>
+                <button
+                  class="stakeholder-name"
+                  type="button"
+                  :title="readOnly ? '檢視利害關係人' : '編輯利害關係人'"
+                  @click="openStakeholderDialog(stakeholder)"
+                >{{ stakeholder.name }}</button>
+              </h3>
               <span v-if="stakeholder.relation" class="stakeholder-chip">{{ stakeholder.relation }}</span>
               <span v-if="stakeholder.stakeholder_type" class="stakeholder-chip stakeholder-chip--type">{{ stakeholder.stakeholder_type }}</span>
             </div>
@@ -544,7 +551,6 @@ onMounted(async () => {
             </dl>
           </div>
           <div class="stakeholder-actions">
-            <button class="secondary-button" type="button" @click="openStakeholderDialog(stakeholder)">{{ readOnly ? "檢視" : "編輯" }}</button>
             <RouterLink
               v-if="stakeholder.stakeholder_id"
               class="sroi-link"
@@ -691,6 +697,22 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .stakeholder-card__body { display: grid; gap: 12px; min-width: 0; }
 .stakeholder-card__title { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .stakeholder-card__title h3 { margin-right: 4px; font-size: 17px; }
+/* 名稱就是入口：按下打開編輯彈窗（檢視者打開唯讀） */
+.stakeholder-name {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 4px;
+  transition: text-decoration-color 0.15s;
+}
+.stakeholder-name:hover,
+.stakeholder-name:focus-visible { text-decoration-color: currentColor; }
 .stakeholder-chip { padding: 3px 9px; border: 1px solid #111; font-size: 13px; font-weight: 700; }
 .stakeholder-chip--type { border-color: #765292; color: #68447f; }
 .stakeholder-card__muted { color: #999; font-size: 14px; }
