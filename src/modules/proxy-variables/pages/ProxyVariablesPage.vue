@@ -8,6 +8,8 @@ import {
   deleteFinancialProxy,
   type FinancialProxy,
 } from "../api/financialProxy.api";
+import { useDeleteConfirm } from "@/shared/composables/useDeleteConfirm";
+import DeleteConfirmDialog from "@/shared/components/DeleteConfirmDialog.vue";
 
 const proxies = ref<FinancialProxy[]>([]);
 const search = ref("");
@@ -17,7 +19,7 @@ const error = ref("");
 const loading = ref(false);
 const saving = ref(false);
 const deletingId = ref<string | null>(null);
-const form = ref({ name: "", value: "", note: "" });
+const form = ref({ name: "", value: "",unit:"元",note: "" });
 
 const filteredProxies = computed(() => {
   const keyword = search.value.trim().toLowerCase();
@@ -44,13 +46,13 @@ onMounted(() => { void loadProxies(); });
 
 function openCreate() {
   editingId.value = null;
-  form.value = { name: "", value: "", note: "" };
+  form.value = { name: "", value: "",unit:"元", note: "" };
   error.value = "";
   showForm.value = true;
 }
 function openEdit(item: FinancialProxy) {
   editingId.value = item.proxy_id;
-  form.value = { name: item.name, value: String(item.value), note: item.note };
+  form.value = { name: item.name, value: String(item.value),unit: item.unit ?? "元", note: item.note };
   error.value = "";
   showForm.value = true;
 }
@@ -72,7 +74,7 @@ async function saveProxy() {
   saving.value = true;
   error.value = "";
   try {
-    const data = { name, value, note: form.value.note.trim() };
+    const data = { name, value, unit: form.value.unit.trim(),note: form.value.note.trim() };
     if (editingId.value) {
       await updateFinancialProxy(editingId.value, data);
     } else {
@@ -87,7 +89,12 @@ async function saveProxy() {
   }
 }
 async function deleteProxy(item: FinancialProxy) {
-  if (deletingId.value || !confirm(`確定要刪除「${item.name}」嗎？`)) return;
+  if (deletingId.value) return;
+  const confirmed = await askDelete({
+    title: "刪除財務代理變數",
+    message: `確定要刪除「${item.name}」嗎？此動作無法復原。`
+  });
+  if (!confirmed) return;
   deletingId.value = item.proxy_id;
   error.value = "";
   try {
@@ -144,7 +151,7 @@ function formatValue(value: number) {
         <tbody>
           <tr v-for="item in filteredProxies" :key="item.proxy_id">
             <td class="name-cell">{{ item.name }}</td>
-            <td class="value-cell">{{ formatValue(item.value) }}</td>
+            <td class="value-cell">{{ formatValue(item.value) }} {{ item.unit ?? "元" }}</td>
             <td class="note-cell">{{ item.note || "—" }}</td>
             <td class="actions-cell">
               <button class="text-button" @click="openEdit(item)">
@@ -205,10 +212,10 @@ function formatValue(value: number) {
           <label>
             數值 <span class="required">*</span>
             <input
-              v-model="form.value"
-              type="number"
-              step="0.0001"
-              placeholder="請輸入數值"
+              v-model.trim="form.unit"
+              type="text"
+              maxlength="50"
+              placeholder="例如：元／小時、元／人次"
               required
             />
           </label>
@@ -235,6 +242,7 @@ function formatValue(value: number) {
         </form>
       </div>
     </div>
+    <DeleteConfirmDialog v-bind="deleteDialog" @confirm="answerDelete(true)" @cancel="answerDelete(false)" />
   </section>
 </template>
 
@@ -242,19 +250,18 @@ function formatValue(value: number) {
 .proxy-variables {
   display: grid;
   gap: 12px;
-  margin-top: -16px;
 }
 
 .proxy-variables__eyebrow {
   margin: 0;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   letter-spacing: 0.15em;
 }
 
 h1 {
   margin: 0;
-  font-size: 26px;
+  font-size: 24px;
   font-weight: 500;
   line-height: 1;
   letter-spacing: -0.04em;
@@ -271,7 +278,7 @@ h1 {
 .description {
   margin: 0;
   color: #666;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .primary-button {
@@ -280,7 +287,7 @@ h1 {
   padding: 10px 16px;
   background: #222;
   color: white;
-  font-size: 13px;
+  font-size: 14px;
   cursor: pointer;
 }
 
@@ -304,12 +311,12 @@ h1 {
   background: transparent;
   color: inherit;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .search-bar span {
   color: #777;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .table-wrapper {
@@ -329,7 +336,7 @@ th,
 td {
   padding: 14px 12px;
   border-bottom: 1px solid #eee;
-  font-size: 13px;
+  font-size: 14px;
   vertical-align: middle;
 }
 
@@ -385,7 +392,7 @@ tbody tr:last-child td {
 .local-hint {
   margin: 0;
   color: #888;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .modal-overlay {
@@ -419,13 +426,13 @@ tbody tr:last-child td {
 
 .modal-header h2 {
   margin: 0;
-  font-size: 20px;
+  font-size: 18px;
 }
 
 .close-button {
   border: none;
   background: transparent;
-  font-size: 26px;
+  font-size: 20px;
   cursor: pointer;
 }
 
@@ -437,7 +444,7 @@ form {
 form label {
   display: grid;
   gap: 8px;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
 }
 
@@ -465,7 +472,7 @@ form textarea {
 
 .error-message {
   margin: 0;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .form-actions {

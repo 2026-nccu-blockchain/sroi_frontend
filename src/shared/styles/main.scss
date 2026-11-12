@@ -19,6 +19,15 @@ input {
   font-family: inherit;
 }
 
+// 全站文字最小 14px：瀏覽器預設的 <small>、表單元件（約 13.3px）沒寫字級時也不會小於 14px
+small,
+button,
+input,
+select,
+textarea {
+  font-size: 14px;
+}
+
 a,
 button {
   cursor: pointer;

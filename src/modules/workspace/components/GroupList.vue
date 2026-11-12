@@ -4,6 +4,7 @@ import type { RouteLocationRaw } from "vue-router";
 
 import { GROUP_BUCKET_LABELS, GROUP_BUCKETS } from "@/modules/workspace/constants";
 import type { Group, GroupBucketKey, GroupBuckets } from "@/modules/workspace/types/workspace.types";
+import { formatTaipeiDate } from "@/shared/utils/date";
 
 const props = withDefaults(
   defineProps<{
@@ -15,8 +16,10 @@ const props = withDefaults(
     canCreate?: boolean;
     // 哪些分頁的最右邊要顯示刪除按鈕
     deletableBuckets?: GroupBucketKey[];
+    // 顯示「建立者」欄（只有管理員的所有群組頁有這個資料）
+    showCreator?: boolean;
   }>(),
-  { eyebrow: "工作區", canCreate: false, deletableBuckets: () => [] }
+  { eyebrow: "工作區", canCreate: false, deletableBuckets: () => [], showCreator: false }
 );
 
 const emit = defineEmits<{ delete: [group: Group] }>();
@@ -27,19 +30,24 @@ const search = ref("");
 
 const showReason = computed(() => activeTab.value === "unverified");
 const showAction = computed(() => props.deletableBuckets.includes(activeTab.value));
+// 群組名稱、描述、期間固定三欄，再加上選配的建立者、不同意原因
+const dataColumns = computed(() => 3 + Number(props.showCreator) + Number(showReason.value));
 
 const rows = computed(() => {
   const keyword = search.value.trim().toLowerCase();
   const groups = props.groups[activeTab.value];
   const matched = keyword
     ? groups.filter((group) =>
-        [group.title, group.desc, group.reason ?? ""].some((text) => text.toLowerCase().includes(keyword))
+        [
+          group.title,
+          group.desc,
+          group.reason ?? "",
+          ...(props.showCreator ? [group.creator?.name ?? "", group.creator?.campus_id ?? ""] : [])
+        ].some((text) => text.toLowerCase().includes(keyword))
       )
     : groups;
   return matched.map((group) => ({ group, to: props.linkTo(group, activeTab.value) }));
 });
-
-const formatDate = (iso: string): string => new Date(iso).toLocaleDateString("zh-TW");
 </script>
 
 <template>
@@ -71,15 +79,17 @@ const formatDate = (iso: string): string => new Date(iso).toLocaleDateString("zh
     </div>
 
     <div class="search-bar">
-      <input v-model="search" type="search" placeholder="搜尋群組名稱或說明..." :aria-label="`搜尋${title}`" />
+      <input v-model="search" type="search" :placeholder="showCreator ? '搜尋群組名稱、說明或建立者...' : '搜尋群組名稱或說明...'" :aria-label="`搜尋${title}`" />
     </div>
 
     <div
       class="group-list"
       :class="{ 'group-list--with-reason': showReason, 'group-list--with-action': showAction }"
+      :style="{ '--data-columns': dataColumns }"
     >
       <div class="group-list__header" aria-hidden="true">
         <span>群組名稱</span>
+        <span v-if="showCreator">建立者</span>
         <span>群組描述</span>
         <span v-if="showReason">不同意原因</span>
         <span class="group-list__period">期間</span>
@@ -89,9 +99,16 @@ const formatDate = (iso: string): string => new Date(iso).toLocaleDateString("zh
       <article v-for="{ group, to } in rows" :key="group.group_id" class="group-row">
         <RouterLink v-if="to" class="group-row__title" :to="to">{{ group.title }}</RouterLink>
         <span v-else class="group-row__title group-row__title--static">{{ group.title }}</span>
+        <span v-if="showCreator" data-label="建立者" class="creator">
+          <template v-if="group.creator">
+            <span>{{ group.creator.name }}</span>
+            <span v-if="group.creator.campus_id" class="creator__id">{{ group.creator.campus_id }}</span>
+          </template>
+          <span v-else class="creator__id">不明</span>
+        </span>
         <span data-label="群組描述" class="desc">{{ group.desc }}</span>
         <span v-if="showReason" data-label="不同意原因" class="reason">{{ group.reason || "—" }}</span>
-        <span data-label="期間" class="group-list__period">{{ formatDate(group.begin) }} — {{ formatDate(group.end) }}</span>
+        <span data-label="期間" class="group-list__period">{{ formatTaipeiDate(group.begin) }} — {{ formatTaipeiDate(group.end) }}</span>
         <div v-if="showAction" class="group-row__action">
           <button class="button button--danger" type="button" @click="emit('delete', group)">刪除</button>
         </div>
@@ -106,7 +123,6 @@ const formatDate = (iso: string): string => new Date(iso).toLocaleDateString("zh
 .groups {
   display: grid;
   gap: 22px;
-  margin-top: -16px;
 }
 
 .groups__intro {
@@ -118,14 +134,14 @@ const formatDate = (iso: string): string => new Date(iso).toLocaleDateString("zh
 
 .groups__eyebrow {
   margin: 0 0 8px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   letter-spacing: 0.15em;
 }
 
 h1 {
   margin: 0;
-  font-size: 26px;
+  font-size: 24px;
   font-weight: 500;
   line-height: 1;
   letter-spacing: -0.04em;
@@ -141,7 +157,7 @@ h1 {
   border: 1px solid #000;
   color: #000;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   text-decoration: none;
   cursor: pointer;
@@ -168,7 +184,7 @@ h1 {
   background: transparent;
   color: #000;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   cursor: pointer;
 }
@@ -180,7 +196,7 @@ h1 {
 
 .tab-bar__count {
   margin-left: 6px;
-  font-size: 11px;
+  font-size: 14px;
   opacity: 0.7;
 }
 
@@ -217,36 +233,36 @@ h1 {
   border-top: 2px solid #000;
 }
 
-/* 放在 min-width 裡，才不會蓋掉手機版的 1fr auto */
-@media (min-width: 841px) {
-  .group-list--with-reason .group-list__header,
-  .group-list--with-reason .group-row {
-    grid-template-columns: repeat(4, minmax(140px, 1fr));
-  }
-
-  .group-list--with-action .group-list__header,
-  .group-list--with-action .group-row {
-    grid-template-columns: repeat(3, minmax(160px, 1fr)) auto;
-  }
-
-  .group-list--with-reason.group-list--with-action .group-list__header,
-  .group-list--with-reason.group-list--with-action .group-row {
-    grid-template-columns: repeat(4, minmax(140px, 1fr)) auto;
-  }
-}
-
+/* 欄數由 --data-columns 決定（建立者、不同意原因是選配欄位）；刪除按鈕另佔一欄 auto */
 .group-list__header,
 .group-row {
   display: grid;
-  grid-template-columns: minmax(160px, 1fr) minmax(160px, 1fr) minmax(160px, 1fr);
+  grid-template-columns: repeat(var(--data-columns, 3), minmax(140px, 1fr));
   gap: 20px;
   align-items: center;
+}
+
+/* 放在 min-width 裡，才不會蓋掉手機版的 1fr auto */
+@media (min-width: 841px) {
+  .group-list--with-action .group-list__header,
+  .group-list--with-action .group-row {
+    grid-template-columns: repeat(var(--data-columns, 3), minmax(140px, 1fr)) auto;
+  }
+}
+
+.creator {
+  display: grid;
+  gap: 2px;
+}
+
+.creator__id {
+  color: #777;
 }
 
 .group-list__header {
   min-height: 45px;
   border-bottom: 1px solid #000;
-  font-size: 10px;
+  font-size: 14px;
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -259,7 +275,7 @@ h1 {
 .group-row {
   min-height: 82px;
   border-bottom: 1px solid #000;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .group-row__title {
@@ -323,6 +339,16 @@ h1 {
 
   .group-row__title {
     grid-column: 1 / -1;
+  }
+
+  /* 建立者獨佔一行，描述與期間維持原本的左右排列 */
+  .creator {
+    display: block;
+    grid-column: 1 / -1;
+  }
+
+  .creator__id {
+    margin-left: 8px;
   }
 
   .group-row > span::before {

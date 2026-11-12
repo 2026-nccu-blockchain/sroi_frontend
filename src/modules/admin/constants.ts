@@ -8,8 +8,7 @@ const ADMIN_ERROR_MESSAGES: Record<string, string> = {
   "10012": "此學號已被其他帳號使用",
   "10013": "找不到群組，或群組已經審核過",
   "10015": "無法變更自己的權限",
-  "10023": "此群組沒有申請人，無法通過審核",
-  "10021": "找不到圖片"
+  "10023": "此群組沒有申請人，無法通過審核"
 };
 
 export const TAB_LABELS: Record<UserTab, string> = {
@@ -24,6 +23,6 @@ export const toAdminErrorMessage = (err: unknown): string =>
 
 // 與後端 add_admin / add_db_editor 可接受的原角色一致
 export const ADD_ALLOWED_ROLES: Record<ManagedRole, UserRole[]> = {
-  admin: ["verified", "db_editor"],
-  db_editor: ["verified"]
+  admin: ["normal", "db_editor"],
+  db_editor: ["normal"]
 };

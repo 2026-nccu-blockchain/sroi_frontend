@@ -8,11 +8,12 @@ import type {
   GroupUserSearchResponse,
   InviteMemberPayload,
   ChangeRolePayload,
+  ProjectCostsResponse,
   ProjectCreatePayload,
   ProjectPayload,
-  ProjectInterviewFile,
-  ProjectSROI,
-  ProjectSROIPayload,
+  StakeholderSROI,
+  StakeholderSROIPayload,
+  TempInterviewFile,
   WorkspaceProject
 } from "@/modules/workspace/types/workspace.types";
 
@@ -31,36 +32,39 @@ export const updateProject = (projectId: string, payload: Partial<ProjectPayload
 export const deleteProject = (projectId: string): Promise<void> =>
   httpClient.delete(`/project/${encodeURIComponent(projectId)}`);
 
-export const getProjectSROI = (projectId: string): Promise<ProjectSROI> =>
-  httpClient.get<ProjectSROI>(`/project/${encodeURIComponent(projectId)}/sroi`);
-
-export const saveProjectSROI = (
+export const getStakeholderSROI = (
   projectId: string,
-  payload: ProjectSROIPayload
-): Promise<ProjectSROI> =>
-  httpClient.put<ProjectSROI>(`/project/${encodeURIComponent(projectId)}/sroi`, payload);
+  stakeholderId: string
+): Promise<StakeholderSROI> =>
+  httpClient.get<StakeholderSROI>(
+    `/project/${encodeURIComponent(projectId)}/stakeholders/${encodeURIComponent(stakeholderId)}/sroi`
+  );
 
-export const uploadProjectInterviewFile = (
+export const saveStakeholderSROI = (
   projectId: string,
   stakeholderId: string,
-  file: File
-): Promise<ProjectInterviewFile> => {
+  payload: StakeholderSROIPayload
+): Promise<StakeholderSROI> =>
+  httpClient.put<StakeholderSROI>(
+    `/project/${encodeURIComponent(projectId)}/stakeholders/${encodeURIComponent(stakeholderId)}/sroi`,
+    payload
+  );
+
+export const getProjectCosts = (projectId: string): Promise<ProjectCostsResponse> =>
+  httpClient.get<ProjectCostsResponse>(`/project/${encodeURIComponent(projectId)}/costs`);
+
+// 先存到後端暫存資料夾，按「儲存專案」時才正式存入
+export const uploadTempInterviewFile = (projectId: string, file: File): Promise<TempInterviewFile> => {
   const body = new FormData();
-  body.append("stakeholder_id", stakeholderId);
   body.append("file", file);
-  return httpClient.post<ProjectInterviewFile>(
-    `/project/${encodeURIComponent(projectId)}/interview-files`,
+  return httpClient.post<TempInterviewFile>(
+    `/project/${encodeURIComponent(projectId)}/interview-files/temp`,
     body
   );
 };
 
 export const downloadProjectInterviewFile = (projectId: string, fileId: string): Promise<Blob> =>
   httpClient.getBlob(
-    `/project/${encodeURIComponent(projectId)}/interview-files/${encodeURIComponent(fileId)}`
-  );
-
-export const deleteProjectInterviewFile = (projectId: string, fileId: string): Promise<void> =>
-  httpClient.delete(
     `/project/${encodeURIComponent(projectId)}/interview-files/${encodeURIComponent(fileId)}`
   );
 

@@ -17,13 +17,12 @@ import type {
 import { ROLE_LABELS } from "@/modules/profile/constants";
 import ConfirmDialog from "@/modules/workspace/components/ConfirmDialog.vue";
 import MemberTable from "@/modules/workspace/components/MemberTable.vue";
+import DeleteConfirmDialog from "@/shared/components/DeleteConfirmDialog.vue";
 
 const ROLE_TABS: { key: UserRole; field: UserListField }[] = [
   { key: "admin", field: "admin" },
   { key: "db_editor", field: "db_editor" },
-  { key: "verified", field: "verified_user" },
-  { key: "in_progress", field: "in_progress_user" },
-  { key: "unverified", field: "unverified_user" }
+  { key: "normal", field: "normal_user" }
 ];
 
 // 學號變更申請的使用者同時也在原本的角色清單裡
@@ -33,16 +32,14 @@ const TABS: { key: UserTab; field: UserListField }[] = [
 ];
 
 // 需要管理員處理的分頁，有待審項目時標示出來
-const REVIEW_TABS: UserTab[] = ["in_progress", "change_request"];
+const REVIEW_TABS: UserTab[] = ["change_request"];
 
 const MANAGED_ROLES: UserTab[] = ["admin", "db_editor"];
 
 const emptyLists = (): Record<UserTab, AdminUser[]> => ({
   admin: [],
   db_editor: [],
-  verified: [],
-  in_progress: [],
-  unverified: [],
+  normal: [],
   change_request: []
 });
 
@@ -121,7 +118,7 @@ const confirmDialog = computed(() => {
     ? { title: `新增${roleName}`, message: `確定要將 ${who} 設為${roleName}嗎？`, confirmText: "新增" }
     : {
         title: `刪除${roleName}`,
-        message: `確定要移除 ${who} 的${roleName}權限嗎？移除後會變回已驗證使用者。`,
+        message: `確定要移除 ${who} 的${roleName}權限嗎？移除後會變回一般使用者。`,
         confirmText: "刪除"
       };
 });
@@ -209,13 +206,22 @@ const handleConfirm = async (): Promise<void> => {
     />
 
     <!-- 放在搜尋視窗後面，才會疊在上層 -->
+    <!-- 新增權限用一般確認窗，刪除權限用刪除警示窗 -->
     <ConfirmDialog
-      :open="pending !== null"
+      :open="pending !== null && manage?.action === 'add'"
       :title="confirmDialog.title"
       :message="confirmDialog.message"
       :confirm-text="confirmDialog.confirmText"
       :loading="confirming"
-      :danger="manage?.action === 'remove'"
+      @confirm="handleConfirm"
+      @cancel="pending = null"
+    />
+    <DeleteConfirmDialog
+      :open="pending !== null && manage?.action === 'remove'"
+      :title="confirmDialog.title"
+      :message="confirmDialog.message"
+      :confirm-text="confirmDialog.confirmText"
+      :loading="confirming"
       @confirm="handleConfirm"
       @cancel="pending = null"
     />
@@ -238,14 +244,14 @@ const handleConfirm = async (): Promise<void> => {
 
 .admin-users__eyebrow {
   margin: 0 0 8px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   letter-spacing: 0.15em;
 }
 
 h1 {
   margin: 0;
-  font-size: 26px;
+  font-size: 24px;
   font-weight: 500;
   line-height: 1;
   letter-spacing: -0.04em;
@@ -273,7 +279,7 @@ h1 {
   background: transparent;
   color: #000;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   cursor: pointer;
 }
@@ -295,7 +301,7 @@ h1 {
 
 .detail-link {
   color: #000;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   text-decoration: none;
 }
@@ -306,7 +312,7 @@ h1 {
 
 .muted {
   color: #777;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .button {
@@ -319,7 +325,7 @@ h1 {
   background: #fff;
   color: #000;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   cursor: pointer;
 }

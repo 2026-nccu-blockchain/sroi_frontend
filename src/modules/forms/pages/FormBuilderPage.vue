@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import { useAuth } from "@/modules/auth/composables/useAuth";
+import { toFullEmail } from "@/modules/auth/utils/email";
 import {
   createPage,
   createForm,
@@ -11,6 +12,7 @@ import {
   deleteQuestion as deleteQuestionApi,
   getForm,
   saveFormStructure,
+  syncProjectOutcomes,
   updatePage,
   updateForm,
   updateQuestion
@@ -24,6 +26,7 @@ import type {
 import { useFormStore } from "@/modules/forms/store/form.store";
 import { getProject } from "@/modules/workspace/api/workspace.api";
 import { useProjectStore } from "@/modules/workspace/store/project.store";
+import type { GroupRole } from "@/modules/workspace/types/workspace.types";
 import { HttpError } from "@/shared/api/http";
 
 type QuestionType = "description" | "text" | "scale" | "date" | "choice";
@@ -60,6 +63,9 @@ const router = useRouter();
 const { user, isAuthenticated } = useAuth();
 const formStore = useFormStore();
 const projectStore = useProjectStore();
+// 個人專案沒有 my_role，視為擁有者；群組檢視者只能看表單，不會自動儲存
+const myRole = ref<GroupRole>("leader");
+const readOnly = computed(() => myRole.value === "viewer");
 const formId = ref("");
 const sourceProjectId = computed(() => typeof route.params.projectId === "string" ? route.params.projectId : "");
 const blocks = ref<Block[]>([]);
@@ -75,6 +81,11 @@ const validationIssues = ref<string[]>([]);
 const showToast = ref(false);
 const publishedLink = ref("");
 const formStatus = ref<FormResponse["status"]>("draft");
+const shuffleOutcomeQuestions = ref(true);
+const showPublishDialog = ref(false);
+const publishing = ref(false);
+const syncingOutcomes = ref(false);
+const syncMessage = ref("");
 const draggedQuestionId = ref<string | null>(null);
 const dragOverQuestionId = ref<string | null>(null);
 let saveTimer: number | undefined;
@@ -106,6 +117,7 @@ const normalizeScaleSize = (value: number | null | undefined): number => {
 
 const questions = ref<Question[]>([]);
 const respondentBlock = computed(() => blocks.value.find((block) => block.isRespondentInfo) ?? null);
+const outcomeBlocks = computed(() => blocks.value.filter((block) => Boolean(block.outcomeId)));
 const userInitial = computed(() => (user.value?.name || user.value?.email || "U").charAt(0).toUpperCase());
 const canViewResponses = computed(() => formStatus.value === "published" && Boolean(formId.value));
 
@@ -156,6 +168,7 @@ const fromResponse = (question: QuestionResponse): Question => ({
 const hydrate = (form: FormResponse): void => {
   formId.value = form.form_id;
   formStatus.value = form.status;
+  shuffleOutcomeQuestions.value = form.shuffle_outcome_questions;
   formTitle.value = form.title ?? "未命名表單";
   formDescription.value = form.content ?? "";
   blocks.value = form.pages.map((page) => ({
@@ -187,8 +200,14 @@ const initializeForm = async (): Promise<void> => {
     // 編輯器必須以後端最新結構為準，避免 Pinia 舊快取蓋掉剛儲存的區段。
     const project = await getProject(sourceProjectId.value);
     projectStore.upsert(project);
+    myRole.value = project.my_role ?? "leader";
 
     const requestedFormId = String(route.params.formId ?? "");
+    // 檢視者不能新增表單
+    if (!requestedFormId && readOnly.value) {
+      await router.replace({ name: "project-edit", params: { projectId: sourceProjectId.value } });
+      return;
+    }
     if (requestedFormId) {
       if (!project.forms.some((form) => form.form_id === requestedFormId)) {
         throw new Error("這份表單沒有連結到目前專案");
@@ -200,31 +219,21 @@ const initializeForm = async (): Promise<void> => {
       return;
     }
 
-    const outcomePages = project.outcomes.length
-      ? project.outcomes.map((outcome, index) => ({
-        project_outcome_id: outcome.outcome_id ?? null,
-        is_respondent_info: false,
-        title: outcome.name,
-        content: "",
-        position: index + 1,
-        questions: []
-      }))
-      : [{ project_outcome_id: null, is_respondent_info: false, title: "未命名區塊", content: "", position: 1, questions: [] }];
     const created = await createForm({
       project_id: sourceProjectId.value,
       title: formTitle.value,
       content: formDescription.value,
       status: "draft",
+      shuffle_outcome_questions: true,
       pages: [
         {
           project_outcome_id: null,
           is_respondent_info: true,
           title: "基本資料",
-          content: "請填寫以下基本資料，Email 將用於確認每人只填寫一次。",
+          content: "請填寫以下基本資料，電子郵件將用於確認每人只填寫一次。",
           position: 0,
           questions: []
-        },
-        ...outcomePages
+        }
       ]
     });
     formStore.upsert(created);
@@ -254,14 +263,14 @@ const initializeForm = async (): Promise<void> => {
 
 const goBack = async (): Promise<void> => {
   if (sourceProjectId.value) {
-    await router.push({ name: "project-edit", params: { projectId: sourceProjectId.value } });
+    await router.push({ name: "project-edit", params: { projectId: sourceProjectId.value }, query: { tab: "forms" } });
     return;
   }
   await router.push({ name: "my-projects" });
 };
 
 const persistDraft = (): Promise<void> => {
-  if (!formId.value) return Promise.resolve();
+  if (readOnly.value || !formId.value) return Promise.resolve();
   if (activeSave) {
     pendingSave = true;
     return activeSave.then(() => pendingSave ? persistDraft() : undefined);
@@ -382,7 +391,57 @@ const persistDraft = (): Promise<void> => {
   return activeSave;
 };
 
+const syncOutcomes = async (): Promise<void> => {
+  if (readOnly.value || !formId.value || syncingOutcomes.value) return;
+  window.clearTimeout(saveTimer);
+  syncMessage.value = "";
+  saveError.value = "";
+  syncingOutcomes.value = true;
+  try {
+    if (!saved.value) await persistDraft();
+    if (saveError.value) return;
+
+    const existingOutcomeIds = new Set(
+      blocks.value.flatMap((block) => block.outcomeId ? [block.outcomeId] : [])
+    );
+    const synced = await syncProjectOutcomes(formId.value);
+    const addedPages = synced.pages.filter(
+      (page) => page.project_outcome_id && !existingOutcomeIds.has(page.project_outcome_id)
+    );
+
+    formStore.upsert(synced);
+    hydrate(synced);
+    saved.value = true;
+    if (addedPages.length) {
+      activeBlockId.value = addedPages[0]?.page_id ?? activeBlockId.value;
+      syncMessage.value = `已同步 ${addedPages.length} 個新增成果區段`;
+      await nextTick();
+      document.getElementById(`block-${activeBlockId.value}`)?.scrollIntoView({
+        behavior: "smooth",
+        block: "center"
+      });
+    } else {
+      syncMessage.value = "目前沒有新的成果可同步";
+    }
+  } catch (error) {
+    saveError.value = error instanceof Error ? error.message : "成果同步失敗";
+  } finally {
+    syncingOutcomes.value = false;
+  }
+};
+
+const goToOutcomeBlock = async (blockId: string): Promise<void> => {
+  activeBlockId.value = blockId;
+  activeQuestionId.value = "";
+  await nextTick();
+  document.getElementById(`block-${blockId}`)?.scrollIntoView({
+    behavior: "smooth",
+    block: "center"
+  });
+};
+
 const touch = (): void => {
+  if (readOnly.value) return;
   editRevision += 1;
   saved.value = false;
   pendingSave = true;
@@ -528,8 +587,8 @@ header{border-top:9px solid #765292}h1{margin:0 0 10px}h2{color:#684884}
 p{color:#756b79}.q{padding:22px 0;border-top:1px solid #eeeaf0}.q h3{font-size:15px}
 textarea,input[type=date]{box-sizing:border-box;width:100%;padding:12px;border:1px solid #ddd7e1;border-radius:8px}
 .choice{display:flex;gap:10px;margin:12px 0}.scale{display:flex;gap:18px;flex-wrap:wrap}
-.scale label{display:grid;justify-items:center;gap:6px}.required{color:#b1485c}.description{padding:22px;border:1px solid #e2dde5;border-radius:10px;background:#fff}.description h2{margin:0;color:#403a44;font-size:16px}.description p{margin:24px 0 0;color:#5f5863;font-size:13px;line-height:1.8;white-space:pre-wrap}
-.badge{display:inline-block;margin-bottom:12px;padding:5px 9px;border-radius:999px;background:#eee7f3;color:#684884;font-size:12px}
+.scale label{display:grid;justify-items:center;gap:6px}.required{color:#b1485c}.description{padding:22px;border:1px solid #e2dde5;border-radius:10px;background:#fff}.description h2{margin:0;color:#403a44;font-size:16px}.description p{margin:24px 0 0;color:#5f5863;font-size:14px;line-height:1.8;white-space:pre-wrap}
+.badge{display:inline-block;margin-bottom:12px;padding:5px 9px;border-radius:999px;background:#eee7f3;color:#684884;font-size:14px}
 </style></head><body><main><header><span class="badge">預覽模式</span><h1>${esc(formTitle.value)}</h1><p>${esc(formDescription.value)}</p></header>${body}</main></body></html>`);
     previewWindow.document.close();
   } catch (error) {
@@ -694,7 +753,7 @@ const addRespondentInfoBlock = async (): Promise<void> => {
     outcomeId: null,
     isRespondentInfo: true,
     title: "基本資料",
-    content: "請填寫以下基本資料，Email 將用於確認每人只填寫一次。"
+    content: "請填寫以下基本資料，電子郵件將用於確認每人只填寫一次。"
   });
   activeBlockId.value = tempBlockId;
   activeQuestionId.value = "";
@@ -705,17 +764,31 @@ const addRespondentInfoBlock = async (): Promise<void> => {
   await persistDraft();
 };
 
-const removeBlock = async (blockId: string): Promise<void> => {
-  if (blocks.value.find((block) => block.id === blockId)?.isRespondentInfo) return;
-  if (blocks.value.length <= 1) return;
+const removeBlock = async (blockId: string): Promise<boolean> => {
+  if (blocks.value.find((block) => block.id === blockId)?.isRespondentInfo) return false;
+  if (blocks.value.length <= 1) return false;
   try {
     if (!blockId.startsWith("temp-block-")) await deletePage(blockId);
     blocks.value = blocks.value.filter((block) => block.id !== blockId);
     questions.value = questions.value.filter((question) => question.pageId !== blockId);
     activeBlockId.value = blocks.value[0]?.id ?? "";
     saved.value = true;
+    return true;
   } catch (error) {
     saveError.value = error instanceof Error ? error.message : "刪除區塊失敗";
+    return false;
+  }
+};
+
+const confirmRemoveBlock = async (block: Block): Promise<void> => {
+  const isSyncedOutcome = Boolean(block.outcomeId);
+  const message = isSyncedOutcome
+    ? `確定要從這份表單移除「${block.title || "未命名成果"}」嗎？\n\n這不會刪除專案的成果初列，之後再次同步也不會重複加入。`
+    : `確定要刪除「${block.title || "未命名區塊"}」嗎？`;
+  if (!window.confirm(message)) return;
+  const removed = await removeBlock(block.id);
+  if (removed && isSyncedOutcome) {
+    syncMessage.value = `已從這份表單移除「${block.title || "未命名成果"}」`;
   }
 };
 
@@ -802,28 +875,38 @@ const publishIssues = (): string[] => {
   return issues;
 };
 
-const publish = async (): Promise<void> => {
+const openPublishDialog = (): void => {
+  if (readOnly.value) return;
   validationIssues.value = publishIssues();
   if (validationIssues.value.length) {
     saveError.value = "發布前請先完成以下內容";
     window.scrollTo({ top: 0, behavior: "smooth" });
     return;
   }
+  showPublishDialog.value = true;
+};
+
+const publish = async (): Promise<void> => {
   window.clearTimeout(saveTimer);
   saveError.value = "";
+  publishing.value = true;
   try {
     if (!saved.value) await persistDraft();
     if (!formId.value || saveError.value || !saved.value) return;
     const published = await updateForm(formId.value, {
-      status: "published"
+      status: "published",
+      shuffle_outcome_questions: shuffleOutcomeQuestions.value
     });
     formStore.upsert(published);
     hydrate(published);
     saved.value = true;
+    showPublishDialog.value = false;
     showToast.value = true;
     window.setTimeout(() => (showToast.value = false), 2400);
   } catch (error) {
     saveError.value = error instanceof Error ? error.message : "發布失敗";
+  } finally {
+    publishing.value = false;
   }
 };
 
@@ -968,7 +1051,7 @@ const exportWorksheet = (): void => {
 
         h1 {
           text-align: center;
-          font-size: 26px;
+          font-size: 24px;
           margin-bottom: 8px;
         }
 
@@ -1005,7 +1088,7 @@ const exportWorksheet = (): void => {
         }
 
         .section-heading-title {
-          font-size: 20px;
+          font-size: 18px;
           font-weight: 700;
         }
 
@@ -1049,7 +1132,7 @@ const exportWorksheet = (): void => {
         .footer {
           margin-top: 50px;
           text-align: center;
-          font-size: 12px;
+          font-size: 14px;
           color: #999;
         }
       </style>
@@ -1139,26 +1222,44 @@ onMounted(() => void initializeForm());
         </button>
         <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
         <div class="document-meta">
-          <input v-model="formTitle" class="document-meta__title" aria-label="表單名稱" @input="touch" />
+          <input v-model="formTitle" class="document-meta__title" aria-label="表單名稱" :readonly="readOnly" @input="touch" />
           <span class="document-meta__status" :class="{ 'document-meta__status--error': saveError }">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 18a4.6 4.6 0 0 1-.4-9.2A6 6 0 0 1 18.1 8a4 4 0 0 1-.1 8H7Z" /><path d="m9.5 13 1.7 1.7 3.5-4" /></svg>
-            {{ saveError || (initializing ? "載入中…" : saving ? "儲存中…" : saved ? "已儲存" : "尚未儲存") }}
+            {{ readOnly ? "僅供檢視" : (saveError || (initializing ? "載入中…" : saving ? "儲存中…" : saved ? "已儲存" : "尚未儲存")) }}
           </span>
         </div>
       </div>
 
       <div class="topbar__actions">
 
+        <button
+          v-if="!readOnly"
+          type="button"
+          class="sync-outcomes-button"
+          :class="{ 'sync-outcomes-button--loading': syncingOutcomes }"
+          :disabled="initializing || saving || syncingOutcomes"
+          aria-label="同步專案成果"
+          :title="syncingOutcomes ? '正在同步專案成果' : '同步專案成果'"
+          @click="syncOutcomes"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M20 7v5h-5" />
+            <path d="M4 17v-5h5" />
+            <path d="M6.1 8.1A7 7 0 0 1 18.8 10L20 12" />
+            <path d="M17.9 15.9A7 7 0 0 1 5.2 14L4 12" />
+          </svg>
+        </button>
+
         <button type="button" class="worksheet-export-btn" @click="exportWorksheet">匯出學習單</button>
 
-        <button class="publish-button" type="button" :disabled="initializing || saving" @click="publish">
+        <button v-if="!readOnly" class="publish-button" type="button" :disabled="initializing || saving || publishing" @click="openPublishDialog">
           {{ formStatus === "published" ? "重新發布" : "發布" }}
         </button>
         <RouterLink
           class="avatar-button"
           to="/profile"
           :aria-label="`前往 ${user?.name || user?.email || '使用者'} 的個人資料`"
-          :title="user?.email || '個人資料'"
+          :title="toFullEmail(user?.email) || '個人資料'"
         >{{ userInitial }}</RouterLink>
       </div>
     </header>
@@ -1186,10 +1287,41 @@ onMounted(() => void initializeForm());
             <span>表單說明</span>
             <textarea v-model="formDescription" rows="3" @input="touch"></textarea>
           </label>
-          <p>更多設定（例如收集 Email、截止時間）需要後端欄位支援後再加入。</p>
+          <p>更多設定（例如收集電子郵件、截止時間）需要後端欄位支援後再加入。</p>
           <button type="button" @click="openQuestionTab">返回問題</button>
         </section>
         <p v-if="saveError" class="connection-error" role="alert">{{ saveError }}</p>
+        <p v-if="syncMessage" class="sync-message" role="status">{{ syncMessage }}</p>
+        <section class="outcome-index" aria-labelledby="outcome-index-title">
+          <div class="outcome-index__heading">
+            <div>
+              <strong id="outcome-index-title">目前成果</strong>
+              <span>{{ outcomeBlocks.length }} 個成果區塊</span>
+            </div>
+            <small>點選成果可直接前往對應區塊</small>
+          </div>
+          <div v-if="outcomeBlocks.length" class="outcome-index__list">
+            <div
+              v-for="(block, index) in outcomeBlocks"
+              :key="block.id"
+              class="outcome-index__item"
+              :class="{ 'outcome-index__item--active': activeBlockId === block.id }"
+            >
+              <button type="button" class="outcome-index__jump" @click="goToOutcomeBlock(block.id)">
+                <span>{{ index + 1 }}</span>{{ block.title || '未命名成果' }}
+              </button>
+              <button
+                v-if="!readOnly"
+                type="button"
+                class="outcome-index__remove"
+                :aria-label="`從表單移除 ${block.title || '未命名成果'}`"
+                :title="`從這份表單移除 ${block.title || '未命名成果'}`"
+                @click="confirmRemoveBlock(block)"
+              >×</button>
+            </div>
+          </div>
+          <p v-else>尚未同步專案成果，請按右上角的同步圖示。</p>
+        </section>
         <section v-if="validationIssues.length" class="validation-reminder" role="alert">
           <strong>表單還沒有完成</strong>
           <p>內容不會被刪除，請完成後再發布：</p>
@@ -1204,6 +1336,7 @@ onMounted(() => void initializeForm());
           </div>
           <button type="button" @click="copyPublishedLink">複製連結</button>
         </section>
+        <fieldset class="readonly-fieldset" :disabled="readOnly">
         <section class="form-heading">
           <div class="form-heading__accent"></div>
           <label>
@@ -1219,7 +1352,7 @@ onMounted(() => void initializeForm());
         <section v-if="!respondentBlock" class="respondent-block-reminder">
           <div>
             <strong>尚未建立基本資料區段</strong>
-            <p>這個區段會顯示給填答者，Email 會放在其中，也可新增姓名、電話或身分別等題目。</p>
+            <p>這個區段會顯示給填答者，電子郵件會放在其中，也可新增姓名、電話或身分別等題目。</p>
           </div>
           <button type="button" @click="addRespondentInfoBlock">＋ 新增基本資料區段</button>
         </section>
@@ -1238,16 +1371,16 @@ onMounted(() => void initializeForm());
               <input v-model="block.title" aria-label="區塊名稱" placeholder="例如：同理心" @input="touch" />
               <textarea v-model="block.content" rows="1" aria-label="區塊說明" placeholder="說明這個區塊評估的能力" @input="touch"></textarea>
             </div>
-            <button v-if="!block.isRespondentInfo" type="button" :disabled="blocks.filter((item) => !item.isRespondentInfo).length === 1" @click.stop="removeBlock(block.id)">刪除區塊</button>
+            <button v-if="!block.isRespondentInfo" type="button" :disabled="blocks.length <= 1" @click.stop="confirmRemoveBlock(block)">刪除區塊</button>
           </header>
 
           <section v-if="block.isRespondentInfo" class="system-email-field">
             <div>
               <span>系統必填欄位</span>
-              <strong>電子郵件 Email <b>*</b></strong>
+              <strong>電子郵件 <b>*</b></strong>
               <small>用於防止同一人重複填寫，此欄位無法刪除。</small>
             </div>
-            <div class="system-email-field__preview">name@example.com</div>
+            <div class="system-email-field__preview">填答者的電子郵件</div>
           </section>
 
         <section
@@ -1268,7 +1401,7 @@ onMounted(() => void initializeForm());
           <button
             class="drag-handle"
             type="button"
-            draggable="true"
+            :draggable="!readOnly"
             aria-label="拖曳以調整題目順序"
             title="拖曳以排序"
             @dragstart.stop="startQuestionDrag($event, question.id)"
@@ -1383,8 +1516,9 @@ onMounted(() => void initializeForm());
           <button class="block-add-question" type="button" @click.stop="activeBlockId = block.id; showQuestionTypeMenu = true">＋ 在此區塊新增問題</button>
         </section>
 
-        <button class="add-block" type="button" @click="addBlock">＋ 新增成果區塊</button>
-        <button class="mobile-add" type="button" @click="showQuestionTypeMenu = true">＋ 新增問題</button>
+        <button v-if="!readOnly" class="add-block" type="button" @click="addBlock">＋ 新增成果區塊</button>
+        <button v-if="!readOnly" class="mobile-add" type="button" @click="showQuestionTypeMenu = true">＋ 新增問題</button>
+        </fieldset>
         <p class="canvas-footer">請勿透過表單提交密碼或其他機密資訊。</p>
       </div>
 
@@ -1401,6 +1535,40 @@ onMounted(() => void initializeForm());
       </section>
     </div>
 
+    <div v-if="showPublishDialog" class="publish-dialog-backdrop" @click.self="showPublishDialog = false">
+      <section class="publish-dialog" role="dialog" aria-modal="true" aria-labelledby="publish-dialog-title">
+        <header>
+          <p>{{ formStatus === 'published' ? '重新發布設定' : '發布設定' }}</p>
+          <h2 id="publish-dialog-title">填答時要打散成果區塊的題目嗎？</h2>
+          <span>基本資料區塊不受此設定影響，永遠會先顯示。</span>
+        </header>
+
+        <div class="publish-options">
+          <label :class="{ 'publish-option--selected': shuffleOutcomeQuestions }">
+            <input v-model="shuffleOutcomeQuestions" type="radio" :value="true" />
+            <span>
+              <strong>打散題目</strong>
+              <small>完成基本資料後，系統會將所有成果區塊的題目隨機混排。</small>
+            </span>
+          </label>
+          <label :class="{ 'publish-option--selected': !shuffleOutcomeQuestions }">
+            <input v-model="shuffleOutcomeQuestions" type="radio" :value="false" />
+            <span>
+              <strong>維持原本順序</strong>
+              <small>依照設計者設定的區塊與題目順序顯示。</small>
+            </span>
+          </label>
+        </div>
+
+        <footer>
+          <button type="button" class="publish-dialog__cancel" :disabled="publishing" @click="showPublishDialog = false">取消</button>
+          <button type="button" class="publish-dialog__confirm" :disabled="publishing" @click="publish">
+            {{ publishing ? '發布中…' : (formStatus === 'published' ? '確認重新發布' : '確認發布') }}
+          </button>
+        </footer>
+      </section>
+    </div>
+
     <Transition name="toast">
       <div v-if="showToast" class="toast">表單已發布！分享連結已建立。</div>
     </Transition>
@@ -1408,6 +1576,7 @@ onMounted(() => void initializeForm());
 </template>
 
 <style scoped>
+.readonly-fieldset { display: contents; min-width: 0; margin: 0; padding: 0; border: 0; }
 .builder-shell {
   min-height: 100vh;
   color: #292631;
@@ -1474,7 +1643,7 @@ svg { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: 
 .document-meta { display: grid; gap: 3px; margin-left: 4px; }
 .document-meta__title { width: min(320px, 28vw); border: 0; border-bottom: 1px solid transparent; outline: 0; color: #292631; font-size: 15px; font-weight: 650; }
 .document-meta__title:focus { border-color: #72508c; }
-.document-meta__status { display: flex; align-items: center; gap: 5px; color: #8b8690; font-size: 11px; }
+.document-meta__status { display: flex; align-items: center; gap: 5px; color: #8b8690; font-size: 14px; }
 .document-meta__status--error { color: #a43f55; }
 .document-meta__status svg { width: 15px; height: 15px; }
 
@@ -1490,14 +1659,14 @@ svg { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: 
   background: #694786;
   box-shadow: 0 3px 10px rgba(84, 47, 114, 0.22);
   color: #fff;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 650;
 }
 
 .publish-button:hover { background: #593674; transform: translateY(-1px); }
 .publish-button:disabled { cursor: wait; opacity: .55; transform: none; }
 .publish-button svg { width: 17px; height: 17px; }
-.avatar-button { display: grid; width: 38px; height: 38px; margin-left: 5px; place-items: center; border: 1px solid #d9c8e3; border-radius: 50%; background: #f1e8f5; color: #62407b; font-size: 13px; font-weight: 750; text-decoration: none; }
+.avatar-button { display: grid; width: 38px; height: 38px; margin-left: 5px; place-items: center; border: 1px solid #d9c8e3; border-radius: 50%; background: #f1e8f5; color: #62407b; font-size: 14px; font-weight: 750; text-decoration: none; }
 .avatar-button:hover { border-color: #765292; background: #e8d9ef; }
 
 .tabs {
@@ -1512,8 +1681,8 @@ svg { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: 
   background: rgba(255, 255, 255, 0.96);
 }
 
-.tabs__item { position: relative; border: 0; background: none; color: #77717e; font-size: 13px; font-weight: 600; }
-.tabs__item span { display: inline-grid; min-width: 19px; height: 19px; margin-left: 4px; place-items: center; border-radius: 10px; background: #eee9f1; font-size: 10px; }
+.tabs__item { position: relative; border: 0; background: none; color: #77717e; font-size: 14px; font-weight: 600; }
+.tabs__item span { display: inline-grid; min-width: 19px; height: 19px; margin-left: 4px; place-items: center; border-radius: 10px; background: #eee9f1; font-size: 14px; }
 .tabs__item--active { color: #684884; }
 .tabs__item--active::after { content: ""; position: absolute; right: 0; bottom: 0; left: 0; height: 3px; border-radius: 3px 3px 0 0; background: #765292; }
 
@@ -1521,50 +1690,66 @@ svg { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: 
 .form-canvas { display: grid; gap: 14px; }
 .utility-panel { display: grid; gap: 14px; padding: 20px; border: 1px solid #d8c9e1; border-radius: 12px; background: #fff; }
 .utility-panel strong { color: #55475f; font-size: 15px; }
-.utility-panel p { margin: 0; color: #756b79; font-size: 12px; line-height: 1.6; }
+.utility-panel p { margin: 0; color: #756b79; font-size: 14px; line-height: 1.6; }
 .utility-panel > button { justify-self: start; min-height: 36px; padding: 0 14px; border: 0; border-radius: 7px; background: #765292; color: #fff; }
-.settings-row { display: grid; gap: 6px; color: #5f5664; font-size: 12px; }
+.settings-row { display: grid; gap: 6px; color: #5f5664; font-size: 14px; }
 .settings-row input, .settings-row textarea { box-sizing: border-box; width: 100%; padding: 10px 12px; border: 1px solid #ddd7e1; border-radius: 8px; outline: none; resize: vertical; }
 .settings-row input:focus, .settings-row textarea:focus { border-color: #765292; }
 
-.connection-error { margin: 0; padding: 12px 16px; border: 1px solid #e4b8c2; border-radius: 9px; background: #fff4f6; color: #91374a; font-size: 12px; }
+.connection-error { margin: 0; padding: 12px 16px; border: 1px solid #e4b8c2; border-radius: 9px; background: #fff4f6; color: #91374a; font-size: 14px; }
+.sync-message { margin: 0; padding: 12px 16px; border: 1px solid #cbb8d8; border-radius: 9px; background: #faf6fc; color: #5f3d76; font-size: 14px; font-weight: 650; }
+.outcome-index { display: grid; gap: 13px; padding: 17px 19px; border: 1px solid #d8c9e1; border-radius: 11px; background: #fff; }
+.outcome-index__heading { display: flex; align-items: end; justify-content: space-between; gap: 16px; }
+.outcome-index__heading > div { display: flex; align-items: baseline; gap: 9px; }
+.outcome-index__heading strong { color: #3f3446; font-size: 14px; }
+.outcome-index__heading span, .outcome-index__heading small { color: #817587; font-size: 14px; }
+.outcome-index__list { display: flex; flex-wrap: wrap; gap: 8px; }
+.outcome-index__item { display: inline-flex; align-items: center; border: 1px solid #cab8d4; border-radius: 999px; padding-right: 6px; background: #f8f3fa; color: #604570; transition: border-color .15s ease, background .15s ease, color .15s ease; }
+.outcome-index__jump { display: inline-flex; align-items: center; gap: 7px; min-height: 35px; border: 0; padding: 5px 8px 5px 7px; background: transparent; color: inherit; font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; }
+.outcome-index__jump span { display: grid; width: 22px; height: 22px; place-items: center; border-radius: 50%; background: #e8deed; color: #604570; font-size: 14px; }
+.outcome-index__remove { display: grid; width: 22px; height: 22px; flex: 0 0 22px; place-items: center; border: 0; border-radius: 50%; padding: 0 0 2px; background: #dfd2e5; color: #74547f; font: inherit; font-size: 16px; line-height: 1; cursor: pointer; opacity: 0; transform: scale(.75); transition: opacity .15s ease, transform .15s ease, background .15s ease, color .15s ease; }
+.outcome-index__item:hover, .outcome-index__item:focus-within, .outcome-index__item--active { border-color: #765292; background: #765292; color: #fff; }
+.outcome-index__item:hover .outcome-index__jump span, .outcome-index__item:focus-within .outcome-index__jump span, .outcome-index__item--active .outcome-index__jump span { background: #fff; color: #68447f; }
+.outcome-index__item:hover .outcome-index__remove, .outcome-index__item:focus-within .outcome-index__remove { background: rgba(255, 255, 255, .22); color: #fff; opacity: 1; transform: scale(1); }
+.outcome-index__remove:hover, .outcome-index__remove:focus-visible { background: #91374a !important; color: #fff; outline: 2px solid #fff; outline-offset: 1px; }
+.outcome-index > p { margin: 0; color: #817587; font-size: 14px; }
 .validation-reminder { padding: 18px 20px; border: 1px solid #e2b45e; border-radius: 10px; background: #fffaf0; color: #6f5122; }
 .validation-reminder strong { font-size: 14px; }
-.validation-reminder p { margin: 6px 0 10px; font-size: 11px; }
-.validation-reminder ul { display: grid; gap: 5px; margin: 0; padding-left: 20px; font-size: 11px; line-height: 1.5; }
+.validation-reminder p { margin: 6px 0 10px; font-size: 14px; }
+.validation-reminder ul { display: grid; gap: 5px; margin: 0; padding-left: 20px; font-size: 14px; line-height: 1.5; }
 .share-link { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 15px 18px; border: 1px solid #d8c9e1; border-radius: 10px; background: #fdfaff; }
 .share-link div { display: grid; min-width: 0; gap: 4px; }
-.share-link strong { color: #55475f; font-size: 11px; }
-.share-link a { overflow: hidden; color: #765292; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-.share-link button { flex: 0 0 auto; min-height: 34px; padding: 0 13px; border: 0; border-radius: 7px; background: #765292; color: #fff; font-size: 11px; font-weight: 650; }
+.share-link strong { color: #55475f; font-size: 14px; }
+.share-link a { overflow: hidden; color: #765292; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.share-link button { flex: 0 0 auto; min-height: 34px; padding: 0 13px; border: 0; border-radius: 7px; background: #765292; color: #fff; font-size: 14px; font-weight: 650; }
 .block-editor { display: grid; gap: 14px; padding: 14px; border: 1px solid #ddd3e3; border-radius: 15px; background: #f3edf7; transition: border-color 150ms ease, box-shadow 150ms ease; }
 .block-editor--active { border-color: #a488b7; box-shadow: 0 4px 18px rgba(75, 48, 91, .08); }
 .block-editor__header { display: flex; align-items: start; justify-content: space-between; gap: 20px; padding: 16px 18px; }
 .block-editor__header > div { display: grid; min-width: 0; flex: 1; gap: 7px; }
-.block-editor__header span { color: #806493; font-size: 9px; font-weight: 750; letter-spacing: .12em; }
+.block-editor__header span { color: #806493; font-size: 14px; font-weight: 750; letter-spacing: .12em; }
 .block-editor__header input, .block-editor__header textarea { width: 100%; resize: none; border: 0; border-bottom: 1px solid transparent; outline: 0; background: transparent; color: #382f3e; }
-.block-editor__header input { font-size: 19px; font-weight: 700; }
-.block-editor__header textarea { color: #756b79; font-size: 11px; }
+.block-editor__header input { font-size: 18px; font-weight: 700; }
+.block-editor__header textarea { color: #756b79; font-size: 14px; }
 .block-editor__header input:focus, .block-editor__header textarea:focus { border-bottom-color: #9879ad; }
-.block-editor__header > button { border: 0; background: transparent; color: #9a5160; font-size: 10px; }
+.block-editor__header > button { border: 0; background: transparent; color: #9a5160; font-size: 14px; }
 .block-editor__header > button:disabled { opacity: .35; }
 .respondent-block-reminder { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 20px 22px; border: 1px dashed #9e80b2; border-radius: 12px; background: #faf6fc; }
 .respondent-block-reminder div { display: grid; gap: 6px; }
-.respondent-block-reminder strong { color: #684884; font-size: 13px; }
-.respondent-block-reminder p { margin: 0; color: #756b79; font-size: 11px; line-height: 1.6; }
-.respondent-block-reminder button { flex: 0 0 auto; min-height: 40px; border: 0; border-radius: 8px; padding: 0 15px; background: #765292; color: #fff; font-size: 11px; font-weight: 700; }
+.respondent-block-reminder strong { color: #684884; font-size: 14px; }
+.respondent-block-reminder p { margin: 0; color: #756b79; font-size: 14px; line-height: 1.6; }
+.respondent-block-reminder button { flex: 0 0 auto; min-height: 40px; border: 0; border-radius: 8px; padding: 0 15px; background: #765292; color: #fff; font-size: 14px; font-weight: 700; }
 .system-email-field { display: grid; grid-template-columns: 1fr minmax(180px, .7fr); align-items: center; gap: 22px; padding: 20px 22px; border: 1px solid #dfd4e5; border-radius: 11px; background: #fff; }
 .system-email-field > div:first-child { display: grid; gap: 5px; }
-.system-email-field span { color: #806493; font-size: 9px; font-weight: 750; letter-spacing: .1em; }
+.system-email-field span { color: #806493; font-size: 14px; font-weight: 750; letter-spacing: .1em; }
 .system-email-field strong { color: #382f3e; font-size: 14px; }
 .system-email-field strong b { color: #b1485c; }
-.system-email-field small { color: #8a818e; font-size: 10px; line-height: 1.5; }
-.system-email-field__preview { padding: 10px 2px; border-bottom: 1px solid #bcb5c0; color: #aaa4ad; font-size: 12px; }
+.system-email-field small { color: #8a818e; font-size: 14px; line-height: 1.5; }
+.system-email-field__preview { padding: 10px 2px; border-bottom: 1px solid #bcb5c0; color: #aaa4ad; font-size: 14px; }
 .empty-questions { display: grid; justify-items: center; gap: 8px; padding: 42px 24px; border: 1px dashed #c9b8d3; border-radius: 12px; background: #fdfbfe; color: #5f5664; text-align: center; }
-.empty-questions p { margin: 0; color: #8a818e; font-size: 12px; }
+.empty-questions p { margin: 0; color: #8a818e; font-size: 14px; }
 .empty-questions button { min-height: 40px; margin-top: 8px; padding: 0 18px; border: 0; border-radius: 8px; background: #765292; color: #fff; font-weight: 650; }
-.block-add-question { justify-self: center; border: 0; padding: 4px 0; border-bottom: 1px solid #9273a5; background: transparent; color: #765292; font-size: 11px; }
-.add-block { min-height: 54px; border: 1px dashed #aa94b8; border-radius: 11px; background: #faf7fc; color: #6c4788; font-size: 13px; font-weight: 700; }
+.block-add-question { justify-self: center; border: 0; padding: 4px 0; border-bottom: 1px solid #9273a5; background: transparent; color: #765292; font-size: 14px; }
+.add-block { min-height: 54px; border: 1px dashed #aa94b8; border-radius: 11px; background: #faf7fc; color: #6c4788; font-size: 14px; font-weight: 700; }
 .form-heading,
 .question-card { position: relative; border: 1px solid #e8e3eb; border-radius: 12px; background: #fff; box-shadow: 0 2px 7px rgba(42, 27, 50, 0.035); }
 
@@ -1572,37 +1757,37 @@ svg { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: 
 .form-heading__accent { position: absolute; top: 0; right: 0; left: 0; height: 9px; background: linear-gradient(90deg, #6c4788, #9b76b4); }
 .form-heading label { display: block; }
 .form-heading textarea { width: 100%; resize: none; border: 0; outline: 0; color: inherit; }
-.form-heading__title { padding: 0 0 12px; border-bottom: 1px solid #e1dce4 !important; font-size: clamp(24px, 4vw, 32px) !important; font-weight: 720 !important; letter-spacing: -0.035em; line-height: 1.25; }
+.form-heading__title { padding: 0 0 12px; border-bottom: 1px solid #e1dce4 !important; font-size: 24px !important; font-weight: 720 !important; letter-spacing: -0.035em; line-height: 1.25; }
 .form-heading__title:focus { border-color: #765292 !important; }
-.form-heading__description { margin-top: 17px; color: #706a74 !important; font-size: 13px !important; line-height: 1.7; }
+.form-heading__description { margin-top: 17px; color: #706a74 !important; font-size: 14px !important; line-height: 1.7; }
 
 .question-card { padding: 31px 30px 0; transition: box-shadow 160ms ease, border-color 160ms ease; }
 .question-card--active { border-color: #d8cbe1; box-shadow: 0 5px 22px rgba(57, 35, 67, 0.08); }
 .question-card--dragging { opacity: .48; }
 .question-card--drag-over { border-color: #765292; box-shadow: 0 0 0 2px rgba(118, 82, 146, .16); }
 .question-card--active::before { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 5px; border-radius: 12px 0 0 12px; background: #765292; }
-.drag-handle { position: absolute; top: 3px; left: 50%; width: 34px; height: 22px; transform: translateX(-50%) rotate(90deg); border: 0; background: transparent; color: #bbb4bf; font-size: 19px; line-height: 1; cursor: grab; }
+.drag-handle { position: absolute; top: 3px; left: 50%; width: 34px; height: 22px; transform: translateX(-50%) rotate(90deg); border: 0; background: transparent; color: #bbb4bf; font-size: 18px; line-height: 1; cursor: grab; }
 .drag-handle:active { cursor: grabbing; }
 .question-card__top { display: grid; grid-template-columns: minmax(0, 1fr) 180px; align-items: start; gap: 22px; }
 .question-title-wrap { display: flex; align-items: baseline; border-bottom: 1px solid transparent; }
 .question-card--active .question-title-wrap { border-bottom-color: #e1dce4; }
 .question-number { flex: 0 0 auto; margin-right: 8px; color: #45404a; font-size: 14px; font-weight: 650; }
 .question-title { min-width: 0; width: 100%; padding: 4px 0 12px; border: 0; outline: 0; color: #353039; background: transparent; font-size: 14px; font-weight: 600; }
-.required-mark { color: #b1485c; font-size: 13px; }
+.required-mark { color: #b1485c; font-size: 14px; }
 
 .heading-editor { display: grid; gap: 24px; padding: 5px 2px 28px; }
 .heading-editor input, .heading-editor textarea { box-sizing: border-box; width: 100%; resize: vertical; border: 0; border-bottom: 1px solid transparent; outline: 0; background: transparent; color: #4d4651; }
 .heading-editor__title { padding: 5px 0 9px; font-size: 16px; font-weight: 650; line-height: 1.45; }
-.heading-editor__description { min-height: 70px; padding: 5px 0 9px; font: inherit; font-size: 13px; line-height: 1.75; }
+.heading-editor__description { min-height: 70px; padding: 5px 0 9px; font: inherit; font-size: 14px; line-height: 1.75; }
 .question-card--active .heading-editor input, .question-card--active .heading-editor textarea { border-bottom-color: #e1dce4; }
 .heading-editor input:focus, .heading-editor textarea:focus { border-bottom-color: #765292 !important; }
 
 .type-select { position: relative; display: flex; align-items: center; height: 42px; border: 1px solid #ddd7e1; border-radius: 8px; background: #fff; color: #645e69; }
 .type-select__icon { width: 40px; color: #706179; text-align: center; font-size: 16px; }
-.type-select select { width: 100%; height: 100%; appearance: none; border: 0; outline: 0; background: transparent; color: inherit; font-size: 12px; cursor: pointer; }
+.type-select select { width: 100%; height: 100%; appearance: none; border: 0; outline: 0; background: transparent; color: inherit; font-size: 14px; cursor: pointer; }
 .type-select svg { width: 16px; height: 16px; margin-right: 12px; pointer-events: none; }
 .answer-area { min-height: 78px; padding: 27px 0 25px 26px; }
-.text-preview { width: 100%; padding: 0 0 22px; border-bottom: 1px dotted #bbb5be; color: #aaa4ad; font-size: 12px; }
+.text-preview { width: 100%; padding: 0 0 22px; border-bottom: 1px dotted #bbb5be; color: #aaa4ad; font-size: 14px; }
 .text-preview--short { width: 58%; }
 .scale-settings {
   display: flex;
@@ -1615,7 +1800,7 @@ svg { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: 
   display: grid;
   gap: 7px;
   color: #77717d;
-  font-size: 11px;
+  font-size: 14px;
 }
 
 .scale-settings select {
@@ -1627,7 +1812,7 @@ svg { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: 
   outline: none;
   background: #fff;
   color: #4f4853;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .scale-settings select:focus {
@@ -1639,27 +1824,27 @@ svg { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: 
   color: #8a838e;
 }
 .scale-preview { display: flex; align-items: flex-end; justify-content: center; gap: clamp(10px, 3vw, 24px); padding: 8px 0; }
-.scale-preview label { display: grid; justify-items: center; gap: 9px; color: #6d6671; font-size: 11px; }
+.scale-preview label { display: grid; justify-items: center; gap: 9px; color: #6d6671; font-size: 14px; }
 .scale-preview i { display: block; width: 18px; height: 18px; border: 1.5px solid #aaa3ad; border-radius: 50%; }
-.scale-preview__label { max-width: 58px; padding-bottom: 2px; color: #918a95; font-size: 10px; line-height: 1.4; text-align: center; }
-.date-preview { display: flex; width: 160px; justify-content: space-between; padding: 0 0 8px; border-bottom: 1px solid #c9c3cc; color: #aaa4ad; font-size: 12px; }
+.scale-preview__label { max-width: 58px; padding-bottom: 2px; color: #918a95; font-size: 14px; line-height: 1.4; text-align: center; }
+.date-preview { display: flex; width: 160px; justify-content: space-between; padding: 0 0 8px; border-bottom: 1px solid #c9c3cc; color: #aaa4ad; font-size: 14px; }
 .date-preview svg { width: 17px; height: 17px; }
 .option-row { display: flex; align-items: center; min-height: 38px; gap: 11px; }
-.option-row input { min-width: 0; flex: 1; padding: 7px 2px; border: 0; border-bottom: 1px solid transparent; outline: 0; color: #5a545e; font-size: 13px; }
+.option-row input { min-width: 0; flex: 1; padding: 7px 2px; border: 0; border-bottom: 1px solid transparent; outline: 0; color: #5a545e; font-size: 14px; }
 .option-row input:focus { border-bottom-color: #84629e; }
-.option-circle { display: grid; flex: 0 0 17px; width: 17px; height: 17px; place-items: center; border: 1.5px solid #aaa3ad; border-radius: 50%; color: #837b87; font-size: 11px; }
+.option-circle { display: grid; flex: 0 0 17px; width: 17px; height: 17px; place-items: center; border: 1.5px solid #aaa3ad; border-radius: 50%; color: #837b87; font-size: 14px; }
 .option-box { flex: 0 0 17px; width: 17px; height: 17px; border: 1.5px solid #aaa3ad; border-radius: 3px; font-size: 0; }
-.remove-option { opacity: 0; border: 0; background: transparent; color: #9e97a1; font-size: 22px; }
+.remove-option { opacity: 0; border: 0; background: transparent; color: #9e97a1; font-size: 18px; }
 .option-row:hover .remove-option { opacity: 1; }
-.add-option { margin: 9px 0 0 26px; border: 0; border-bottom: 1px solid #b69fc5; padding: 3px 0; background: transparent; color: #72508d; font-size: 12px; }
+.add-option { margin: 9px 0 0 26px; border: 0; border-bottom: 1px solid #b69fc5; padding: 3px 0; background: transparent; color: #72508d; font-size: 14px; }
 
 .question-card__footer { display: flex; align-items: center; justify-content: flex-end; min-height: 60px; border-top: 1px solid #eeeaf0; gap: 4px; }
-.footer-icon { display: grid; width: 38px; height: 38px; place-items: center; border: 0; border-radius: 50%; background: transparent; color: #726c76; font-size: 13px; }
+.footer-icon { display: grid; width: 38px; height: 38px; place-items: center; border: 0; border-radius: 50%; background: transparent; color: #726c76; font-size: 14px; }
 .footer-icon:hover { background: #f4f0f6; }
 .footer-icon:disabled { opacity: .3; }
 .footer-icon svg { width: 19px; height: 19px; }
 .footer-divider { width: 1px; height: 28px; margin: 0 9px; background: #e3dee6; }
-.required-toggle { display: flex; align-items: center; gap: 10px; margin-right: 8px; color: #59535e; font-size: 12px; cursor: pointer; }
+.required-toggle { display: flex; align-items: center; gap: 10px; margin-right: 8px; color: #59535e; font-size: 14px; cursor: pointer; }
 .required-toggle input { position: absolute; opacity: 0; pointer-events: none; }
 .required-toggle span { position: relative; width: 35px; height: 20px; border-radius: 12px; background: #d6d1d9; transition: background 150ms ease; }
 .required-toggle span::after { content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.18); transition: transform 150ms ease; }
@@ -1667,8 +1852,8 @@ svg { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: 
 .required-toggle input:checked + span::after { transform: translateX(15px); }
 
 .mobile-add { display: none; }
-.canvas-footer { margin: 12px 0 0; color: #aaa4ad; font-size: 10px; text-align: center; }
-.toast { position: fixed; z-index: 50; right: 28px; bottom: 28px; padding: 15px 20px; border-radius: 9px; background: #32273a; box-shadow: 0 8px 30px rgba(25, 16, 30, .25); color: #fff; font-size: 13px; }
+.canvas-footer { margin: 12px 0 0; color: #aaa4ad; font-size: 14px; text-align: center; }
+.toast { position: fixed; z-index: 50; right: 28px; bottom: 28px; padding: 15px 20px; border-radius: 9px; background: #32273a; box-shadow: 0 8px 30px rgba(25, 16, 30, .25); color: #fff; font-size: 14px; }
 .toast-enter-active, .toast-leave-active { transition: opacity .2s ease, transform .2s ease; }
 .toast-enter-from, .toast-leave-to { opacity: 0; transform: translateY(8px); }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
@@ -1678,7 +1863,7 @@ svg { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: 
   .icon-button--back { display: none; }
   .document-meta__status { display: none; }
   .workspace { width: min(700px, calc(100% - 28px)); padding-right: 0; }
-  .mobile-add { display: block; width: 100%; height: 48px; border: 1px dashed #bcaac8; border-radius: 10px; background: #fdfcff; color: #6c4788; font-size: 13px; font-weight: 650; }
+  .mobile-add { display: block; width: 100%; height: 48px; border: 1px dashed #bcaac8; border-radius: 10px; background: #fdfcff; color: #6c4788; font-size: 14px; font-weight: 650; }
 }
 
 @media (max-width: 600px) {
@@ -1701,11 +1886,46 @@ svg { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: 
 
 .question-type-backdrop { position: fixed; z-index: 80; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(37, 25, 44, .28); backdrop-filter: blur(2px); }
 .question-type-menu { width: min(320px, 100%); padding: 14px; border: 1px solid #e3dbe8; border-radius: 14px; background: #fff; box-shadow: 0 18px 50px rgba(48,32,58,.2); }
-.question-type-menu strong { display: block; padding: 7px 9px 9px; color: #684884; font-size: 12px; }
-.question-type-menu button { display: flex !important; align-items: center; justify-content: flex-start !important; gap: 10px; width: 100% !important; height: 38px !important; padding: 0 10px !important; border: 0 !important; border-radius: 8px !important; background: transparent !important; color: #39333e !important; font-size: 12px !important; }
+.question-type-menu strong { display: block; padding: 7px 9px 9px; color: #684884; font-size: 14px; }
+.question-type-menu button { display: flex !important; align-items: center; justify-content: flex-start !important; gap: 10px; width: 100% !important; height: 38px !important; padding: 0 10px !important; border: 0 !important; border-radius: 8px !important; background: transparent !important; color: #39333e !important; font-size: 14px !important; }
 .question-type-menu button:hover { background: #f6f1f8 !important; }
 .question-type-menu button span { width: 20px; color: #765292; text-align: center; }
 .question-type-menu .question-type-menu__cancel { justify-content: center !important; margin-top: 6px; border-top: 1px solid #eee8f1 !important; border-radius: 0 !important; color: #7e7582 !important; }
+.publish-dialog-backdrop { position: fixed; z-index: 90; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(37, 25, 44, .38); backdrop-filter: blur(3px); }
+.publish-dialog { width: min(520px, 100%); overflow: hidden; border: 1px solid #e3dbe8; border-radius: 16px; background: #fff; box-shadow: 0 22px 70px rgba(48, 32, 58, .25); }
+.publish-dialog header { padding: 28px 30px 20px; }
+.publish-dialog header p { margin: 0 0 8px; color: #765292; font-size: 14px; font-weight: 750; letter-spacing: .14em; }
+.publish-dialog h2 { margin: 0 0 10px; color: #332c38; font-size: 18px; line-height: 1.45; }
+.publish-dialog header > span { color: #786f7d; font-size: 14px; line-height: 1.6; }
+.publish-options { display: grid; gap: 10px; padding: 0 30px 28px; }
+.publish-options label { display: grid; grid-template-columns: 20px 1fr; align-items: start; gap: 12px; padding: 16px; border: 1px solid #ded7e2; border-radius: 11px; background: #fff; cursor: pointer; }
+.publish-options label:hover, .publish-options .publish-option--selected { border-color: #8c6aa3; background: #faf7fc; box-shadow: 0 0 0 2px rgba(118, 82, 146, .08); }
+.publish-options input { margin-top: 3px; accent-color: #765292; }
+.publish-options span { display: grid; gap: 5px; }
+.publish-options strong { color: #453a4c; font-size: 14px; }
+.publish-options small { color: #7f7683; font-size: 14px; line-height: 1.6; }
+.publish-dialog footer { display: flex; justify-content: flex-end; gap: 10px; padding: 18px 30px; border-top: 1px solid #eee8f1; background: #fcfafc; }
+.publish-dialog footer button { min-height: 40px; padding: 0 17px; border-radius: 8px; font-size: 14px; font-weight: 650; }
+.publish-dialog__cancel { border: 1px solid #d8d0dc; background: #fff; color: #655d69; }
+.publish-dialog__confirm { border: 0; background: #694786; color: #fff; }
+.publish-dialog footer button:disabled { cursor: wait; opacity: .55; }
+.sync-outcomes-button {
+  display: grid;
+  width: 42px;
+  min-height: 42px;
+  place-items: center;
+  border: 1px solid #765292;
+  border-radius: 50%;
+  padding: 0;
+  background: #fff;
+  color: #68447f;
+  cursor: pointer;
+}
+.sync-outcomes-button:hover { background: #f5eff9; }
+.sync-outcomes-button:disabled { cursor: wait; opacity: .55; }
+.sync-outcomes-button svg { width: 21px; height: 21px; }
+.sync-outcomes-button--loading svg { animation: sync-rotate .8s linear infinite; }
+@keyframes sync-rotate { to { transform: rotate(360deg); } }
 .worksheet-export-btn {
   border: 1px solid #74459a;
   background: #ffffff;

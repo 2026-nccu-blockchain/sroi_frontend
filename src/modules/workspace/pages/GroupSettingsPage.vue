@@ -25,6 +25,7 @@ import type {
   GroupUser
 } from "@/modules/workspace/types/workspace.types";
 import { ApiError, toErrorMessage } from "@/shared/api/error-handler";
+import DeleteConfirmDialog from "@/shared/components/DeleteConfirmDialog.vue";
 
 const props = defineProps<{ groupId: string }>();
 
@@ -38,7 +39,7 @@ const TABS: { key: TabKey; label: string }[] = [
 ];
 
 const GROUP_SETTINGS_ERROR_MESSAGES: Record<string, string> = {
-  "10001": "找不到使用者，或該使用者尚未通過驗證",
+  "10001": "找不到使用者",
   "10008": "權限不足，只有組長可以進入群組設定",
   "10013": "找不到群組，或群組尚未通過審核",
   "10014": "該使用者已經是群組成員",
@@ -85,7 +86,7 @@ const loadPage = async (groupId: string): Promise<void> => {
   try {
     // 先確認是組長才載入設定頁資料
     const { group_role } = await getGroupRole(groupId);
-    if (group_role !== "leader") throw new ApiError("permission denied", "10008");
+    if (group_role !== "leader") throw new ApiError("權限不足", "10008");
 
     const info = await getGroupInfo(groupId);
     if (groupId !== props.groupId) return;
@@ -339,24 +340,32 @@ const handleDeleteGroup = async (): Promise<void> => {
       </MemberTable>
     </template>
 
+    <!-- 加入成員用一般確認窗，移除成員用刪除警示窗 -->
     <ConfirmDialog
-      :open="pending !== null"
+      :open="pending?.type === 'add'"
       :title="confirmDialog.title"
       :message="confirmDialog.message"
       :confirm-text="confirmDialog.confirmText"
       :loading="confirming"
-      :danger="pending?.type === 'remove'"
+      @confirm="handleConfirm"
+      @cancel="pending = null"
+    />
+    <DeleteConfirmDialog
+      :open="pending?.type === 'remove'"
+      :title="confirmDialog.title"
+      :message="confirmDialog.message"
+      :confirm-text="confirmDialog.confirmText"
+      :loading="confirming"
       @confirm="handleConfirm"
       @cancel="pending = null"
     />
 
-    <ConfirmDialog
+    <DeleteConfirmDialog
       :open="confirmingDeleteGroup"
       title="刪除群組"
       :message="`確定要刪除「${group?.title}」嗎？此動作無法復原。`"
       confirm-text="刪除"
       :loading="deletingGroup"
-      danger
       @confirm="handleDeleteGroup"
       @cancel="confirmingDeleteGroup = false"
     />
@@ -367,7 +376,6 @@ const handleDeleteGroup = async (): Promise<void> => {
 .settings-page {
   display: grid;
   gap: 22px;
-  margin-top: -16px;
 }
 
 .back-link {
@@ -382,7 +390,7 @@ const handleDeleteGroup = async (): Promise<void> => {
 }
 
 .back-link span {
-  font-size: 22px;
+  font-size: 18px;
   line-height: 1;
 }
 
@@ -393,14 +401,14 @@ const handleDeleteGroup = async (): Promise<void> => {
 
 .settings-page__eyebrow {
   margin: 0 0 8px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   letter-spacing: 0.15em;
 }
 
 h1 {
   margin: 0;
-  font-size: 26px;
+  font-size: 24px;
   font-weight: 500;
   line-height: 1;
   letter-spacing: -0.04em;
@@ -422,7 +430,7 @@ h1 {
   background: transparent;
   color: #000;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   cursor: pointer;
 }
@@ -441,7 +449,7 @@ h1 {
 .settings-page__success {
   margin: 0;
   color: #070;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .danger-zone {
@@ -464,7 +472,7 @@ h1 {
 .danger-zone p {
   margin: 0;
   color: #555;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .search-form {
@@ -492,7 +500,7 @@ h1 {
   padding: 8px 10px;
   background: #fff;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   cursor: pointer;
 }
 
@@ -511,7 +519,7 @@ h1 {
   background: #fff;
   color: #000;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   cursor: pointer;
 }
@@ -543,6 +551,6 @@ h1 {
 
 .muted {
   color: #777;
-  font-size: 12px;
+  font-size: 14px;
 }
 </style>

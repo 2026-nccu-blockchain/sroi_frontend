@@ -20,12 +20,15 @@ export const getForm = (formId: string): Promise<FormResponse> =>
 export const getForms = (): Promise<FormResponse[]> =>
   httpClient.get<FormResponse[]>("/form");
 
+export const syncProjectOutcomes = (formId: string): Promise<FormResponse> =>
+  httpClient.post<FormResponse>(`/form/${formId}/sync-project-outcomes`, {});
+
 export const getFormSubmissions = (formId: string): Promise<FormSubmission[]> =>
   httpClient.get<FormSubmission[]>(`/form/${formId}/responses`);
 
 export const updateForm = (
   formId: string,
-  payload: { title?: string; content?: string; status?: FormStatus }
+  payload: { title?: string; content?: string; status?: FormStatus; shuffle_outcome_questions?: boolean }
 ): Promise<FormResponse> => httpClient.patch<FormResponse>(`/form/${formId}`, payload);
 
 export const createQuestion = (

@@ -3,11 +3,14 @@ import { computed, ref, watch } from "vue";
 
 import { getGroupInfo, getGroupRole } from "@/modules/workspace/api/workspace.api";
 import GroupDetail from "@/modules/workspace/components/GroupDetail.vue";
-import { GROUP_BUCKET_LABELS, STATUS_TO_BUCKET } from "@/modules/workspace/constants";
+import ProjectList from "@/modules/workspace/components/ProjectList.vue";
+import { useProjectPhaseTab } from "@/modules/workspace/composables/useProjectPhaseTab";
+import { GROUP_BUCKET_LABELS, STATUS_TO_BUCKET, toProjectErrorMessage } from "@/modules/workspace/constants";
 import { useProjectStore } from "@/modules/workspace/store/project.store";
-import type { GroupInfo, GroupRole } from "@/modules/workspace/types/workspace.types";
+import type { GroupInfo, GroupRole, WorkspaceProject } from "@/modules/workspace/types/workspace.types";
 import { ApiError, toErrorMessage } from "@/shared/api/error-handler";
-import { formatProjectPeriod } from "@/shared/utils/date";
+import { useDeleteConfirm } from "@/shared/composables/useDeleteConfirm";
+import DeleteConfirmDialog from "@/shared/components/DeleteConfirmDialog.vue";
 
 const props = defineProps<{ groupId: string }>();
 
@@ -24,8 +27,28 @@ const error = ref("");
 const bucket = computed(() => (group.value ? STATUS_TO_BUCKET[group.value.status] : "verified"));
 
 const projectStore = useProjectStore();
-const groupProjects = computed(() => projectStore.projects.filter((project) => project.group_id === props.groupId));
+const groupProjects = computed(() =>
+  projectStore.projectsWithForms.filter((project) => project.group_id === props.groupId)
+);
+const phaseTab = useProjectPhaseTab();
+// 組長、編輯者可以新增；刪除專案後端只允許組長
 const canCreateProject = computed(() => role.value === "leader" || role.value === "editor");
+const canDeleteProject = (): boolean => role.value === "leader";
+
+const { deleteDialog, askDelete, answerDelete } = useDeleteConfirm();
+
+const removeProject = async (project: WorkspaceProject): Promise<void> => {
+  const confirmed = await askDelete({
+    title: "刪除專案",
+    message: `確定要刪除「${project.name}」嗎？刪除後專案內的所有資料都無法再查看，且無法復原。`
+  });
+  if (!confirmed) return;
+  try {
+    await projectStore.remove(project.project_id);
+  } catch (caught) {
+    projectStore.error = toProjectErrorMessage(caught, "刪除專案失敗");
+  }
+};
 
 const loadGroup = async (groupId: string): Promise<void> => {
   loading.value = true;
@@ -79,29 +102,23 @@ watch(() => props.groupId, loadGroup, { immediate: true });
     <p v-if="loading">載入中...</p>
     <p v-else-if="error" class="group-page__error">{{ error }}</p>
     <GroupDetail v-else-if="group" :group="group" :eyebrow="`我的群組 · ${GROUP_BUCKET_LABELS[bucket]}`">
-      <section v-if="group.status === 'verified'" class="group-projects">
-        <h2>
-          群組專案
-          <RouterLink
-            v-if="canCreateProject"
-            class="group-projects__new"
-            :to="{ name: 'project-new', query: { group: groupId } }"
-          >
-            <span aria-hidden="true">＋</span> 新增群組專案
-          </RouterLink>
-        </h2>
-        <ul v-if="groupProjects.length" class="group-projects__list">
-          <li v-for="project in groupProjects" :key="project.project_id">
-            <RouterLink :to="{ name: 'project-edit', params: { projectId: project.project_id } }">
-              {{ project.name }}
-            </RouterLink>
-            <span>{{ formatProjectPeriod(project.begin, project.end) }}</span>
-          </li>
-        </ul>
-        <p v-else-if="projectStore.loading" class="group-projects__empty">專案載入中…</p>
-        <p v-else class="group-projects__empty">這個群組還沒有專案。</p>
-      </section>
+      <ProjectList
+        v-if="group.status === 'verified'"
+        v-model:tab="phaseTab"
+        :projects="groupProjects"
+        :loading="projectStore.loading"
+        :error="projectStore.error"
+        title="群組專案"
+        :eyebrow="null"
+        heading-tag="h2"
+        :create-to="canCreateProject ? { name: 'project-new', query: { group: groupId } } : undefined"
+        create-label="新增群組專案"
+        :can-delete="canDeleteProject"
+        empty-text="這個群組還沒有專案。"
+        @delete="removeProject"
+      />
     </GroupDetail>
+    <DeleteConfirmDialog v-bind="deleteDialog" @confirm="answerDelete(true)" @cancel="answerDelete(false)" />
   </section>
 </template>
 
@@ -109,7 +126,6 @@ watch(() => props.groupId, loadGroup, { immediate: true });
 .group-page {
   display: grid;
   gap: 22px;
-  margin-top: -16px;
 }
 
 .group-page__bar {
@@ -130,7 +146,7 @@ watch(() => props.groupId, loadGroup, { immediate: true });
 }
 
 .back-link span {
-  font-size: 22px;
+  font-size: 18px;
   line-height: 1;
 }
 
@@ -148,7 +164,7 @@ watch(() => props.groupId, loadGroup, { immediate: true });
   border: 1px solid #000;
   background: #000;
   color: #fff;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   text-decoration: none;
 }
@@ -158,69 +174,14 @@ watch(() => props.groupId, loadGroup, { immediate: true });
   color: #000;
 }
 
-.group-projects {
-  display: grid;
-  gap: 12px;
-}
 
-.group-projects h2 {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin: 0;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-}
 
-.group-projects__new {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 38px;
-  padding: 8px 14px;
-  border: 1px solid #000;
-  background: #000;
-  color: #fff;
-  font-size: 13px;
-  letter-spacing: 0;
-  text-decoration: none;
-}
 
-.group-projects__new:hover {
-  background: #fff;
-  color: #000;
-}
 
-.group-projects__list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  border-top: 2px solid #000;
-}
 
-.group-projects__list li {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 0;
-  border-bottom: 1px solid #000;
-}
 
-.group-projects__list a {
-  color: #000;
-  font-size: 14px;
-  font-weight: 700;
-  text-decoration: none;
-}
 
-.group-projects__list span,
-.group-projects__empty {
-  margin: 0;
-  color: #777;
-  font-size: 13px;
-}
+
 
 .group-page__error {
   margin: 0;

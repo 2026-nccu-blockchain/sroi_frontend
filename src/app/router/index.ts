@@ -26,13 +26,12 @@ import AdminGroupsPage from "@/modules/admin/pages/AdminGroupsPage.vue";
 import AdminUserDetailPage from "@/modules/admin/pages/AdminUserDetailPage.vue";
 import AdminUsersPage from "@/modules/admin/pages/AdminUsersPage.vue";
 import { ADMIN_ROLES, WORKSPACE_ROLES } from "@/modules/auth/constants";
-import { VERIFY_ROLES } from "@/modules/profile/constants";
 
 const routes: RouteRecordRaw[] = [
   {
     path: "/workspace/projects/:projectId/form",
     component: FormLayout,
-    meta: { requiresAuth: true, roles: WORKSPACE_ROLES },
+    meta: { roles: WORKSPACE_ROLES },
     children: [
       {
         path: "new",
@@ -62,7 +61,8 @@ const routes: RouteRecordRaw[] = [
   {
     path: "/forms/:publicToken",
     name: "public-form",
-    component: PublicFormPage
+    component: PublicFormPage,
+    meta: { public: true }
   },
   {
     path: "/auth",
@@ -71,12 +71,14 @@ const routes: RouteRecordRaw[] = [
       {
         path: "login",
         name: "login",
-        component: LoginPage
+        component: LoginPage,
+        meta: { public: true }
       },
       {
         path: "register",
         name: "register",
-        component: RegisterPage
+        component: RegisterPage,
+        meta: { public: true }
       }
     ]
   },
@@ -93,102 +95,92 @@ const routes: RouteRecordRaw[] = [
         path: "workspace/projects",
         name: "my-projects",
         component: MyProjectsPage,
-        meta: { requiresAuth: true, roles: WORKSPACE_ROLES }
+        meta: { roles: WORKSPACE_ROLES }
       },
       {
         path: "workspace/projects/new",
         name: "project-new",
         component: ProjectEditPage,
-        meta: { requiresAuth: true, roles: WORKSPACE_ROLES }
+        meta: { roles: WORKSPACE_ROLES }
       },
       {
         path: "workspace/projects/:projectId/edit",
         name: "project-edit",
         component: ProjectEditPage,
-        meta: { requiresAuth: true, roles: WORKSPACE_ROLES }
+        meta: { roles: WORKSPACE_ROLES }
       },
       {
-        path: "workspace/projects/:projectId/sroi",
-        name: "project-sroi",
+        path: "workspace/projects/:projectId/stakeholders/:stakeholderId/sroi",
+        name: "stakeholder-sroi",
         component: ProjectSroiPage,
-        meta: { requiresAuth: true, roles: WORKSPACE_ROLES }
+        meta: { roles: WORKSPACE_ROLES }
       },
       {
         path: "workspace/groups",
         name: "my-groups",
         component: MyGroupsPage,
-        meta: { requiresAuth: true, roles: WORKSPACE_ROLES }
+        meta: { roles: WORKSPACE_ROLES }
       },
       {
         path: "workspace/groups/new",
         name: "new-group",
         component: NewGroupPage,
-        meta: { requiresAuth: true, roles: WORKSPACE_ROLES }
+        meta: { roles: WORKSPACE_ROLES }
       },
       {
         path: "workspace/groups/:groupId",
         name: "group-detail",
         component: GroupDetailPage,
         props: true,
-        meta: { requiresAuth: true, roles: WORKSPACE_ROLES }
+        meta: { roles: WORKSPACE_ROLES }
       },
       {
         path: "workspace/groups/:groupId/settings",
         name: "group-settings",
         component: GroupSettingsPage,
         props: true,
-        meta: { requiresAuth: true, roles: WORKSPACE_ROLES }
+        meta: { roles: WORKSPACE_ROLES }
       },
       {
         path: "profile",
         name: "profile",
-        component: ProfilePage,
-        meta: { requiresAuth: true }
+        component: ProfilePage
       },
       {
         path: "profile/edit",
         name: "profile-edit",
-        component: ProfileEditPage,
-        meta: { requiresAuth: true }
-      },
-      {
-        path: "profile/verify",
-        name: "profile-verify",
-        component: CampusIdRequestPage,
-        props: { mode: "verify" },
-        meta: { requiresAuth: true, roles: VERIFY_ROLES }
+        component: ProfileEditPage
       },
       {
         path: "profile/campus-id",
         name: "profile-campus-id",
         component: CampusIdRequestPage,
-        props: { mode: "change" },
-        meta: { requiresAuth: true, roles: WORKSPACE_ROLES }
+        meta: { roles: WORKSPACE_ROLES }
       },
       {
         path: "admin/users",
         name: "admin-users",
         component: AdminUsersPage,
-        meta: { requiresAuth: true, roles: ADMIN_ROLES }
+        meta: { roles: ADMIN_ROLES }
       },
       {
         path: "admin/users/:userId",
         name: "admin-user-detail",
         component: AdminUserDetailPage,
-        meta: { requiresAuth: true, roles: ADMIN_ROLES }
+        meta: { roles: ADMIN_ROLES }
       },
       {
         path: "admin/groups",
         name: "admin-groups",
         component: AdminGroupsPage,
-        meta: { requiresAuth: true, roles: ADMIN_ROLES }
+        meta: { roles: ADMIN_ROLES }
       },
       {
         path: "admin/groups/:groupId",
         name: "admin-group-detail",
         component: AdminGroupDetailPage,
         props: true,
-        meta: { requiresAuth: true, roles: ADMIN_ROLES }
+        meta: { roles: ADMIN_ROLES }
       },
       {
         path: "proxy-variables",

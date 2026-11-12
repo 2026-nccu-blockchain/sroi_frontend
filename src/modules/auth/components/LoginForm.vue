@@ -2,25 +2,33 @@
 import { reactive, ref } from "vue";
 
 import type { LoginPayload } from "@/modules/auth/types/auth.types";
+import { EMAIL_DOMAIN, normalizeEmailPrefix } from "@/modules/auth/utils/email";
 
 const emit = defineEmits<{
   submit: [payload: LoginPayload];
 }>();
 
-defineProps<{
+const props = defineProps<{
   loading?: boolean;
   error?: string;
 }>();
 
-const form = reactive<LoginPayload>({
-  email: "",
+const form = reactive({
+  emailPrefix: "",
   password: ""
 });
 
 const showPassword = ref(false);
+const formatError = ref("");
 
 const onSubmit = (): void => {
-  emit("submit", { ...form });
+  const emailPrefix = normalizeEmailPrefix(form.emailPrefix);
+  if (!emailPrefix) {
+    formatError.value = "請輸入 @ 前面的帳號，只能包含英數字與 . _ % + -";
+    return;
+  }
+  formatError.value = "";
+  emit("submit", { email_prefix: emailPrefix, password: form.password });
 };
 </script>
 
@@ -33,13 +41,19 @@ const onSubmit = (): void => {
 
     <label>
       電子郵件
-      <input
-        v-model="form.email"
-        type="email"
-        placeholder="name@example.com"
-        autocomplete="email"
-        required
-      />
+      <div class="login-form__email">
+        <input
+          v-model="form.emailPrefix"
+          type="text"
+          placeholder="帳號"
+          autocomplete="username"
+          autocapitalize="off"
+          spellcheck="false"
+          required
+          @input="formatError = ''"
+        />
+        <span class="login-form__domain">{{ EMAIL_DOMAIN }}</span>
+      </div>
     </label>
 
     <label>
@@ -63,13 +77,13 @@ const onSubmit = (): void => {
       </div>
     </label>
 
-    <p v-if="error" class="login-form__error" role="alert">{{ error }}</p>
+    <p v-if="formatError || props.error" class="login-form__error" role="alert">{{ formatError || props.error }}</p>
 
     <button type="submit" :disabled="loading">
       {{ loading ? "登入中..." : "登入" }}
     </button>
 
-    <RouterLink class="login-form__back" to="/">以訪客身分繼續</RouterLink>
+    <RouterLink class="login-form__back" :to="{ name: 'register' }">還沒有帳號？前往註冊</RouterLink>
   </form>
 </template>
 
@@ -87,7 +101,7 @@ const onSubmit = (): void => {
 }
 
 .login-form__eyebrow {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   letter-spacing: 0.14em;
 }
@@ -98,7 +112,7 @@ p {
 }
 
 h1 {
-  font-size: clamp(28px, 5vw, 40px);
+  font-size: 26px;
   line-height: 1;
   letter-spacing: -0.04em;
 }
@@ -110,7 +124,7 @@ h1 {
 label {
   display: grid;
   gap: 4px;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
 }
 
@@ -130,19 +144,29 @@ input:focus {
   border-bottom-width: 2px;
 }
 
-.login-form__password {
+.login-form__password,
+.login-form__email {
   display: flex;
   align-items: center;
   border-bottom: 1px solid #000;
 }
 
-.login-form__password:focus-within {
+.login-form__password:focus-within,
+.login-form__email:focus-within {
   border-bottom-width: 2px;
 }
 
-.login-form__password input {
+.login-form__password input,
+.login-form__email input {
   border-bottom: 0;
   flex: 1;
+  min-width: 0;
+}
+
+.login-form__domain {
+  padding-left: 8px;
+  font-weight: 400;
+  white-space: nowrap;
 }
 
 .login-form__password-toggle {
@@ -151,7 +175,7 @@ input:focus {
   background: transparent;
   color: #000;
   font: inherit;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   white-space: nowrap;
   cursor: pointer;
@@ -193,7 +217,7 @@ button:disabled {
 .login-form__back {
   justify-self: center;
   color: #000;
-  font-size: 13px;
+  font-size: 14px;
   text-underline-offset: 4px;
 }
 </style>

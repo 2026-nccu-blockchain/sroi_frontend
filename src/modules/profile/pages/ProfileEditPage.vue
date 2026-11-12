@@ -3,6 +3,7 @@ import { computed, reactive } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import { useAuthStore } from "@/modules/auth/store/auth.store";
+import { EMAIL_DOMAIN, normalizeEmailPrefix } from "@/modules/auth/utils/email";
 import { changeEmail, changePassword } from "@/modules/profile/api/profile.api";
 import { PASSWORD_RULE_HINT, isStrongPassword } from "@/modules/profile/constants";
 import { ApiError, toErrorMessage } from "@/shared/api/error-handler";
@@ -23,8 +24,8 @@ const PASSWORD_FIELDS: { key: PasswordField; label: string; autocomplete: string
 
 const EMAIL_ERROR_MESSAGES: Record<string, string> = {
   "10001": "找不到使用者",
-  "10006": "此 Email 已被其他帳號使用",
-  "10007": "Email 格式錯誤"
+  "10006": "此電子郵件已被其他帳號使用",
+  "10007": "電子郵件格式錯誤，只需輸入 @ 前面的帳號"
 };
 
 const PASSWORD_ERROR_MESSAGES: Record<string, string> = {
@@ -48,8 +49,9 @@ const toMessage = (err: unknown, messages: Record<string, string>): string =>
     ? messages[err.statusCode]
     : toErrorMessage(err);
 
+// 舊資料可能是完整 email，輸入框只放 @ 前面的部分
 const account = reactive({
-  email: authStore.user?.email ?? "",
+  email: (authStore.user?.email ?? "").split("@")[0],
   error: "",
   serverError: "",
   success: "",
@@ -57,20 +59,21 @@ const account = reactive({
 });
 
 const submitEmail = async (): Promise<void> => {
-  const email = account.email.trim();
+  const emailPrefix = normalizeEmailPrefix(account.email);
   account.success = "";
   account.serverError = "";
 
-  if (!email) account.error = "請輸入 Email";
-  else if (email === authStore.user?.email) account.error = "新 Email 與目前相同";
+  if (!account.email.trim()) account.error = "請輸入電子郵件";
+  else if (!emailPrefix) account.error = "只能包含英數字與 . _ % + -";
+  else if (emailPrefix === authStore.user?.email) account.error = "新電子郵件與目前相同";
   else account.error = "";
-  if (account.error) return;
+  if (account.error || !emailPrefix) return;
 
   account.submitting = true;
   try {
-    await changeEmail({ email });
+    await changeEmail({ email_prefix: emailPrefix });
     await authStore.fetchProfile();
-    account.success = "Email 已更新";
+    account.success = "電子郵件已更新";
   } catch (err) {
     account.serverError = toMessage(err, EMAIL_ERROR_MESSAGES);
   } finally {
@@ -143,14 +146,18 @@ const submitPassword = async (): Promise<void> => {
 
     <form v-if="activeTab === 'account'" class="form" novalidate @submit.prevent="submitEmail">
       <label class="field">
-        <span class="field__label">Email <em>*</em></span>
-        <input
-          v-model="account.email"
-          type="email"
-          autocomplete="email"
-          :class="{ 'field__input--error': account.error }"
-          @input="account.error = ''"
-        />
+        <span class="field__label">電子郵件 <em>*</em></span>
+        <div class="field__email" :class="{ 'field__input--error': account.error }">
+          <input
+            v-model="account.email"
+            type="text"
+            autocomplete="username"
+            autocapitalize="off"
+            spellcheck="false"
+            @input="account.error = ''"
+          />
+          <span class="field__domain">{{ EMAIL_DOMAIN }}</span>
+        </div>
         <span v-if="account.error" class="field__error">{{ account.error }}</span>
       </label>
 
@@ -195,7 +202,6 @@ const submitPassword = async (): Promise<void> => {
   display: grid;
   gap: 22px;
   max-width: 640px;
-  margin-top: -16px;
 }
 
 .back-link {
@@ -210,7 +216,7 @@ const submitPassword = async (): Promise<void> => {
 }
 
 .back-link span {
-  font-size: 22px;
+  font-size: 18px;
   line-height: 1;
 }
 
@@ -221,14 +227,14 @@ const submitPassword = async (): Promise<void> => {
 
 .profile-edit__eyebrow {
   margin: 0 0 8px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   letter-spacing: 0.15em;
 }
 
 h1 {
   margin: 0;
-  font-size: 26px;
+  font-size: 24px;
   font-weight: 500;
   line-height: 1;
   letter-spacing: -0.04em;
@@ -267,7 +273,7 @@ h1 {
 }
 
 .field__label {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   letter-spacing: 0.12em;
 }
@@ -297,21 +303,46 @@ h1 {
   border-color: #c00;
 }
 
+.field__email {
+  display: flex;
+  align-items: center;
+  border: 1px solid #000;
+  background: #fff;
+}
+
+.field__email:focus-within {
+  box-shadow: inset 0 0 0 1px #000;
+}
+
+.field .field__email input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  box-shadow: none;
+}
+
+.field__domain {
+  padding-right: 14px;
+  color: #555;
+  font-size: 15px;
+  white-space: nowrap;
+}
+
 .field__hint {
   color: #777;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .field__error,
 .form__server-error {
   margin: 0;
   color: #c00;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .form__success {
   margin: 0;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
 }
 
@@ -327,7 +358,7 @@ h1 {
   background: #fff;
   color: #000;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   cursor: pointer;
 }

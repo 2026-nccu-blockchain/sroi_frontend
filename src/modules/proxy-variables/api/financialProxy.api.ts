@@ -17,6 +17,9 @@ export interface FinancialProxyInput {
 export const getFinancialProxies = (): Promise<FinancialProxy[]> =>
   httpClient.get<FinancialProxy[]>("/financial-proxy");
 
+export const getFinancialProxyOptions = (): Promise<FinancialProxy[]> =>
+  httpClient.get<FinancialProxy[]>("/financial-proxy/options");
+
 export const createFinancialProxy = (
   data: FinancialProxyInput
 ): Promise<FinancialProxy> =>

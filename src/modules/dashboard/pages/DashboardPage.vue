@@ -2,12 +2,10 @@
 import { onMounted, ref } from "vue";
 import { storeToRefs } from "pinia";
 
-import { useAuth } from "@/modules/auth/composables/useAuth";
 import { useProjectStore } from "@/modules/workspace/store/project.store";
 import type { WorkspaceProject } from "@/modules/workspace/types/workspace.types";
 import { formatProjectPeriod } from "@/shared/utils/date";
 
-const { isAuthenticated } = useAuth();
 const projectStore = useProjectStore();
 const { projectsWithForms: projects, loading, error } = storeToRefs(projectStore);
 const selectedProject = ref<string | null>(null);
@@ -18,7 +16,6 @@ const statusLabel = (project: WorkspaceProject): string => {
 };
 
 onMounted(async () => {
-  if (!isAuthenticated.value) return;
   await projectStore.ensureLoaded().catch(() => undefined);
 });
 </script>
@@ -31,11 +28,10 @@ onMounted(async () => {
         <h1>專案列表</h1>
       </div>
       <div class="intro-actions">
-        <RouterLink v-if="isAuthenticated" class="outline-button" to="/workspace/projects/new">＋ 新增專案</RouterLink>
+        <RouterLink class="outline-button" to="/workspace/projects/new">＋ 新增專案</RouterLink>
       </div>
     </div>
 
-    <p v-if="!isAuthenticated" class="projects__notice">登入後可新增、編輯專案與設定利害關係人。</p>
     <p v-if="error" class="projects__notice projects__notice--error">{{ error }}</p>
     <p v-if="loading" class="projects__notice">專案載入中…</p>
 
@@ -72,7 +68,7 @@ onMounted(async () => {
         <div v-if="selectedProject === project.project_id" class="project-row__detail">
           <span>{{ project.stakeholders.length }} 位利害關係人</span>
           <p>{{ project.description || "尚未填寫專案說明。" }}</p>
-          <span>實際投入：NT$ {{ Number(project.actual_input_cost || 0).toLocaleString('zh-TW') }}</span>
+          <span>實際投入：{{ Number(project.actual_input_cost || 0).toLocaleString('zh-TW') }} 元</span>
           <span v-if="project.forms.length" class="form-summary">
             表單：{{ project.forms.length }} 份
             <small :class="['form-badge', { 'form-badge--published': project.forms.some((form) => form.status === 'published') }]">
@@ -83,37 +79,37 @@ onMounted(async () => {
         </div>
       </article>
 
-      <p v-if="isAuthenticated && projects.length === 0" class="project-list__empty">目前沒有專案，可以先新增一個專案。</p>
+      <p v-if="!loading && projects.length === 0" class="project-list__empty">目前沒有專案，可以先新增一個專案。</p>
     </div>
   </section>
 </template>
 
 <style scoped>
-.projects { display: grid; gap: 22px; margin-top: -16px; }
+.projects { display: grid; gap: 22px; }
 .projects__intro { display: flex; align-items: end; justify-content: space-between; gap: 24px; }
-.projects__eyebrow { margin: 0 0 8px; font-size: 12px; font-weight: 700; letter-spacing: .15em; }
-h1 { margin: 0; font-size: 26px; font-weight: 500; line-height: 1; letter-spacing: -.04em; }
+.projects__eyebrow { margin: 0 0 8px; font-size: 14px; font-weight: 700; letter-spacing: .15em; }
+h1 { margin: 0; font-size: 24px; font-weight: 500; line-height: 1; letter-spacing: -.04em; }
 .intro-actions { display: flex; gap: 10px; }
-.outline-button { border: 1px solid #111; border-radius: 8px; padding: 10px 14px; color: #111; font-size: 13px; font-weight: 700; text-decoration: none; }
-.projects__notice { margin: -12px 0 0; padding: 13px 0; border-top: 1px solid #aaa; border-bottom: 1px solid #aaa; color: #555; font-size: 13px; }
+.outline-button { border: 1px solid #111; border-radius: 8px; padding: 10px 14px; color: #111; font-size: 14px; font-weight: 700; text-decoration: none; }
+.projects__notice { margin: -12px 0 0; padding: 13px 0; border-top: 1px solid #aaa; border-bottom: 1px solid #aaa; color: #555; font-size: 14px; }
 .projects__notice--error { color: #8c2020; }
 .project-list { border-top: 2px solid #000; }
 .project-list__header, .project-row { display: grid; grid-template-columns: minmax(220px, 2fr) minmax(150px, 1fr) 70px 90px 90px; gap: 20px; align-items: center; }
-.project-list__header { min-height: 45px; border-bottom: 1px solid #000; font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+.project-list__header { min-height: 45px; border-bottom: 1px solid #000; font-size: 14px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
 .project-list__header span:last-child { text-align: right; }
-.project-row { min-height: 82px; border-bottom: 1px solid #000; font-size: 13px; }
+.project-row { min-height: 82px; border-bottom: 1px solid #000; font-size: 14px; }
 .project-row__title { border: 0; padding: 0; background: transparent; color: #000; font: inherit; font-size: 17px; font-weight: 650; text-align: left; cursor: pointer; }
 .project-row__title:hover { text-decoration: underline; text-underline-offset: 4px; }
 .project-name-cell { display: grid; gap: 7px; }
 .outcome-tags { display: flex; flex-wrap: wrap; gap: 5px; }
-.outcome-tags span { padding: 3px 7px; border-radius: 999px; background: #f0e8f4; color: #765292; font-size: 9px; font-weight: 700; }
-.project-row__status { font-size: 11px; text-transform: uppercase; }
+.outcome-tags span { padding: 3px 7px; border-radius: 999px; background: #f0e8f4; color: #765292; font-size: 14px; font-weight: 700; }
+.project-row__status { font-size: 14px; text-transform: uppercase; }
 .project-row__actions { display: flex; justify-content: flex-end; }
-.project-row__actions a { border-bottom: 1px solid #000; color: #000; font-size: 12px; text-decoration: none; }
-.project-row__detail { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(160px, .6fr) 2fr minmax(180px, 1fr); gap: 20px; padding: 4px 0 24px; color: #555; font-size: 12px; }
+.project-row__actions a { border-bottom: 1px solid #000; color: #000; font-size: 14px; text-decoration: none; }
+.project-row__detail { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(160px, .6fr) 2fr minmax(180px, 1fr); gap: 20px; padding: 4px 0 24px; color: #555; font-size: 14px; }
 .project-row__detail p, .project-list__empty { margin: 0; }
 .form-summary { display: flex; align-items: center; gap: 8px; }
-.form-badge { display: inline-flex; padding: 4px 8px; border-radius: 999px; background: #f0e8f4; color: #765292; font-size: 10px; font-weight: 700; white-space: nowrap; }
+.form-badge { display: inline-flex; padding: 4px 8px; border-radius: 999px; background: #f0e8f4; color: #765292; font-size: 14px; font-weight: 700; white-space: nowrap; }
 .form-badge--published { background: #e5f3e8; color: #2f7140; }
 .project-list__empty { padding: 40px 0; border-bottom: 1px solid #000; color: #555; }
 @media (max-width: 840px) {
