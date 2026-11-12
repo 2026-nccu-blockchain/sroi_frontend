@@ -56,6 +56,7 @@ export interface FormResponse {
   content: string | null;
   status: FormStatus;
   shuffle_outcome_questions: boolean;
+  outcome_sync_index: number;
   create_time?: string | null;
   update_time?: string | null;
   pages: PageResponse[];

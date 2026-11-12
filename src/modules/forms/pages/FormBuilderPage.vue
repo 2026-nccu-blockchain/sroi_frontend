@@ -12,6 +12,7 @@ import {
   deleteQuestion as deleteQuestionApi,
   getForm,
   saveFormStructure,
+  syncProjectOutcomes,
   updatePage,
   updateForm,
   updateQuestion
@@ -83,6 +84,8 @@ const formStatus = ref<FormResponse["status"]>("draft");
 const shuffleOutcomeQuestions = ref(true);
 const showPublishDialog = ref(false);
 const publishing = ref(false);
+const syncingOutcomes = ref(false);
+const syncMessage = ref("");
 const draggedQuestionId = ref<string | null>(null);
 const dragOverQuestionId = ref<string | null>(null);
 let saveTimer: number | undefined;
@@ -114,6 +117,7 @@ const normalizeScaleSize = (value: number | null | undefined): number => {
 
 const questions = ref<Question[]>([]);
 const respondentBlock = computed(() => blocks.value.find((block) => block.isRespondentInfo) ?? null);
+const outcomeBlocks = computed(() => blocks.value.filter((block) => Boolean(block.outcomeId)));
 const userInitial = computed(() => (user.value?.name || user.value?.email || "U").charAt(0).toUpperCase());
 const canViewResponses = computed(() => formStatus.value === "published" && Boolean(formId.value));
 
@@ -215,23 +219,6 @@ const initializeForm = async (): Promise<void> => {
       return;
     }
 
-    // 成果屬於各利害關係人，依「利害關係人順序 → 成果順序」排列；舊的共用成果排最前面
-    const stakeholderOrder = new Map(project.stakeholders.map((stakeholder, index) => [stakeholder.stakeholder_id, index]));
-    const orderOf = (stakeholderId?: string | null): number =>
-      stakeholderId ? stakeholderOrder.get(stakeholderId) ?? Number.MAX_SAFE_INTEGER : -1;
-    const outcomes = [...project.outcomes].sort(
-      (a, b) => orderOf(a.stakeholder_id) - orderOf(b.stakeholder_id) || (a.position ?? 0) - (b.position ?? 0)
-    );
-    const outcomePages = outcomes.length
-      ? outcomes.map((outcome, index) => ({
-        project_outcome_id: outcome.outcome_id ?? null,
-        is_respondent_info: false,
-        title: outcome.name,
-        content: "",
-        position: index + 1,
-        questions: []
-      }))
-      : [{ project_outcome_id: null, is_respondent_info: false, title: "未命名區塊", content: "", position: 1, questions: [] }];
     const created = await createForm({
       project_id: sourceProjectId.value,
       title: formTitle.value,
@@ -246,8 +233,7 @@ const initializeForm = async (): Promise<void> => {
           content: "請填寫以下基本資料，電子郵件將用於確認每人只填寫一次。",
           position: 0,
           questions: []
-        },
-        ...outcomePages
+        }
       ]
     });
     formStore.upsert(created);
@@ -403,6 +389,55 @@ const persistDraft = (): Promise<void> => {
     }
   })();
   return activeSave;
+};
+
+const syncOutcomes = async (): Promise<void> => {
+  if (readOnly.value || !formId.value || syncingOutcomes.value) return;
+  window.clearTimeout(saveTimer);
+  syncMessage.value = "";
+  saveError.value = "";
+  syncingOutcomes.value = true;
+  try {
+    if (!saved.value) await persistDraft();
+    if (saveError.value) return;
+
+    const existingOutcomeIds = new Set(
+      blocks.value.flatMap((block) => block.outcomeId ? [block.outcomeId] : [])
+    );
+    const synced = await syncProjectOutcomes(formId.value);
+    const addedPages = synced.pages.filter(
+      (page) => page.project_outcome_id && !existingOutcomeIds.has(page.project_outcome_id)
+    );
+
+    formStore.upsert(synced);
+    hydrate(synced);
+    saved.value = true;
+    if (addedPages.length) {
+      activeBlockId.value = addedPages[0]?.page_id ?? activeBlockId.value;
+      syncMessage.value = `已同步 ${addedPages.length} 個新增成果區段`;
+      await nextTick();
+      document.getElementById(`block-${activeBlockId.value}`)?.scrollIntoView({
+        behavior: "smooth",
+        block: "center"
+      });
+    } else {
+      syncMessage.value = "目前沒有新的成果可同步";
+    }
+  } catch (error) {
+    saveError.value = error instanceof Error ? error.message : "成果同步失敗";
+  } finally {
+    syncingOutcomes.value = false;
+  }
+};
+
+const goToOutcomeBlock = async (blockId: string): Promise<void> => {
+  activeBlockId.value = blockId;
+  activeQuestionId.value = "";
+  await nextTick();
+  document.getElementById(`block-${blockId}`)?.scrollIntoView({
+    behavior: "smooth",
+    block: "center"
+  });
 };
 
 const touch = (): void => {
@@ -729,17 +764,31 @@ const addRespondentInfoBlock = async (): Promise<void> => {
   await persistDraft();
 };
 
-const removeBlock = async (blockId: string): Promise<void> => {
-  if (blocks.value.find((block) => block.id === blockId)?.isRespondentInfo) return;
-  if (blocks.value.length <= 1) return;
+const removeBlock = async (blockId: string): Promise<boolean> => {
+  if (blocks.value.find((block) => block.id === blockId)?.isRespondentInfo) return false;
+  if (blocks.value.length <= 1) return false;
   try {
     if (!blockId.startsWith("temp-block-")) await deletePage(blockId);
     blocks.value = blocks.value.filter((block) => block.id !== blockId);
     questions.value = questions.value.filter((question) => question.pageId !== blockId);
     activeBlockId.value = blocks.value[0]?.id ?? "";
     saved.value = true;
+    return true;
   } catch (error) {
     saveError.value = error instanceof Error ? error.message : "刪除區塊失敗";
+    return false;
+  }
+};
+
+const confirmRemoveBlock = async (block: Block): Promise<void> => {
+  const isSyncedOutcome = Boolean(block.outcomeId);
+  const message = isSyncedOutcome
+    ? `確定要從這份表單移除「${block.title || "未命名成果"}」嗎？\n\n這不會刪除專案的成果初列，之後再次同步也不會重複加入。`
+    : `確定要刪除「${block.title || "未命名區塊"}」嗎？`;
+  if (!window.confirm(message)) return;
+  const removed = await removeBlock(block.id);
+  if (removed && isSyncedOutcome) {
+    syncMessage.value = `已從這份表單移除「${block.title || "未命名成果"}」`;
   }
 };
 
@@ -1183,6 +1232,24 @@ onMounted(() => void initializeForm());
 
       <div class="topbar__actions">
 
+        <button
+          v-if="!readOnly"
+          type="button"
+          class="sync-outcomes-button"
+          :class="{ 'sync-outcomes-button--loading': syncingOutcomes }"
+          :disabled="initializing || saving || syncingOutcomes"
+          aria-label="同步專案成果"
+          :title="syncingOutcomes ? '正在同步專案成果' : '同步專案成果'"
+          @click="syncOutcomes"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M20 7v5h-5" />
+            <path d="M4 17v-5h5" />
+            <path d="M6.1 8.1A7 7 0 0 1 18.8 10L20 12" />
+            <path d="M17.9 15.9A7 7 0 0 1 5.2 14L4 12" />
+          </svg>
+        </button>
+
         <button type="button" class="worksheet-export-btn" @click="exportWorksheet">匯出學習單</button>
 
         <button v-if="!readOnly" class="publish-button" type="button" :disabled="initializing || saving || publishing" @click="openPublishDialog">
@@ -1224,6 +1291,37 @@ onMounted(() => void initializeForm());
           <button type="button" @click="openQuestionTab">返回問題</button>
         </section>
         <p v-if="saveError" class="connection-error" role="alert">{{ saveError }}</p>
+        <p v-if="syncMessage" class="sync-message" role="status">{{ syncMessage }}</p>
+        <section class="outcome-index" aria-labelledby="outcome-index-title">
+          <div class="outcome-index__heading">
+            <div>
+              <strong id="outcome-index-title">目前成果</strong>
+              <span>{{ outcomeBlocks.length }} 個成果區塊</span>
+            </div>
+            <small>點選成果可直接前往對應區塊</small>
+          </div>
+          <div v-if="outcomeBlocks.length" class="outcome-index__list">
+            <div
+              v-for="(block, index) in outcomeBlocks"
+              :key="block.id"
+              class="outcome-index__item"
+              :class="{ 'outcome-index__item--active': activeBlockId === block.id }"
+            >
+              <button type="button" class="outcome-index__jump" @click="goToOutcomeBlock(block.id)">
+                <span>{{ index + 1 }}</span>{{ block.title || '未命名成果' }}
+              </button>
+              <button
+                v-if="!readOnly"
+                type="button"
+                class="outcome-index__remove"
+                :aria-label="`從表單移除 ${block.title || '未命名成果'}`"
+                :title="`從這份表單移除 ${block.title || '未命名成果'}`"
+                @click="confirmRemoveBlock(block)"
+              >×</button>
+            </div>
+          </div>
+          <p v-else>尚未同步專案成果，請按右上角的同步圖示。</p>
+        </section>
         <section v-if="validationIssues.length" class="validation-reminder" role="alert">
           <strong>表單還沒有完成</strong>
           <p>內容不會被刪除，請完成後再發布：</p>
@@ -1273,7 +1371,7 @@ onMounted(() => void initializeForm());
               <input v-model="block.title" aria-label="區塊名稱" placeholder="例如：同理心" @input="touch" />
               <textarea v-model="block.content" rows="1" aria-label="區塊說明" placeholder="說明這個區塊評估的能力" @input="touch"></textarea>
             </div>
-            <button v-if="!block.isRespondentInfo" type="button" :disabled="blocks.filter((item) => !item.isRespondentInfo).length === 1" @click.stop="removeBlock(block.id)">刪除區塊</button>
+            <button v-if="!block.isRespondentInfo" type="button" :disabled="blocks.length <= 1" @click.stop="confirmRemoveBlock(block)">刪除區塊</button>
           </header>
 
           <section v-if="block.isRespondentInfo" class="system-email-field">
@@ -1599,6 +1697,22 @@ svg { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: 
 .settings-row input:focus, .settings-row textarea:focus { border-color: #765292; }
 
 .connection-error { margin: 0; padding: 12px 16px; border: 1px solid #e4b8c2; border-radius: 9px; background: #fff4f6; color: #91374a; font-size: 14px; }
+.sync-message { margin: 0; padding: 12px 16px; border: 1px solid #cbb8d8; border-radius: 9px; background: #faf6fc; color: #5f3d76; font-size: 14px; font-weight: 650; }
+.outcome-index { display: grid; gap: 13px; padding: 17px 19px; border: 1px solid #d8c9e1; border-radius: 11px; background: #fff; }
+.outcome-index__heading { display: flex; align-items: end; justify-content: space-between; gap: 16px; }
+.outcome-index__heading > div { display: flex; align-items: baseline; gap: 9px; }
+.outcome-index__heading strong { color: #3f3446; font-size: 14px; }
+.outcome-index__heading span, .outcome-index__heading small { color: #817587; font-size: 14px; }
+.outcome-index__list { display: flex; flex-wrap: wrap; gap: 8px; }
+.outcome-index__item { display: inline-flex; align-items: center; border: 1px solid #cab8d4; border-radius: 999px; padding-right: 6px; background: #f8f3fa; color: #604570; transition: border-color .15s ease, background .15s ease, color .15s ease; }
+.outcome-index__jump { display: inline-flex; align-items: center; gap: 7px; min-height: 35px; border: 0; padding: 5px 8px 5px 7px; background: transparent; color: inherit; font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; }
+.outcome-index__jump span { display: grid; width: 22px; height: 22px; place-items: center; border-radius: 50%; background: #e8deed; color: #604570; font-size: 14px; }
+.outcome-index__remove { display: grid; width: 22px; height: 22px; flex: 0 0 22px; place-items: center; border: 0; border-radius: 50%; padding: 0 0 2px; background: #dfd2e5; color: #74547f; font: inherit; font-size: 16px; line-height: 1; cursor: pointer; opacity: 0; transform: scale(.75); transition: opacity .15s ease, transform .15s ease, background .15s ease, color .15s ease; }
+.outcome-index__item:hover, .outcome-index__item:focus-within, .outcome-index__item--active { border-color: #765292; background: #765292; color: #fff; }
+.outcome-index__item:hover .outcome-index__jump span, .outcome-index__item:focus-within .outcome-index__jump span, .outcome-index__item--active .outcome-index__jump span { background: #fff; color: #68447f; }
+.outcome-index__item:hover .outcome-index__remove, .outcome-index__item:focus-within .outcome-index__remove { background: rgba(255, 255, 255, .22); color: #fff; opacity: 1; transform: scale(1); }
+.outcome-index__remove:hover, .outcome-index__remove:focus-visible { background: #91374a !important; color: #fff; outline: 2px solid #fff; outline-offset: 1px; }
+.outcome-index > p { margin: 0; color: #817587; font-size: 14px; }
 .validation-reminder { padding: 18px 20px; border: 1px solid #e2b45e; border-radius: 10px; background: #fffaf0; color: #6f5122; }
 .validation-reminder strong { font-size: 14px; }
 .validation-reminder p { margin: 6px 0 10px; font-size: 14px; }
@@ -1795,6 +1909,23 @@ svg { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: 
 .publish-dialog__cancel { border: 1px solid #d8d0dc; background: #fff; color: #655d69; }
 .publish-dialog__confirm { border: 0; background: #694786; color: #fff; }
 .publish-dialog footer button:disabled { cursor: wait; opacity: .55; }
+.sync-outcomes-button {
+  display: grid;
+  width: 42px;
+  min-height: 42px;
+  place-items: center;
+  border: 1px solid #765292;
+  border-radius: 50%;
+  padding: 0;
+  background: #fff;
+  color: #68447f;
+  cursor: pointer;
+}
+.sync-outcomes-button:hover { background: #f5eff9; }
+.sync-outcomes-button:disabled { cursor: wait; opacity: .55; }
+.sync-outcomes-button svg { width: 21px; height: 21px; }
+.sync-outcomes-button--loading svg { animation: sync-rotate .8s linear infinite; }
+@keyframes sync-rotate { to { transform: rotate(360deg); } }
 .worksheet-export-btn {
   border: 1px solid #74459a;
   background: #ffffff;
