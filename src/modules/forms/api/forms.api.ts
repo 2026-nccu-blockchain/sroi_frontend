@@ -20,6 +20,9 @@ export const getForm = (formId: string): Promise<FormResponse> =>
 export const getForms = (): Promise<FormResponse[]> =>
   httpClient.get<FormResponse[]>("/form");
 
+export const syncProjectOutcomes = (formId: string): Promise<FormResponse> =>
+  httpClient.post<FormResponse>(`/form/${formId}/sync-project-outcomes`, {});
+
 export const getFormSubmissions = (formId: string): Promise<FormSubmission[]> =>
   httpClient.get<FormSubmission[]>(`/form/${formId}/responses`);
 
