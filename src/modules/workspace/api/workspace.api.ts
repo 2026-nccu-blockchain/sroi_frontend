@@ -11,8 +11,8 @@ import type {
   ProjectCostsResponse,
   ProjectCreatePayload,
   ProjectPayload,
-  ProjectSROI,
-  ProjectSROIPayload,
+  StakeholderSROI,
+  StakeholderSROIPayload,
   TempInterviewFile,
   WorkspaceProject
 } from "@/modules/workspace/types/workspace.types";
@@ -32,14 +32,23 @@ export const updateProject = (projectId: string, payload: Partial<ProjectPayload
 export const deleteProject = (projectId: string): Promise<void> =>
   httpClient.delete(`/project/${encodeURIComponent(projectId)}`);
 
-export const getProjectSROI = (projectId: string): Promise<ProjectSROI> =>
-  httpClient.get<ProjectSROI>(`/project/${encodeURIComponent(projectId)}/sroi`);
-
-export const saveProjectSROI = (
+export const getStakeholderSROI = (
   projectId: string,
-  payload: ProjectSROIPayload
-): Promise<ProjectSROI> =>
-  httpClient.put<ProjectSROI>(`/project/${encodeURIComponent(projectId)}/sroi`, payload);
+  stakeholderId: string
+): Promise<StakeholderSROI> =>
+  httpClient.get<StakeholderSROI>(
+    `/project/${encodeURIComponent(projectId)}/stakeholders/${encodeURIComponent(stakeholderId)}/sroi`
+  );
+
+export const saveStakeholderSROI = (
+  projectId: string,
+  stakeholderId: string,
+  payload: StakeholderSROIPayload
+): Promise<StakeholderSROI> =>
+  httpClient.put<StakeholderSROI>(
+    `/project/${encodeURIComponent(projectId)}/stakeholders/${encodeURIComponent(stakeholderId)}/sroi`,
+    payload
+  );
 
 export const getProjectCosts = (projectId: string): Promise<ProjectCostsResponse> =>
   httpClient.get<ProjectCostsResponse>(`/project/${encodeURIComponent(projectId)}/costs`);

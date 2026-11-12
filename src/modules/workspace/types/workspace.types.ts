@@ -137,6 +137,9 @@ export interface OutcomeValuation {
   outcome_name: string;
   position: number;
   quantity: number;
+  financial_proxy_id: string | null;
+  financial_proxy_name: string | null;
+  financial_proxy_note: string | null;
   financial_proxy_value: number;
   deadweight_rate: number;
   attribution_rate: number;
@@ -151,35 +154,26 @@ export interface OutcomeValuation {
 }
 
 export interface StakeholderSROI {
+  project_id: string;
+  project_name: string;
   stakeholder_id: string;
   stakeholder_name: string;
   stakeholder_role: string;
   position: number;
+  input_cost: number;
+  discount_rate: number;
   outcomes: OutcomeValuation[];
   total_social_value: number;
   sroi_ratio: number | null;
 }
 
-export interface ProjectSROI {
-  project_id: string;
-  project_name: string;
-  actual_input_cost: number;
+export interface StakeholderSROIPayload {
   discount_rate: number;
-  stakeholders: StakeholderSROI[];
-  total_social_value: number;
-  sroi_ratio: number | null;
-}
-
-export interface ProjectSROIPayload {
-  discount_rate: number;
-  stakeholders: Array<{
-    stakeholder_id: string;
-    outcomes: Array<Pick<OutcomeValuation,
-      "outcome_id" | "quantity" | "financial_proxy_value" | "deadweight_rate" |
-      "attribution_rate" | "displacement_rate" | "duration_years" | "dropoff_rate" |
-      "is_included"
-    >>;
-  }>;
+  outcomes: Array<Pick<OutcomeValuation,
+    "outcome_id" | "quantity" | "financial_proxy_id" | "deadweight_rate" |
+    "attribution_rate" | "displacement_rate" | "duration_years" | "dropoff_rate" |
+    "is_included"
+  >>;
 }
 
 // 只有建立時能指定專案位置，建立後不能在個人 / 群組之間移動
