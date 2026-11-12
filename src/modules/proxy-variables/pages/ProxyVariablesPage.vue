@@ -17,7 +17,7 @@ const error = ref("");
 const loading = ref(false);
 const saving = ref(false);
 const deletingId = ref<string | null>(null);
-const form = ref({ name: "", value: "", note: "" });
+const form = ref({ name: "", value: "",unit:"元",note: "" });
 
 const filteredProxies = computed(() => {
   const keyword = search.value.trim().toLowerCase();
@@ -44,13 +44,13 @@ onMounted(() => { void loadProxies(); });
 
 function openCreate() {
   editingId.value = null;
-  form.value = { name: "", value: "", note: "" };
+  form.value = { name: "", value: "",unit:"元", note: "" };
   error.value = "";
   showForm.value = true;
 }
 function openEdit(item: FinancialProxy) {
   editingId.value = item.proxy_id;
-  form.value = { name: item.name, value: String(item.value), note: item.note };
+  form.value = { name: item.name, value: String(item.value),unit: item.unit ?? "元", note: item.note };
   error.value = "";
   showForm.value = true;
 }
@@ -72,7 +72,7 @@ async function saveProxy() {
   saving.value = true;
   error.value = "";
   try {
-    const data = { name, value, note: form.value.note.trim() };
+    const data = { name, value, unit: form.value.unit.trim(),note: form.value.note.trim() };
     if (editingId.value) {
       await updateFinancialProxy(editingId.value, data);
     } else {
@@ -144,7 +144,7 @@ function formatValue(value: number) {
         <tbody>
           <tr v-for="item in filteredProxies" :key="item.proxy_id">
             <td class="name-cell">{{ item.name }}</td>
-            <td class="value-cell">{{ formatValue(item.value) }}</td>
+            <td class="value-cell">{{ formatValue(item.value) }} {{ item.unit ?? "元" }}</td>
             <td class="note-cell">{{ item.note || "—" }}</td>
             <td class="actions-cell">
               <button class="text-button" @click="openEdit(item)">
@@ -205,10 +205,10 @@ function formatValue(value: number) {
           <label>
             數值 <span class="required">*</span>
             <input
-              v-model="form.value"
-              
-              step="any"
-              placeholder="請輸入數值"
+              v-model.trim="form.unit"
+              type="text"
+              maxlength="50"
+              placeholder="例如：元／小時、元／人次"
               required
             />
           </label>
