@@ -504,11 +504,6 @@ onMounted(async () => {
         <div v-if="!loadFailed" class="editor-header__actions">
           <span v-if="isDirty && !isNew" class="dirty-hint">● 有未儲存的修改</span>
           <div class="editor-header__buttons">
-            <RouterLink
-              v-if="!isNew"
-              class="secondary-button"
-              :to="{ name: 'project-sroi', params: { projectId }, query: phaseQuery }"
-            >SROI 計算 →</RouterLink>
             <button v-if="!readOnly" class="primary-button" type="button" :disabled="saving || loading || nameMissing" @click="persist">
               {{ saving ? (isNew ? "新增中…" : "儲存中…") : (isNew ? "新增專案" : "儲存專案") }}
             </button>
@@ -596,9 +591,9 @@ onMounted(async () => {
               v-if="stakeholder.stakeholder_id"
               class="sroi-link"
               :to="{
-                name: 'project-sroi',
-                params: { projectId },
-                query: { ...phaseQuery, stakeholder: stakeholder.stakeholder_id }
+                name: 'stakeholder-sroi',
+                params: { projectId, stakeholderId: stakeholder.stakeholder_id },
+                query: phaseQuery
               }"
             >查看 SROI</RouterLink>
             <button v-if="!readOnly" class="remove-button" type="button" @click="removeStakeholder(index)">移除</button>
@@ -779,7 +774,8 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .outcome-tags--static span { padding: 5px 11px; border-radius: 999px; background: #f0e8f4; color: #6d4688; font-size: 14px; font-weight: 700; }
 .stakeholder-number { padding-top: 3px; color: #999; font-size: 14px; }
 .stakeholder-actions { display: grid; gap: 7px; }
-.sroi-link { display: grid; min-height: 40px; box-sizing: border-box; place-items: center; border: 1px solid #765292; padding: 8px 12px; color: #68447f; font-size: 14px; font-weight: 750; text-align: center; text-decoration: none; white-space: nowrap; }
+.sroi-link { display: grid; min-height: 40px; box-sizing: border-box; place-items: center; border: 1px solid #111; padding: 8px 12px; background: #111; color: #fff; font-size: 14px; font-weight: 750; text-align: center; text-decoration: none; white-space: nowrap; }
+.sroi-link:hover, .sroi-link:focus-visible { background: #fff; color: #111; }
 /* 會刪掉資料的按鈕：紅框，滑過變紅底 */
 .remove-button { border-color: #c00; color: #c00; }
 .remove-button:hover { background: #c00; color: #fff; }

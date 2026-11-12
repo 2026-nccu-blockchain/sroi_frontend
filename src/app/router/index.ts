@@ -110,8 +110,8 @@ const routes: RouteRecordRaw[] = [
         meta: { roles: WORKSPACE_ROLES }
       },
       {
-        path: "workspace/projects/:projectId/sroi",
-        name: "project-sroi",
+        path: "workspace/projects/:projectId/stakeholders/:stakeholderId/sroi",
+        name: "stakeholder-sroi",
         component: ProjectSroiPage,
         meta: { roles: WORKSPACE_ROLES }
       },
