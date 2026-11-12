@@ -11,6 +11,8 @@ import {
 import { useDeleteConfirm } from "@/shared/composables/useDeleteConfirm";
 import DeleteConfirmDialog from "@/shared/components/DeleteConfirmDialog.vue";
 
+const { deleteDialog, askDelete, answerDelete } = useDeleteConfirm();
+
 const proxies = ref<FinancialProxy[]>([]);
 const search = ref("");
 const showForm = ref(false);
@@ -212,11 +214,21 @@ function formatValue(value: number) {
           <label>
             數值 <span class="required">*</span>
             <input
+              v-model.trim="form.value"
+              type="text"
+              inputmode="decimal"
+              placeholder="請輸入數值"
+              required
+            />
+          </label>
+
+          <label>
+            單位
+            <input
               v-model.trim="form.unit"
               type="text"
               maxlength="50"
               placeholder="例如：元／小時、元／人次"
-              required
             />
           </label>
 
