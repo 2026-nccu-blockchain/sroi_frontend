@@ -25,7 +25,7 @@ import type {
 } from "@/modules/forms/types/form.types";
 import { useFormStore } from "@/modules/forms/store/form.store";
 import { getProject } from "@/modules/workspace/api/workspace.api";
-import { getProjectPhase } from "@/modules/workspace/constants";
+import { isProjectClosed } from "@/modules/workspace/constants";
 import { useProjectStore } from "@/modules/workspace/store/project.store";
 import type { GroupRole } from "@/modules/workspace/types/workspace.types";
 import { HttpError } from "@/shared/api/http";
@@ -203,7 +203,7 @@ const initializeForm = async (): Promise<void> => {
     const project = await getProject(sourceProjectId.value);
     projectStore.upsert(project);
     myRole.value = project.my_role ?? "leader";
-    projectClosed.value = getProjectPhase(project) === "closed";
+    projectClosed.value = isProjectClosed(project);
 
     const requestedFormId = String(route.params.formId ?? "");
     // 檢視者、已結案的專案不能新增表單

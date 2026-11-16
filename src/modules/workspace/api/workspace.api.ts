@@ -20,6 +20,10 @@ import type {
 export const getProjects = (): Promise<WorkspaceProject[]> =>
   httpClient.get<WorkspaceProject[]>("/project");
 
+// 共用資料庫：所有已發布至資料庫的專案，不限自己能存取的
+export const getPublishedProjects = (): Promise<WorkspaceProject[]> =>
+  httpClient.get<WorkspaceProject[]>("/project/published");
+
 export const getProject = (projectId: string): Promise<WorkspaceProject> =>
   httpClient.get<WorkspaceProject>(`/project/${encodeURIComponent(projectId)}`);
 

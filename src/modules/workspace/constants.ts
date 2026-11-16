@@ -48,7 +48,7 @@ export const toProjectErrorMessage = (err: unknown, fallback: string): string =>
   return err instanceof Error ? toErrorMessage(err) : fallback;
 };
 
-export const PROJECT_PHASES: ProjectPhase[] = ["not_started", "in_progress", "pending_close", "closed"];
+export const PROJECT_PHASES: ProjectPhase[] = ["not_started", "in_progress", "pending_close", "closed", "published"];
 export const PROJECT_PHASE_TABS: ProjectPhaseTab[] = ["all", ...PROJECT_PHASES];
 
 export const PROJECT_PHASE_TAB_LABELS: Record<ProjectPhaseTab, string> = {
@@ -56,21 +56,27 @@ export const PROJECT_PHASE_TAB_LABELS: Record<ProjectPhaseTab, string> = {
   not_started: "未開始",
   in_progress: "進行中",
   pending_close: "待結案",
-  closed: "已結案"
+  closed: "已結案",
+  published: "已發布"
 };
 
 export const PROJECT_PHASE_LABELS: Record<ProjectPhase, string> = {
   not_started: "未開始",
   in_progress: "進行中",
   pending_close: "待結案",
-  closed: "已結案"
+  closed: "已結案",
+  published: "已發布"
 };
 
-// 已結案以 closed_at 為準；其餘依目前時間與專案期間判斷，begin / end 帶時區，直接比較時間點即可
+// 已發布一定已結案；兩者的內容都不能再修改
+export const isProjectClosed = (project: Pick<WorkspaceProject, "closed_at">): boolean => Boolean(project.closed_at);
+
+// 已發布、已結案以 published_at / closed_at 為準；其餘依目前時間與專案期間判斷，begin / end 帶時區，直接比較時間點即可
 export const getProjectPhase = (
-  project: Pick<WorkspaceProject, "begin" | "end" | "closed_at">,
+  project: Pick<WorkspaceProject, "begin" | "end" | "closed_at" | "published_at">,
   now: Date = new Date()
 ): ProjectPhase => {
+  if (project.published_at) return "published";
   if (project.closed_at) return "closed";
   const current = now.getTime();
   if (current < new Date(project.begin).getTime()) return "not_started";

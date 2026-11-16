@@ -71,9 +71,9 @@ const editingStakeholder = ref<StakeholderDraft | null>(null);
 // 最後一次儲存（或載入）時的內容，用來判斷有沒有未儲存的修改
 const savedSnapshot = ref("");
 // 已儲存（或載入）的專案期間；狀態只依這份計算，畫面上改年月要等儲存後才會變
-const savedPeriod = ref<Pick<WorkspaceProject, "begin" | "end" | "closed_at"> | null>(null);
+const savedPeriod = ref<Pick<WorkspaceProject, "begin" | "end" | "closed_at" | "published_at"> | null>(null);
 const projectPhase = computed(() => (savedPeriod.value ? getProjectPhase(savedPeriod.value) : null));
-const publishedAt = ref<string | null>(null);
+const publishedAt = computed(() => savedPeriod.value?.published_at ?? null);
 
 // 專案位置：null 是個人專案。新增時可選擇，入口網址 ?group= 帶入預設群組，建立後不能移動
 const { load: loadGroups, loadCreatable, titleOf } = useVerifiedGroups();
@@ -81,7 +81,8 @@ const creatableGroups = ref<Group[]>([]);
 const ownerGroupId = ref<string | null>(null);
 const myRole = ref<GroupRole>("leader");
 const isViewer = computed(() => myRole.value === "viewer");
-const isClosed = computed(() => projectPhase.value === "closed");
+// 已發布一定已結案
+const isClosed = computed(() => projectPhase.value === "closed" || projectPhase.value === "published");
 // 檢視者或已結案都只能查看
 const readOnly = computed(() => isViewer.value || isClosed.value);
 type EditorTab = "info" | "stakeholders" | "interviews" | "forms";
@@ -105,14 +106,23 @@ const activeTab = computed<EditorTab>({
   }
 });
 
-// 從列表進來時網址帶著 ?phase=，返回時回到原本的分頁；去 SROI 頁也帶著，繞回來才不會弄丟
-const phaseQuery = computed(() => (isProjectPhaseTab(route.query.phase) ? { phase: route.query.phase } : {}));
+// 從列表進來時網址帶著 ?phase=，從共用資料庫進來帶著 ?from=database；去 SROI 頁也帶著，繞回來才不會弄丟
+const isMember = ref(true);
+const fromDatabase = computed(() => route.query.from === "database" || !isMember.value);
+const phaseQuery = computed(() => ({
+  ...(isProjectPhaseTab(route.query.phase) ? { phase: route.query.phase } : {}),
+  ...(route.query.from === "database" ? { from: "database" } : {})
+}));
 const backTo = computed(() => {
+  if (fromDatabase.value) return { name: "dashboard" };
   const query = phaseQuery.value;
   return ownerGroupId.value
     ? { name: "group-detail", params: { groupId: ownerGroupId.value }, query }
     : { name: "my-projects", query };
 });
+const backLabel = computed(() =>
+  fromDatabase.value ? "← 返回共用資料庫" : ownerGroupId.value ? "← 返回群組" : "← 返回我的專案"
+);
 // 編輯時只有群組專案顯示所屬群組
 const ownerLabel = computed(() => `群組・${titleOf(ownerGroupId.value)}`);
 
@@ -171,8 +181,12 @@ const hydrate = (project: WorkspaceProject): void => {
   draft.description = project.description;
   beginMonth.value = toMonthValue(project.begin);
   endMonth.value = toMonthValue(project.end);
-  savedPeriod.value = { begin: project.begin, end: project.end, closed_at: project.closed_at };
-  publishedAt.value = project.published_at;
+  savedPeriod.value = {
+    begin: project.begin,
+    end: project.end,
+    closed_at: project.closed_at,
+    published_at: project.published_at
+  };
   // 成果、成本在回應裡是整個專案一份清單，依 stakeholder_id 分給各利害關係人
   draft.stakeholders = project.stakeholders.map((stakeholder) => ({
     key: stakeholder.stakeholder_id ?? newKey(),
@@ -207,6 +221,7 @@ const hydrate = (project: WorkspaceProject): void => {
   projectForms.value = project.forms ?? [];
   ownerGroupId.value = project.group_id;
   myRole.value = project.my_role ?? "leader";
+  isMember.value = project.is_member ?? true;
   savedSnapshot.value = snapshot();
 };
 
@@ -504,8 +519,8 @@ onMounted(async () => {
       projectStore.upsert(project);
       hydrate(project);
     }
-    if (!isNew.value && ownerGroupId.value) {
-      // 只用來顯示群組名稱，失敗不影響編輯
+    if (!isNew.value && ownerGroupId.value && isMember.value) {
+      // 只用來顯示群組名稱，失敗不影響編輯；不是成員抓不到別人的群組
       await loadGroups().catch(() => undefined);
     }
   } catch (caught) {
@@ -524,7 +539,7 @@ onMounted(async () => {
     <div class="editor-sticky">
       <header class="editor-header">
         <div>
-          <RouterLink class="back-link" :to="backTo">{{ ownerGroupId ? "← 返回群組" : "← 返回我的專案" }}</RouterLink>
+          <RouterLink class="back-link" :to="backTo">{{ backLabel }}</RouterLink>
           <p class="eyebrow">專案工作區</p>
           <div class="editor-title">
             <h1>{{ loadFailed ? "無法開啟專案" : isNew ? "新增專案" : readOnly ? "檢視專案" : "編輯專案" }}</h1>
@@ -600,7 +615,7 @@ onMounted(async () => {
               </option>
             </select>
           </label>
-          <p v-else-if="ownerGroupId" class="field">專案位置<span class="owner-label">{{ ownerLabel }}</span></p>
+          <p v-else-if="ownerGroupId && isMember" class="field">專案位置<span class="owner-label">{{ ownerLabel }}</span></p>
           <label class="field field--wide">專案說明<textarea v-model="draft.description" rows="4"></textarea></label>
         </div>
 

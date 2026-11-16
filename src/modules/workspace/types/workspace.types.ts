@@ -88,8 +88,8 @@ export interface LinkedProjectForm {
   status: "draft" | "published" | "closed";
 }
 
-// 依專案期間計算的進度狀態；有 closed_at 就是已結案
-export type ProjectPhase = "not_started" | "in_progress" | "pending_close" | "closed";
+// 依專案期間計算的進度狀態；有 closed_at 是已結案，再有 published_at 是已發布
+export type ProjectPhase = "not_started" | "in_progress" | "pending_close" | "closed" | "published";
 export type ProjectPhaseTab = ProjectPhase | "all";
 
 export interface WorkspaceProject {
@@ -99,6 +99,10 @@ export interface WorkspaceProject {
   group_id: string | null;
   created_by: string;
   my_role?: GroupRole | null;
+  // 是否為專案成員；從共用資料庫檢視別人的已發布專案時是 false
+  is_member?: boolean;
+  // 作者姓名；目前只有共用資料庫的列表會帶
+  creator_name?: string | null;
   name: string;
   organization: string;
   description: string;

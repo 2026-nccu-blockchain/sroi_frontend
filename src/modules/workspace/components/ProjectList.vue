@@ -55,7 +55,8 @@ const tabCounts = computed(() => {
     not_started: 0,
     in_progress: 0,
     pending_close: 0,
-    closed: 0
+    closed: 0,
+    published: 0
   };
   for (const { phase } of rows.value) counts[phase] += 1;
   return counts;

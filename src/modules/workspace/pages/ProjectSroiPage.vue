@@ -13,7 +13,7 @@ import {
 } from "@/modules/workspace/api/workspace.api";
 import ConfirmDialog from "@/modules/workspace/components/ConfirmDialog.vue";
 import { isProjectPhaseTab } from "@/modules/workspace/composables/useProjectPhaseTab";
-import { getProjectPhase, toProjectErrorMessage } from "@/modules/workspace/constants";
+import { isProjectClosed, toProjectErrorMessage } from "@/modules/workspace/constants";
 import { useProjectStore } from "@/modules/workspace/store/project.store";
 import type {
   GroupRole,
@@ -27,7 +27,11 @@ const route = useRoute();
 const projectStore = useProjectStore();
 const projectId = computed(() => String(route.params.projectId ?? ""));
 const stakeholderId = computed(() => String(route.params.stakeholderId ?? ""));
-const phaseQuery = computed(() => (isProjectPhaseTab(route.query.phase) ? { phase: route.query.phase } : {}));
+const phaseQuery = computed(() => ({
+  ...(isProjectPhaseTab(route.query.phase) ? { phase: route.query.phase } : {}),
+  ...(route.query.from === "database" ? { from: "database" } : {})
+}));
+const fromDatabase = computed(() => route.query.from === "database");
 const projectEditLink = computed(() => ({
   name: "project-edit",
   params: { projectId: projectId.value },
@@ -35,7 +39,9 @@ const projectEditLink = computed(() => ({
 }));
 const loadFailed = ref(false);
 const backLink = computed(() =>
-  loadFailed.value ? { name: "my-projects", query: phaseQuery.value } : projectEditLink.value
+  !loadFailed.value
+    ? projectEditLink.value
+    : fromDatabase.value ? { name: "dashboard" } : { name: "my-projects", query: phaseQuery.value }
 );
 const myRole = ref<GroupRole>("leader");
 const closed = ref(false);
@@ -176,7 +182,7 @@ onMounted(async () => {
       getFinancialProxyOptions()
     ]);
     myRole.value = project.my_role ?? "leader";
-    closed.value = getProjectPhase(project) === "closed";
+    closed.value = isProjectClosed(project);
     financialProxies.value = proxies.map((proxy) => ({ ...proxy, value: Number(proxy.value) }));
     hydrate(sroi);
   } catch (caught) {
@@ -192,7 +198,7 @@ onMounted(async () => {
   <section class="sroi-page">
     <header class="page-header">
       <div>
-        <RouterLink class="back-link" :to="backLink">{{ loadFailed ? "← 返回我的專案" : "← 返回利害關係人" }}</RouterLink>
+        <RouterLink class="back-link" :to="backLink">{{ !loadFailed ? "← 返回利害關係人" : fromDatabase ? "← 返回共用資料庫" : "← 返回我的專案" }}</RouterLink>
         <p class="eyebrow">利害關係人 SROI</p>
         <h1>{{ stakeholder ? `${stakeholder.stakeholder_name}・SROI 計算` : "SROI 計算" }}</h1>
         <p v-if="stakeholder" class="project-name">{{ stakeholder.project_name }}</p>
