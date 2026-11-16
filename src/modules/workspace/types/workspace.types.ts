@@ -88,7 +88,7 @@ export interface LinkedProjectForm {
   status: "draft" | "published" | "closed";
 }
 
-// 依專案期間計算的進度狀態；closed 之後再接上結案邏輯
+// 依專案期間計算的進度狀態；有 closed_at 就是已結案
 export type ProjectPhase = "not_started" | "in_progress" | "pending_close" | "closed";
 export type ProjectPhaseTab = ProjectPhase | "all";
 
@@ -106,6 +106,9 @@ export interface WorkspaceProject {
   begin: string;
   end: string;
   status: ProjectStatus;
+  // 結案、發布至資料庫的時間；null 表示還沒
+  closed_at: string | null;
+  published_at: string | null;
   forms: LinkedProjectForm[];
   stakeholders: ProjectStakeholder[];
   outcomes: ProjectOutcome[];
@@ -121,7 +124,6 @@ export interface ProjectPayload {
   description: string;
   begin: string;
   end: string;
-  status: ProjectStatus;
   // 成果與成本放在各利害關係人底下
   stakeholders: Array<Omit<ProjectStakeholder, "position"> & {
     outcomes?: Array<Pick<ProjectOutcome, "outcome_id" | "name">>;

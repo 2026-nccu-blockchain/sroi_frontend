@@ -13,7 +13,7 @@ import {
 } from "@/modules/workspace/api/workspace.api";
 import ConfirmDialog from "@/modules/workspace/components/ConfirmDialog.vue";
 import { isProjectPhaseTab } from "@/modules/workspace/composables/useProjectPhaseTab";
-import { toProjectErrorMessage } from "@/modules/workspace/constants";
+import { getProjectPhase, toProjectErrorMessage } from "@/modules/workspace/constants";
 import { useProjectStore } from "@/modules/workspace/store/project.store";
 import type {
   GroupRole,
@@ -38,7 +38,9 @@ const backLink = computed(() =>
   loadFailed.value ? { name: "my-projects", query: phaseQuery.value } : projectEditLink.value
 );
 const myRole = ref<GroupRole>("leader");
-const readOnly = computed(() => myRole.value === "viewer");
+const closed = ref(false);
+// 檢視者或專案已結案都只能查看
+const readOnly = computed(() => myRole.value === "viewer" || closed.value);
 const loading = ref(true);
 const saving = ref(false);
 const error = ref("");
@@ -174,6 +176,7 @@ onMounted(async () => {
       getFinancialProxyOptions()
     ]);
     myRole.value = project.my_role ?? "leader";
+    closed.value = getProjectPhase(project) === "closed";
     financialProxies.value = proxies.map((proxy) => ({ ...proxy, value: Number(proxy.value) }));
     hydrate(sroi);
   } catch (caught) {
@@ -217,7 +220,8 @@ onMounted(async () => {
     <p v-if="loading" class="state-card">正在載入 SROI 資料…</p>
 
     <template v-else-if="stakeholder && !loadFailed">
-      <p v-if="readOnly" class="message">你在這個群組是檢視者，只能查看 SROI 計算結果。</p>
+      <p v-if="closed" class="message">此專案已結案，只能查看 SROI 計算結果。</p>
+      <p v-else-if="readOnly" class="message">你在這個群組是檢視者，只能查看 SROI 計算結果。</p>
       <fieldset class="plain-fieldset" :disabled="readOnly">
         <section class="summary-grid">
           <article class="summary-card summary-card--ratio">

@@ -34,7 +34,11 @@ export const STATUS_TO_BUCKET: Record<GroupReviewStatus, GroupBucketKey> = {
 const PROJECT_ERROR_MESSAGES: Record<string, string> = {
   "30001": "找不到專案，或你不是這個專案所屬群組的成員",
   "30007": "權限不足：檢視者只能查看，刪除專案需要組長",
-  "30008": "必填欄位不能清空"
+  "30008": "必填欄位不能清空",
+  "30014": "專案已結案，無法再修改",
+  "30015": "專案期間尚未結束，還不能結案",
+  "30016": "專案結案後才能發布至資料庫",
+  "30017": "專案已發布至資料庫"
 };
 
 export const toProjectErrorMessage = (err: unknown, fallback: string): string => {
@@ -62,12 +66,12 @@ export const PROJECT_PHASE_LABELS: Record<ProjectPhase, string> = {
   closed: "已結案"
 };
 
-// 依目前時間與專案期間判斷狀態；begin / end 帶時區，直接比較時間點即可
-// TODO: 已結案的判斷條件之後再補
+// 已結案以 closed_at 為準；其餘依目前時間與專案期間判斷，begin / end 帶時區，直接比較時間點即可
 export const getProjectPhase = (
-  project: Pick<WorkspaceProject, "begin" | "end">,
+  project: Pick<WorkspaceProject, "begin" | "end" | "closed_at">,
   now: Date = new Date()
 ): ProjectPhase => {
+  if (project.closed_at) return "closed";
   const current = now.getTime();
   if (current < new Date(project.begin).getTime()) return "not_started";
   if (current <= new Date(project.end).getTime()) return "in_progress";

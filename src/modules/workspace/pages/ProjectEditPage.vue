@@ -71,15 +71,19 @@ const editingStakeholder = ref<StakeholderDraft | null>(null);
 // 最後一次儲存（或載入）時的內容，用來判斷有沒有未儲存的修改
 const savedSnapshot = ref("");
 // 已儲存（或載入）的專案期間；狀態只依這份計算，畫面上改年月要等儲存後才會變
-const savedPeriod = ref<Pick<WorkspaceProject, "begin" | "end"> | null>(null);
+const savedPeriod = ref<Pick<WorkspaceProject, "begin" | "end" | "closed_at"> | null>(null);
 const projectPhase = computed(() => (savedPeriod.value ? getProjectPhase(savedPeriod.value) : null));
+const publishedAt = ref<string | null>(null);
 
 // 專案位置：null 是個人專案。新增時可選擇，入口網址 ?group= 帶入預設群組，建立後不能移動
 const { load: loadGroups, loadCreatable, titleOf } = useVerifiedGroups();
 const creatableGroups = ref<Group[]>([]);
 const ownerGroupId = ref<string | null>(null);
 const myRole = ref<GroupRole>("leader");
-const readOnly = computed(() => myRole.value === "viewer");
+const isViewer = computed(() => myRole.value === "viewer");
+const isClosed = computed(() => projectPhase.value === "closed");
+// 檢視者或已結案都只能查看
+const readOnly = computed(() => isViewer.value || isClosed.value);
 type EditorTab = "info" | "stakeholders" | "interviews" | "forms";
 
 const EDITOR_TABS: { key: EditorTab; label: string }[] = [
@@ -116,7 +120,6 @@ const draft = reactive<Omit<ProjectPayload, "begin" | "end" | "stakeholders"> & 
   name: "",
   organization: "",
   description: "",
-  status: "draft",
   stakeholders: []
 });
 
@@ -168,8 +171,8 @@ const hydrate = (project: WorkspaceProject): void => {
   draft.description = project.description;
   beginMonth.value = toMonthValue(project.begin);
   endMonth.value = toMonthValue(project.end);
-  savedPeriod.value = { begin: project.begin, end: project.end };
-  draft.status = project.status;
+  savedPeriod.value = { begin: project.begin, end: project.end, closed_at: project.closed_at };
+  publishedAt.value = project.published_at;
   // 成果、成本在回應裡是整個專案一份清單，依 stakeholder_id 分給各利害關係人
   draft.stakeholders = project.stakeholders.map((stakeholder) => ({
     key: stakeholder.stakeholder_id ?? newKey(),
@@ -321,7 +324,6 @@ const normalizedPayload = (): ProjectPayload => ({
   name: draft.name.trim(),
   organization: draft.organization.trim(),
   description: draft.description.trim(),
-  status: draft.status,
   begin: monthStartIso(beginMonth.value),
   end: monthEndIso(endMonth.value),
   stakeholders: namedStakeholders.value.map((item) => ({
@@ -399,6 +401,48 @@ const persist = async (): Promise<WorkspaceProject | null> => {
 };
 
 const { leaveDialogOpen, answerLeave } = useUnsavedChanges(isDirty);
+
+// 結案、發布至資料庫：只有組長能做，按鈕放在標題列「儲存專案」的位置，依狀態替換
+const isLeader = computed(() => myRole.value === "leader");
+const closeDialogOpen = ref(false);
+const publishDialogOpen = ref(false);
+const closing = ref(false);
+const publishing = ref(false);
+const canClose = computed(() => isLeader.value && projectPhase.value === "pending_close");
+const canPublish = computed(() => isLeader.value && isClosed.value && !publishedAt.value);
+
+const closeProject = async (): Promise<void> => {
+  closing.value = true;
+  error.value = "";
+  savedMessage.value = "";
+  try {
+    hydrate(await projectStore.close(projectId.value));
+    savedMessage.value = "專案已結案";
+  } catch (caught) {
+    error.value = toProjectErrorMessage(caught, "結案失敗");
+  } finally {
+    closing.value = false;
+    closeDialogOpen.value = false;
+  }
+};
+
+const publishProject = async (): Promise<void> => {
+  publishing.value = true;
+  error.value = "";
+  savedMessage.value = "";
+  try {
+    hydrate(await projectStore.publish(projectId.value));
+    savedMessage.value = "已發布至資料庫";
+  } catch (caught) {
+    error.value = toProjectErrorMessage(caught, "發布失敗");
+  } finally {
+    publishing.value = false;
+    publishDialogOpen.value = false;
+  }
+};
+
+const formatDate = (iso: string | null | undefined): string =>
+  iso ? new Date(iso).toLocaleDateString("zh-TW") : "";
 
 // 不會自動儲存專案；有未儲存的修改時，離開提醒會先問使用者
 const canCreateForm = computed(() => !isNew.value && !saving.value);
@@ -504,8 +548,22 @@ onMounted(async () => {
         <div v-if="!loadFailed" class="editor-header__actions">
           <span v-if="isDirty && !isNew" class="dirty-hint">● 有未儲存的修改</span>
           <div class="editor-header__buttons">
+            <button
+              v-if="canClose"
+              class="secondary-button"
+              type="button"
+              :disabled="saving || loading || closing || isDirty"
+              :title="isDirty ? '請先儲存修改再結案' : undefined"
+              @click="closeDialogOpen = true"
+            >結案此專案</button>
             <button v-if="!readOnly" class="primary-button" type="button" :disabled="saving || loading || nameMissing" @click="persist">
               {{ saving ? (isNew ? "新增中…" : "儲存中…") : (isNew ? "新增專案" : "儲存專案") }}
+            </button>
+            <button v-if="canPublish" class="primary-button" type="button" :disabled="publishing" @click="publishDialogOpen = true">
+              發布至資料庫
+            </button>
+            <button v-else-if="isClosed && publishedAt" class="secondary-button" type="button" disabled>
+              ✓ 已發布至資料庫
             </button>
           </div>
         </div>
@@ -518,7 +576,10 @@ onMounted(async () => {
     <p v-if="loading" class="message">專案載入中…</p>
 
     <template v-else-if="!loadFailed">
-      <p v-if="readOnly" class="message">你在這個群組是檢視者，只能查看專案內容。</p>
+      <p v-if="isClosed" class="message message--closed">
+        此專案已於 {{ formatDate(savedPeriod?.closed_at) }} 結案，內容僅供檢視{{ publishedAt ? `，並已於 ${formatDate(publishedAt)} 發布至資料庫` : "" }}。
+      </p>
+      <p v-else-if="isViewer" class="message">你在這個群組是檢視者，只能查看專案內容。</p>
 
       <fieldset class="plain-fieldset" :disabled="readOnly">
       <section v-show="activeTab === 'info'" class="editor-card">
@@ -531,9 +592,6 @@ onMounted(async () => {
           <label class="field">所屬單位<input v-model="draft.organization" maxlength="255" /></label>
           <label class="field">開始年月<DateInput v-model="beginMonth" type="month" required /></label>
           <label class="field">結束年月<DateInput v-model="endMonth" type="month" :min="beginMonth" required /></label>
-          <label class="field">狀態
-            <select v-model="draft.status"><option value="draft">草稿</option><option value="published">已發布</option></select>
-          </label>
           <label v-if="isNew" class="field">專案位置
             <select v-model="ownerGroupId">
               <option :value="null">個人專案</option>
@@ -635,6 +693,25 @@ onMounted(async () => {
         @confirm="answerLeave(true)"
         @cancel="answerLeave(false)"
       />
+      <ConfirmDialog
+        :open="closeDialogOpen"
+        title="確定要結案嗎？"
+        message="結案後專案資料、利害關係人、訪綱、表單與 SROI 都無法再修改，且無法復原。"
+        confirm-text="結案"
+        :loading="closing"
+        danger
+        @confirm="closeProject"
+        @cancel="closeDialogOpen = false"
+      />
+      <ConfirmDialog
+        :open="publishDialogOpen"
+        title="發布至資料庫"
+        message="發布後，此專案的 SROI 結果會寫入資料庫，且無法撤回。確定要發布嗎？"
+        confirm-text="發布"
+        :loading="publishing"
+        @confirm="publishProject"
+        @cancel="publishDialogOpen = false"
+      />
 
       <section v-if="!isNew" v-show="activeTab === 'interviews'" class="editor-card">
         <div class="section-heading section-heading--action">
@@ -729,6 +806,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .message { padding: 12px 14px; border: 1px solid #ccc; }
 .message--error { border-color: #bd7676; color: #8c2020; }
 .message--success { border-color: #87aa8c; color: #286133; }
+.message--closed { border-color: #c9b5d6; background: #faf7fc; color: #5d3f73; }
 .plain-fieldset { display: grid; gap: 24px; min-width: 0; margin: 0; padding: 0; border: 0; }
 .owner-label { overflow: hidden; border: 1px solid #e3e3e3; padding: 11px 12px; background: #f7f7f7; color: #111; font-size: 14px; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
 .editor-card { display: grid; gap: 22px; padding: 26px; border: 1px solid #d8d8d8; background: #fff; }

@@ -25,6 +25,7 @@ import type {
 } from "@/modules/forms/types/form.types";
 import { useFormStore } from "@/modules/forms/store/form.store";
 import { getProject } from "@/modules/workspace/api/workspace.api";
+import { getProjectPhase } from "@/modules/workspace/constants";
 import { useProjectStore } from "@/modules/workspace/store/project.store";
 import type { GroupRole } from "@/modules/workspace/types/workspace.types";
 import { HttpError } from "@/shared/api/http";
@@ -63,9 +64,10 @@ const router = useRouter();
 const { user, isAuthenticated } = useAuth();
 const formStore = useFormStore();
 const projectStore = useProjectStore();
-// 個人專案沒有 my_role，視為擁有者；群組檢視者只能看表單，不會自動儲存
+// 個人專案沒有 my_role，視為擁有者；群組檢視者或專案已結案只能看表單，不會自動儲存
 const myRole = ref<GroupRole>("leader");
-const readOnly = computed(() => myRole.value === "viewer");
+const projectClosed = ref(false);
+const readOnly = computed(() => myRole.value === "viewer" || projectClosed.value);
 const formId = ref("");
 const sourceProjectId = computed(() => typeof route.params.projectId === "string" ? route.params.projectId : "");
 const blocks = ref<Block[]>([]);
@@ -201,9 +203,10 @@ const initializeForm = async (): Promise<void> => {
     const project = await getProject(sourceProjectId.value);
     projectStore.upsert(project);
     myRole.value = project.my_role ?? "leader";
+    projectClosed.value = getProjectPhase(project) === "closed";
 
     const requestedFormId = String(route.params.formId ?? "");
-    // 檢視者不能新增表單
+    // 檢視者、已結案的專案不能新增表單
     if (!requestedFormId && readOnly.value) {
       await router.replace({ name: "project-edit", params: { projectId: sourceProjectId.value } });
       return;

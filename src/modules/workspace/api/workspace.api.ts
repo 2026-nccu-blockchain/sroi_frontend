@@ -32,6 +32,13 @@ export const updateProject = (projectId: string, payload: Partial<ProjectPayload
 export const deleteProject = (projectId: string): Promise<void> =>
   httpClient.delete(`/project/${encodeURIComponent(projectId)}`);
 
+// 結案、發布至資料庫都只有組長能做，且無法復原
+export const closeProject = (projectId: string): Promise<WorkspaceProject> =>
+  httpClient.post<WorkspaceProject>(`/project/${encodeURIComponent(projectId)}/close`);
+
+export const publishProject = (projectId: string): Promise<WorkspaceProject> =>
+  httpClient.post<WorkspaceProject>(`/project/${encodeURIComponent(projectId)}/publish`);
+
 export const getStakeholderSROI = (
   projectId: string,
   stakeholderId: string
