@@ -15,5 +15,6 @@ defineProps<{ phase: ProjectPhase }>();
 .phase-badge--in_progress { background: #e5f3e8; color: #2f7140; }
 .phase-badge--pending_close { background: #fdf0dc; color: #8a5a12; }
 .phase-badge--closed { background: #f0e8f4; color: #765292; }
+.phase-badge--reviewing { background: #fdf6d8; color: #7a6510; }
 .phase-badge--published { background: #e3edf8; color: #2a5a8c; }
 </style>

@@ -88,8 +88,8 @@ export interface LinkedProjectForm {
   status: "draft" | "published" | "closed";
 }
 
-// 依專案期間計算的進度狀態；有 closed_at 是已結案，再有 published_at 是已發布
-export type ProjectPhase = "not_started" | "in_progress" | "pending_close" | "closed" | "published";
+// 依專案期間計算的進度狀態；有 closed_at 是已結案，送出發布後（review_requested_at）是審核中，審核同意（published_at）是已發布
+export type ProjectPhase = "not_started" | "in_progress" | "pending_close" | "closed" | "reviewing" | "published";
 export type ProjectPhaseTab = ProjectPhase | "all";
 
 export interface WorkspaceProject {
@@ -110,8 +110,9 @@ export interface WorkspaceProject {
   begin: string;
   end: string;
   status: ProjectStatus;
-  // 結案、發布至資料庫的時間；null 表示還沒
+  // 結案、送審、發布至資料庫的時間；null 表示還沒（審核不同意時 review_requested_at 會清回 null）
   closed_at: string | null;
+  review_requested_at?: string | null;
   published_at: string | null;
   forms: LinkedProjectForm[];
   stakeholders: ProjectStakeholder[];

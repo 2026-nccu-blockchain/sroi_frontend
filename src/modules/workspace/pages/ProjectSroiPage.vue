@@ -29,9 +29,11 @@ const projectId = computed(() => String(route.params.projectId ?? ""));
 const stakeholderId = computed(() => String(route.params.stakeholderId ?? ""));
 const phaseQuery = computed(() => ({
   ...(isProjectPhaseTab(route.query.phase) ? { phase: route.query.phase } : {}),
-  ...(route.query.from === "database" ? { from: "database" } : {})
+  ...(route.query.from === "database" || route.query.from === "review" ? { from: route.query.from } : {})
 }));
-const fromDatabase = computed(() => route.query.from === "database");
+// 從共用資料庫（含審核專案分頁）進來
+const fromReview = computed(() => route.query.from === "review");
+const fromDatabase = computed(() => route.query.from === "database" || fromReview.value);
 const projectEditLink = computed(() => ({
   name: "project-edit",
   params: { projectId: projectId.value },
@@ -41,6 +43,7 @@ const loadFailed = ref(false);
 const backLink = computed(() =>
   !loadFailed.value
     ? projectEditLink.value
+    : fromReview.value ? { name: "dashboard", query: { tab: "review" } }
     : fromDatabase.value ? { name: "dashboard" } : { name: "my-projects", query: phaseQuery.value }
 );
 const myRole = ref<GroupRole>("leader");

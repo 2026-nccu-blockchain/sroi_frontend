@@ -2,14 +2,18 @@
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
+import { PROJECT_REVIEWER_ROLES } from "@/modules/auth/constants";
+import { useAuthStore } from "@/modules/auth/store/auth.store";
 import {
   downloadProjectInterviewFile,
   getProject,
+  reviewProject,
   uploadTempInterviewFile
 } from "@/modules/workspace/api/workspace.api";
 import ConfirmDialog from "@/modules/workspace/components/ConfirmDialog.vue";
 import InterviewUploadDialog from "@/modules/workspace/components/InterviewUploadDialog.vue";
 import ProjectPhaseBadge from "@/modules/workspace/components/ProjectPhaseBadge.vue";
+import ProjectReviewDialog from "@/modules/workspace/components/ProjectReviewDialog.vue";
 import StakeholderDialog from "@/modules/workspace/components/StakeholderDialog.vue";
 import { isProjectPhaseTab } from "@/modules/workspace/composables/useProjectPhaseTab";
 import { useVerifiedGroups } from "@/modules/workspace/composables/useVerifiedGroups";
@@ -71,7 +75,7 @@ const editingStakeholder = ref<StakeholderDraft | null>(null);
 // 最後一次儲存（或載入）時的內容，用來判斷有沒有未儲存的修改
 const savedSnapshot = ref("");
 // 已儲存（或載入）的專案期間；狀態只依這份計算，畫面上改年月要等儲存後才會變
-const savedPeriod = ref<Pick<WorkspaceProject, "begin" | "end" | "closed_at" | "published_at"> | null>(null);
+const savedPeriod = ref<Pick<WorkspaceProject, "begin" | "end" | "closed_at" | "published_at" | "review_requested_at"> | null>(null);
 const projectPhase = computed(() => (savedPeriod.value ? getProjectPhase(savedPeriod.value) : null));
 const publishedAt = computed(() => savedPeriod.value?.published_at ?? null);
 
@@ -81,8 +85,10 @@ const creatableGroups = ref<Group[]>([]);
 const ownerGroupId = ref<string | null>(null);
 const myRole = ref<GroupRole>("leader");
 const isViewer = computed(() => myRole.value === "viewer");
-// 已發布一定已結案
-const isClosed = computed(() => projectPhase.value === "closed" || projectPhase.value === "published");
+// 審核中、已發布一定已結案
+const isClosed = computed(() =>
+  projectPhase.value === "closed" || projectPhase.value === "reviewing" || projectPhase.value === "published"
+);
 // 檢視者或已結案都只能查看
 const readOnly = computed(() => isViewer.value || isClosed.value);
 type EditorTab = "info" | "stakeholders" | "interviews" | "forms";
@@ -106,14 +112,16 @@ const activeTab = computed<EditorTab>({
   }
 });
 
-// 從列表進來時網址帶著 ?phase=，從共用資料庫進來帶著 ?from=database；去 SROI 頁也帶著，繞回來才不會弄丟
+// 從列表進來時網址帶著 ?phase=，從共用資料庫進來帶著 ?from=database，從審核專案分頁進來帶著 ?from=review；去 SROI 頁也帶著，繞回來才不會弄丟
 const isMember = ref(true);
-const fromDatabase = computed(() => route.query.from === "database" || !isMember.value);
+const fromReview = computed(() => route.query.from === "review");
+const fromDatabase = computed(() => route.query.from === "database" || fromReview.value || !isMember.value);
 const phaseQuery = computed(() => ({
   ...(isProjectPhaseTab(route.query.phase) ? { phase: route.query.phase } : {}),
-  ...(route.query.from === "database" ? { from: "database" } : {})
+  ...(route.query.from === "database" || route.query.from === "review" ? { from: route.query.from } : {})
 }));
 const backTo = computed(() => {
+  if (fromReview.value) return { name: "dashboard", query: { tab: "review" } };
   if (fromDatabase.value) return { name: "dashboard" };
   const query = phaseQuery.value;
   return ownerGroupId.value
@@ -185,6 +193,7 @@ const hydrate = (project: WorkspaceProject): void => {
     begin: project.begin,
     end: project.end,
     closed_at: project.closed_at,
+    review_requested_at: project.review_requested_at ?? null,
     published_at: project.published_at
   };
   // 成果、成本在回應裡是整個專案一份清單，依 stakeholder_id 分給各利害關係人
@@ -424,7 +433,14 @@ const publishDialogOpen = ref(false);
 const closing = ref(false);
 const publishing = ref(false);
 const canClose = computed(() => isLeader.value && projectPhase.value === "pending_close");
-const canPublish = computed(() => isLeader.value && isClosed.value && !publishedAt.value);
+// 已結案才能送出發布；審核中、已發布不顯示，審核不同意會回到已結案，可以再送一次
+const canPublish = computed(() => isLeader.value && projectPhase.value === "closed");
+
+// 審核：資料庫編輯者、管理員打開審核中的專案時，在右上角顯示審核按鈕
+const authStore = useAuthStore();
+const canReview = computed(() => PROJECT_REVIEWER_ROLES.includes(authStore.user?.role ?? "") && projectPhase.value === "reviewing");
+const reviewDialogOpen = ref(false);
+const reviewing = ref(false);
 
 const closeProject = async (): Promise<void> => {
   closing.value = true;
@@ -447,12 +463,29 @@ const publishProject = async (): Promise<void> => {
   savedMessage.value = "";
   try {
     hydrate(await projectStore.publish(projectId.value));
-    savedMessage.value = "已發布至資料庫";
+    savedMessage.value = "已送出審核，審核通過後會發布至資料庫";
   } catch (caught) {
     error.value = toProjectErrorMessage(caught, "發布失敗");
   } finally {
     publishing.value = false;
     publishDialogOpen.value = false;
+  }
+};
+
+const submitReview = async (approved: boolean): Promise<void> => {
+  reviewing.value = true;
+  error.value = "";
+  savedMessage.value = "";
+  try {
+    await reviewProject(projectId.value, approved);
+    reviewDialogOpen.value = false;
+    // 審核完就回到審核專案分頁；不同意後資料庫編輯者也看不到這個專案了
+    await router.push({ name: "dashboard", query: { tab: "review" } });
+  } catch (caught) {
+    error.value = toProjectErrorMessage(caught, "審核失敗");
+    reviewDialogOpen.value = false;
+  } finally {
+    reviewing.value = false;
   }
 };
 
@@ -577,8 +610,8 @@ onMounted(async () => {
             <button v-if="canPublish" class="primary-button" type="button" :disabled="publishing" @click="publishDialogOpen = true">
               發布至資料庫
             </button>
-            <button v-else-if="isClosed && publishedAt" class="secondary-button" type="button" disabled>
-              ✓ 已發布至資料庫
+            <button v-if="canReview" class="primary-button" type="button" :disabled="reviewing" @click="reviewDialogOpen = true">
+              審核
             </button>
           </div>
         </div>
@@ -592,7 +625,11 @@ onMounted(async () => {
 
     <template v-else-if="!loadFailed">
       <p v-if="isClosed" class="message message--closed">
-        此專案已於 {{ formatDate(savedPeriod?.closed_at) }} 結案，內容僅供檢視{{ publishedAt ? `，並已於 ${formatDate(publishedAt)} 發布至資料庫` : "" }}。
+        此專案已於 {{ formatDate(savedPeriod?.closed_at) }} 結案，內容僅供檢視{{
+          publishedAt
+            ? `，並已於 ${formatDate(publishedAt)} 發布至資料庫`
+            : projectPhase === "reviewing" ? `，已於 ${formatDate(savedPeriod?.review_requested_at)} 送出發布，正在審核中` : ""
+        }}。
       </p>
       <p v-else-if="isViewer" class="message">你在這個群組是檢視者，只能查看專案內容。</p>
 
@@ -721,11 +758,18 @@ onMounted(async () => {
       <ConfirmDialog
         :open="publishDialogOpen"
         title="發布至資料庫"
-        message="發布後，此專案的 SROI 結果會寫入資料庫，且無法撤回。確定要發布嗎？"
-        confirm-text="發布"
+        message="送出後會由資料庫編輯者審核，審核通過才會發布至共用資料庫，發布後無法撤回。確定要送出嗎？"
+        confirm-text="送出審核"
         :loading="publishing"
         @confirm="publishProject"
         @cancel="publishDialogOpen = false"
+      />
+      <ProjectReviewDialog
+        :open="reviewDialogOpen"
+        :project-name="draft.name"
+        :loading="reviewing"
+        @submit="submitReview"
+        @cancel="reviewDialogOpen = false"
       />
 
       <section v-if="!isNew" v-show="activeTab === 'interviews'" class="editor-card">

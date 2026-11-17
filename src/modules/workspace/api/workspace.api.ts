@@ -24,6 +24,10 @@ export const getProjects = (): Promise<WorkspaceProject[]> =>
 export const getPublishedProjects = (): Promise<WorkspaceProject[]> =>
   httpClient.get<WorkspaceProject[]>("/project/published");
 
+// 審核專案：所有審核中的專案，只有資料庫編輯者能取得
+export const getReviewingProjects = (): Promise<WorkspaceProject[]> =>
+  httpClient.get<WorkspaceProject[]>("/project/reviewing");
+
 export const getProject = (projectId: string): Promise<WorkspaceProject> =>
   httpClient.get<WorkspaceProject>(`/project/${encodeURIComponent(projectId)}`);
 
@@ -40,8 +44,13 @@ export const deleteProject = (projectId: string): Promise<void> =>
 export const closeProject = (projectId: string): Promise<WorkspaceProject> =>
   httpClient.post<WorkspaceProject>(`/project/${encodeURIComponent(projectId)}/close`);
 
+// 送出後進入審核中，資料庫編輯者同意後才會發布
 export const publishProject = (projectId: string): Promise<WorkspaceProject> =>
   httpClient.post<WorkspaceProject>(`/project/${encodeURIComponent(projectId)}/publish`);
+
+// 資料庫編輯者審核：同意則發布，不同意則退回已結案
+export const reviewProject = (projectId: string, approved: boolean): Promise<WorkspaceProject> =>
+  httpClient.post<WorkspaceProject>(`/project/${encodeURIComponent(projectId)}/review`, { approved });
 
 export const getStakeholderSROI = (
   projectId: string,
