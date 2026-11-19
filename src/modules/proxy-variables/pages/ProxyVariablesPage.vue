@@ -210,12 +210,12 @@ function formatValue(value: number) {
           </label>
 
           <label>
-            數值 <span class="required">*</span>
+            數值(元) <span class="required">*</span>
             <input
               v-model.trim="form.unit"
               type="text"
               maxlength="50"
-              placeholder="例如：元／小時、元／人次"
+        
               required
             />
           </label>
