@@ -212,7 +212,7 @@ function formatValue(value: number) {
           </label>
 
           <label>
-            數值 <span class="required">*</span>
+            數值(元) <span class="required">*</span>
             <input
               v-model.trim="form.value"
               type="text"

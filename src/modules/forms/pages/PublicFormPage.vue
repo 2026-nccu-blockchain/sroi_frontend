@@ -12,6 +12,16 @@ const loading = ref(true);
 const submitting = ref(false);
 const checkingEmail = ref(false);
 const submitted = ref(false);
+const declined = ref(false);
+const consentAccepted = ref(false);
+const hasReadConsent = ref(false);
+const participantAgreed = ref(false);
+const participantName = ref("");
+const ageStatus = ref<"" | "adult" | "minor">("");
+const guardianName = ref("");
+const guardianRelationship = ref("");
+const guardianAgreed = ref(false);
+const secondaryUseAgreed = ref(false);
 const emailVerified = ref(false);
 const error = ref("");
 const email = ref("");
@@ -33,6 +43,37 @@ const questions = computed(() => {
   return currentOutcomePage.value?.questions ?? [];
 });
 const submissionQuestions = computed(() => [...basicQuestions.value, ...outcomeQuestions.value]);
+
+const acceptConsent = (): void => {
+  const consent = form.value?.consent;
+  error.value = "";
+  if (!consent || !hasReadConsent.value || !participantAgreed.value) {
+    error.value = "請閱讀同意書並確認同意參與後再繼續。";
+    return;
+  }
+  if (!participantName.value.trim()) {
+    error.value = "請輸入參與者姓名作為電子簽署。";
+    return;
+  }
+  if (consent.requires_guardian && !ageStatus.value) {
+    error.value = "請選擇參與者是否已滿 18 歲。";
+    return;
+  }
+  if (consent.requires_guardian && ageStatus.value === "minor") {
+    if (!guardianName.value.trim() || !guardianRelationship.value.trim() || !guardianAgreed.value) {
+      error.value = "未滿 18 歲的參與者需要完成法定代理人資料與同意。";
+      return;
+    }
+  }
+  consentAccepted.value = true;
+  window.scrollTo({ top: 0, behavior: "smooth" });
+};
+
+const declineConsent = (): void => {
+  declined.value = true;
+  error.value = "";
+  window.scrollTo({ top: 0, behavior: "smooth" });
+};
 
 const seededShuffle = (items: QuestionResponse[], seedText: string): QuestionResponse[] => {
   let seed = 2166136261;
@@ -134,7 +175,23 @@ const submit = async (): Promise<void> => {
     const answeredQuestions = submissionQuestions.value.filter((question) =>
       question.question_type !== "DS" && hasAnswer(question)
     );
-    await submitPublicForm(publicToken.value, email.value, answeredQuestions.map(answerPayload));
+    const consentDocument = form.value?.consent;
+    if (!consentDocument) throw new Error("這份問卷尚未設定知情同意書");
+    await submitPublicForm(
+      publicToken.value,
+      email.value,
+      answeredQuestions.map(answerPayload),
+      {
+        consent_id: consentDocument.consent_id,
+        participant_name: participantName.value.trim(),
+        participant_agreed: participantAgreed.value,
+        secondary_use_agreed: consentDocument.secondary_use_enabled && secondaryUseAgreed.value,
+        is_adult: consentDocument.requires_guardian ? ageStatus.value === "adult" : true,
+        guardian_name: ageStatus.value === "minor" ? guardianName.value.trim() : null,
+        guardian_relationship: ageStatus.value === "minor" ? guardianRelationship.value.trim() : null,
+        guardian_agreed: ageStatus.value === "minor" ? guardianAgreed.value : null
+      }
+    );
     submitted.value = true;
     window.scrollTo({ top: 0, behavior: "smooth" });
   } catch (caught) {
@@ -191,6 +248,10 @@ onMounted(() => void load());
         <h1>已收到你的回覆</h1>
         <p>感謝你撥空完成這份表單。</p>
       </section>
+      <section v-else-if="declined" class="state-card state-card--declined">
+        <h1>你已選擇不參與</h1>
+        <p>本次不會建立問卷回覆，也不會保存你尚未送出的填答資料。</p>
+      </section>
 
       <template v-else-if="form">
         <header class="public-heading">
@@ -201,9 +262,85 @@ onMounted(() => void load());
           <small><b>*</b> 表示必填問題</small>
         </header>
 
-        <form v-if="!emailVerified" class="email-step" @submit.prevent="verifyEmail">
+        <form v-if="!consentAccepted" class="consent-step" @submit.prevent="acceptConsent">
+          <section class="consent-card">
+            <div class="consent-card__heading">
+              <p class="eyebrow">填答前請先閱讀</p>
+              <h2>{{ form.consent.title }}</h2>
+              <strong>{{ form.consent.organization_name }}</strong>
+            </div>
+            <div class="consent-copy">
+              <p>{{ form.consent.content }}</p>
+              <template v-if="form.consent.secondary_use_enabled && form.consent.secondary_use_description">
+                <h3>其他教學或研究使用</h3>
+                <p>{{ form.consent.secondary_use_description }}</p>
+              </template>
+              <template v-if="form.consent.withdrawal_method">
+                <h3>撤回同意</h3>
+                <p>{{ form.consent.withdrawal_method }}</p>
+              </template>
+              <h3>聯絡方式</h3>
+              <p>
+                {{ form.consent.contact_name }}<br />
+                <a v-if="form.consent.contact_email" :href="`mailto:${form.consent.contact_email}`">{{ form.consent.contact_email }}</a>
+                <template v-if="form.consent.contact_phone"><br />{{ form.consent.contact_phone }}</template>
+              </p>
+            </div>
+          </section>
+
+          <section class="consent-card consent-signature">
+            <label class="consent-check">
+              <input v-model="hasReadConsent" type="checkbox" />
+              <span>我已閱讀並了解上述知情同意書內容。</span>
+            </label>
+            <label class="consent-check consent-check--required">
+              <input v-model="participantAgreed" type="checkbox" />
+              <span>我自願參與本次問卷，並同意將資料用於上述計畫用途。<b>*</b></span>
+            </label>
+            <label class="consent-input">
+              <span>參與者姓名（電子簽署）<b>*</b></span>
+              <input v-model="participantName" autocomplete="name" placeholder="請輸入姓名" />
+            </label>
+
+            <fieldset v-if="form.consent.requires_guardian" class="age-choice">
+              <legend>參與者是否已滿 18 歲？<b>*</b></legend>
+              <label><input v-model="ageStatus" type="radio" value="adult" /> 已滿 18 歲</label>
+              <label><input v-model="ageStatus" type="radio" value="minor" /> 未滿 18 歲</label>
+            </fieldset>
+
+            <div v-if="form.consent.requires_guardian && ageStatus === 'minor'" class="guardian-fields">
+              <div>
+                <label class="consent-input">
+                  <span>法定代理人姓名<b>*</b></span>
+                  <input v-model="guardianName" autocomplete="name" />
+                </label>
+                <label class="consent-input">
+                  <span>與參與者關係<b>*</b></span>
+                  <input v-model="guardianRelationship" placeholder="例如：父親、母親" />
+                </label>
+              </div>
+              <label class="consent-check consent-check--required">
+                <input v-model="guardianAgreed" type="checkbox" />
+                <span>本人為參與者之法定代理人，已閱讀並同意其參與本次問卷。<b>*</b></span>
+              </label>
+            </div>
+
+            <label v-if="form.consent.secondary_use_enabled" class="consent-check consent-check--optional">
+              <input v-model="secondaryUseAgreed" type="checkbox" />
+              <span>我另外同意資料經去識別化後，供其他經審核的教學或研究使用。<small>此項為選填，不影響是否能參與問卷。</small></span>
+            </label>
+          </section>
+
+          <p v-if="error" class="submit-error" role="alert">{{ error }}</p>
+          <div class="consent-actions">
+            <button class="decline-button" type="button" @click="declineConsent">不同意並離開</button>
+            <button class="submit-button" type="submit">同意並繼續</button>
+          </div>
+        </form>
+
+        <form v-else-if="!emailVerified" class="email-step" @submit.prevent="verifyEmail">
           <section class="basic-section-heading">
-            <p class="eyebrow">第一步</p>
+            <p class="eyebrow">基本資料</p>
             <h2>{{ respondentPage?.title || '基本資料' }}</h2>
             <p>{{ respondentPage?.content || '請先填寫基本資料。' }}</p>
           </section>
@@ -363,6 +500,30 @@ onMounted(() => void load());
 .basic-section-heading h2, .outcome-section-heading h2 { margin: 0 0 7px; color: #4b3d54; font-size: 18px; }
 .basic-section-heading p:last-child, .outcome-section-heading p:last-child { margin: 0; color: #756b79; font-size: 14px; line-height: 1.6; }
 form { display: grid; gap: 14px; }
+.consent-card { overflow: hidden; border: 1px solid #e3dce8; border-radius: 12px; background: #fff; box-shadow: 0 3px 14px rgba(50, 35, 60, .05); }
+.consent-card__heading { padding: 29px 32px 23px; border-bottom: 1px solid #eee8f1; background: #fcfafc; }
+.consent-card__heading h2 { margin: 0 0 9px; color: #3c3341; font-size: 22px; line-height: 1.45; }
+.consent-card__heading strong { color: #6e6373; font-size: 16px; font-weight: 600; }
+.consent-copy { padding: 27px 32px 30px; color: #554d59; font-size: 16px; line-height: 1.85; }
+.consent-copy h3 { margin: 28px 0 7px; color: #3e3742; font-size: 16px; }
+.consent-copy p { margin: 0; white-space: pre-wrap; }
+.consent-copy a { color: #684486; }
+.consent-signature { display: grid; gap: 18px; padding: 28px 32px; }
+.consent-check { display: grid; grid-template-columns: 20px 1fr; align-items: start; gap: 11px; color: #504852; font-size: 16px; line-height: 1.65; }
+.consent-check input, .age-choice input { width: 17px; height: 17px; margin: 4px 0 0; accent-color: #765292; }
+.consent-check b, .consent-input b, .age-choice b { color: #b1485c; }
+.consent-check--optional { padding: 16px; border: 1px solid #ddd2e3; border-radius: 9px; background: #faf7fc; }
+.consent-check small { display: block; margin-top: 4px; color: #7f7583; font-size: 14px; }
+.consent-input { display: grid; gap: 8px; color: #504852; font-size: 15px; font-weight: 650; }
+.consent-input input { box-sizing: border-box; width: 100%; border: 1px solid #d9d1dd; border-radius: 8px; padding: 11px 12px; outline: 0; color: #413a45; font: inherit; font-weight: 400; }
+.consent-input input:focus { border-color: #765292; box-shadow: 0 0 0 3px rgba(118, 82, 146, .1); }
+.age-choice { display: flex; flex-wrap: wrap; gap: 12px 24px; margin: 0; border: 0; padding: 0; }
+.age-choice legend { width: 100%; margin-bottom: 5px; color: #504852; font-size: 15px; font-weight: 650; }
+.age-choice label { display: flex; align-items: center; gap: 8px; color: #5f5663; font-size: 16px; }
+.guardian-fields { display: grid; gap: 18px; padding: 20px; border: 1px solid #dccde4; border-radius: 10px; background: #fbf8fc; }
+.guardian-fields > div { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.consent-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+.decline-button { min-height: 44px; padding: 0 20px; border: 1px solid #d3cad7; border-radius: 8px; background: #fff; color: #655d69; font-weight: 650; }
 .answer-card h2 { margin: 0 0 24px; font-size: 14px; font-weight: 650; line-height: 1.6; }
 .answer-card textarea, .answer-card > input, .answer-card > .date-input { width: 100%; padding: 10px 2px; resize: vertical; border: 0; border-bottom: 1px solid #bcb5c0; border-radius: 0; outline: 0; color: inherit; }
 .answer-card textarea:focus, .answer-card > input:focus, .answer-card > .date-input:focus-within { border-color: #765292; border-bottom-width: 2px; }
@@ -393,6 +554,16 @@ form { display: grid; gap: 14px; }
 .state-card--success span { display: inline-grid; width: 48px; height: 48px; place-items: center; border-radius: 50%; background: #e5f1e8; color: #3d7550; font-size: 20px; }
 .state-card--success h1 { margin: 20px 0 8px; }
 .state-card--success p { margin: 0; color: #79727c; }
+.state-card--declined { padding: 60px 30px; }
+.state-card--declined h1 { margin: 0 0 10px; }
+.state-card--declined p { margin: 0; color: #79727c; line-height: 1.7; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
-@media (max-width: 560px) { .public-shell { padding-top: 18px; } .public-heading, .answer-card, .description-card { padding: 25px 22px; } }
+@media (max-width: 560px) {
+  .public-shell { padding-top: 18px; }
+  .public-heading, .answer-card, .description-card { padding: 25px 22px; }
+  .consent-card__heading, .consent-copy, .consent-signature { padding-right: 22px; padding-left: 22px; }
+  .guardian-fields > div { grid-template-columns: 1fr; }
+  .consent-actions { align-items: stretch; flex-direction: column-reverse; }
+  .consent-actions button { width: 100%; }
+}
 </style>

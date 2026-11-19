@@ -1,6 +1,9 @@
 import { httpClient } from "@/shared/api/http";
 import type {
   CreateFormPayload,
+  ConsentSubmissionPayload,
+  ConsentResponse,
+  ConsentUpdatePayload,
   FormResponse,
   FormSubmission,
   FormStatus,
@@ -22,6 +25,11 @@ export const getForms = (): Promise<FormResponse[]> =>
 
 export const syncProjectOutcomes = (formId: string): Promise<FormResponse> =>
   httpClient.post<FormResponse>(`/form/${formId}/sync-project-outcomes`, {});
+
+export const updateFormConsent = (
+  formId: string,
+  payload: ConsentUpdatePayload
+): Promise<ConsentResponse> => httpClient.put<ConsentResponse>(`/form/${formId}/consent`, payload);
 
 export const getFormSubmissions = (formId: string): Promise<FormSubmission[]> =>
   httpClient.get<FormSubmission[]>(`/form/${formId}/responses`);
@@ -82,8 +90,10 @@ export const checkPublicFormEmail = (
 export const submitPublicForm = (
   publicToken: string,
   respondentEmail: string,
-  answers: AnswerPayload[]
+  answers: AnswerPayload[],
+  consent: ConsentSubmissionPayload
 ): Promise<unknown> => httpClient.post(`/form/public/${publicToken}/responses`, {
   respondent_email: respondentEmail || null,
+  consent,
   answers
 });
