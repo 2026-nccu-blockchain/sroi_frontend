@@ -1,35 +1,84 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
-import { storeToRefs } from "pinia";
+import { computed, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 
-import { useProjectStore } from "@/modules/workspace/store/project.store";
+import { PROJECT_REVIEWER_ROLES } from "@/modules/auth/constants";
+import { useAuthStore } from "@/modules/auth/store/auth.store";
+import { getPublishedProjects, getReviewingProjects } from "@/modules/workspace/api/workspace.api";
+import ProjectPhaseBadge from "@/modules/workspace/components/ProjectPhaseBadge.vue";
 import type { WorkspaceProject } from "@/modules/workspace/types/workspace.types";
 import { formatProjectPeriod } from "@/shared/utils/date";
 
-const projectStore = useProjectStore();
-const { projectsWithForms: projects, loading, error } = storeToRefs(projectStore);
-const selectedProject = ref<string | null>(null);
+// 共用資料庫列出已發布至資料庫的專案（所有人的），不走「我的專案」的快取
+// 資料庫編輯者、管理員多一個「審核專案」分頁，列出所有審核中的專案；分頁存在網址的 ?tab=review
+type DashboardTab = "published" | "review";
 
-const statusLabel = (project: WorkspaceProject): string => {
-  const hasPublishedForm = project.forms.some((form) => form.status === "published");
-  return hasPublishedForm || project.status === "published" ? "已發布" : "草稿";
+const route = useRoute();
+const router = useRouter();
+const authStore = useAuthStore();
+const canReview = computed(() => PROJECT_REVIEWER_ROLES.includes(authStore.user?.role ?? ""));
+
+const activeTab = computed<DashboardTab>({
+  get: () => (canReview.value && route.query.tab === "review" ? "review" : "published"),
+  set: (tab) => {
+    void router.replace({ query: tab === "review" ? { tab } : {} });
+  }
+});
+
+const projects = ref<WorkspaceProject[]>([]);
+const loading = ref(true);
+const error = ref("");
+let requestSeq = 0;
+
+const formatDate = (iso: string | null | undefined): string => (iso ? new Date(iso).toLocaleDateString("zh-TW") : "—");
+
+const load = async (tab: DashboardTab): Promise<void> => {
+  const seq = ++requestSeq;
+  loading.value = true;
+  error.value = "";
+  projects.value = [];
+  try {
+    const result = tab === "review" ? await getReviewingProjects() : await getPublishedProjects();
+    if (seq === requestSeq) projects.value = result;
+  } catch (caught) {
+    if (seq === requestSeq) {
+      const fallback = tab === "review" ? "無法載入審核中的專案" : "無法載入已發布的專案";
+      error.value = caught instanceof Error ? caught.message : fallback;
+    }
+  } finally {
+    if (seq === requestSeq) loading.value = false;
+  }
 };
 
-onMounted(async () => {
-  await projectStore.ensureLoaded().catch(() => undefined);
-});
+watch(activeTab, (tab) => void load(tab), { immediate: true });
 </script>
 
 <template>
   <section class="projects">
     <div class="projects__intro">
       <div>
-        <p class="projects__eyebrow">專案總覽</p>
-        <h1>專案列表</h1>
+        <p class="projects__eyebrow">共用資料庫</p>
+        <h1>{{ activeTab === "review" ? "審核專案" : "已發布專案" }}</h1>
       </div>
-      <div class="intro-actions">
-        <RouterLink class="outline-button" to="/workspace/projects/new">＋ 新增專案</RouterLink>
-      </div>
+    </div>
+
+    <div v-if="canReview" class="tab-bar" role="tablist" aria-label="共用資料庫分頁">
+      <button
+        type="button"
+        role="tab"
+        class="tab-bar__item"
+        :class="{ 'tab-bar__item--active': activeTab === 'published' }"
+        :aria-selected="activeTab === 'published'"
+        @click="activeTab = 'published'"
+      >已發布專案</button>
+      <button
+        type="button"
+        role="tab"
+        class="tab-bar__item"
+        :class="{ 'tab-bar__item--active': activeTab === 'review' }"
+        :aria-selected="activeTab === 'review'"
+        @click="activeTab = 'review'"
+      >審核專案</button>
     </div>
 
     <p v-if="error" class="projects__notice projects__notice--error">{{ error }}</p>
@@ -37,49 +86,32 @@ onMounted(async () => {
 
     <div v-else class="project-list">
       <div class="project-list__header" aria-hidden="true">
-        <span>專案名稱</span><span>所屬單位</span><span>專案期間</span><span>狀態</span><span>操作</span>
+        <span>專案名稱</span><span>作者</span><span>所屬單位</span><span>專案期間</span><span>狀態</span>
       </div>
 
-      <article
-        v-for="project in projects"
-        :key="project.project_id"
-        class="project-row"
-        :class="{ 'project-row--open': selectedProject === project.project_id }"
-      >
+      <article v-for="project in projects" :key="project.project_id" class="project-row">
         <div class="project-name-cell">
-          <button
+          <!-- 按標題進入專案頁；已發布的專案任何人都能打開，內容與一般專案頁相同，但只能檢視 -->
+          <RouterLink
             class="project-row__title"
-            type="button"
-            :aria-expanded="selectedProject === project.project_id"
-            @click="selectedProject = selectedProject === project.project_id ? null : project.project_id"
-          >
-            {{ project.name }}
-          </button>
+            :to="{ name: 'project-edit', params: { projectId: project.project_id }, query: { from: activeTab === 'review' ? 'review' : 'database' } }"
+          >{{ project.name }}</RouterLink>
           <div v-if="project.outcomes.length" class="outcome-tags">
             <span v-for="outcome in project.outcomes" :key="outcome.outcome_id">#{{ outcome.name }}</span>
           </div>
         </div>
+        <span data-label="作者">{{ project.creator_name || "—" }}</span>
         <span data-label="所屬單位">{{ project.organization || "—" }}</span>
         <span data-label="專案期間">{{ formatProjectPeriod(project.begin, project.end) }}</span>
-        <span data-label="狀態" class="project-row__status">{{ statusLabel(project) }}</span>
-        <div class="project-row__actions">
-          <RouterLink :to="`/workspace/projects/${project.project_id}/edit`">編輯</RouterLink>
-        </div>
-        <div v-if="selectedProject === project.project_id" class="project-row__detail">
-          <span>{{ project.stakeholders.length }} 位利害關係人</span>
-          <p>{{ project.description || "尚未填寫專案說明。" }}</p>
-          <span>實際投入：{{ Number(project.actual_input_cost || 0).toLocaleString('zh-TW') }} 元</span>
-          <span v-if="project.forms.length" class="form-summary">
-            表單：{{ project.forms.length }} 份
-            <small :class="['form-badge', { 'form-badge--published': project.forms.some((form) => form.status === 'published') }]">
-              {{ project.forms.filter((form) => form.status === "published").length }} 已發布
-            </small>
-          </span>
-          <span v-else>表單：尚未連結</span>
-        </div>
+        <span data-label="狀態" class="project-row__status">
+          <ProjectPhaseBadge :phase="activeTab === 'review' ? 'reviewing' : 'published'" />
+          <small>{{ formatDate(activeTab === "review" ? project.review_requested_at : project.published_at) }}</small>
+        </span>
       </article>
 
-      <p v-if="!loading && projects.length === 0" class="project-list__empty">目前沒有專案，可以先新增一個專案。</p>
+      <p v-if="!loading && projects.length === 0" class="project-list__empty">
+        {{ activeTab === "review" ? "目前沒有審核中的專案。" : "目前還沒有已發布至資料庫的專案。" }}
+      </p>
     </div>
   </section>
 </template>
@@ -89,36 +121,28 @@ onMounted(async () => {
 .projects__intro { display: flex; align-items: end; justify-content: space-between; gap: 24px; }
 .projects__eyebrow { margin: 0 0 8px; font-size: 14px; font-weight: 700; letter-spacing: .15em; }
 h1 { margin: 0; font-size: 24px; font-weight: 500; line-height: 1; letter-spacing: -.04em; }
-.intro-actions { display: flex; gap: 10px; }
-.outline-button { border: 1px solid #111; border-radius: 8px; padding: 10px 14px; color: #111; font-size: 14px; font-weight: 700; text-decoration: none; }
+.tab-bar { display: flex; gap: 4px; border-bottom: 1px solid #ccc; }
+.tab-bar__item { margin-bottom: -1px; padding: 10px 16px; border: 0; border-bottom: 2px solid transparent; background: none; color: #666; font: inherit; font-size: 15px; font-weight: 650; cursor: pointer; }
+.tab-bar__item:hover { color: #000; }
+.tab-bar__item--active { border-bottom-color: #000; color: #000; }
 .projects__notice { margin: -12px 0 0; padding: 13px 0; border-top: 1px solid #aaa; border-bottom: 1px solid #aaa; color: #555; font-size: 14px; }
 .projects__notice--error { color: #8c2020; }
 .project-list { border-top: 2px solid #000; }
-.project-list__header, .project-row { display: grid; grid-template-columns: minmax(220px, 2fr) minmax(150px, 1fr) 70px 90px 90px; gap: 20px; align-items: center; }
+.project-list__header, .project-row { display: grid; grid-template-columns: minmax(220px, 2fr) minmax(90px, .6fr) minmax(150px, 1fr) 70px 90px; gap: 20px; align-items: center; }
 .project-list__header { min-height: 45px; border-bottom: 1px solid #000; font-size: 14px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
-.project-list__header span:last-child { text-align: right; }
 .project-row { min-height: 82px; border-bottom: 1px solid #000; font-size: 14px; }
-.project-row__title { border: 0; padding: 0; background: transparent; color: #000; font: inherit; font-size: 17px; font-weight: 650; text-align: left; cursor: pointer; }
-.project-row__title:hover { text-decoration: underline; text-underline-offset: 4px; }
+.project-row__title { width: fit-content; color: #000; font-size: 17px; font-weight: 650; text-decoration: none; }
+.project-row__title:hover, .project-row__title:focus-visible { text-decoration: underline; text-underline-offset: 4px; }
 .project-name-cell { display: grid; gap: 7px; }
 .outcome-tags { display: flex; flex-wrap: wrap; gap: 5px; }
 .outcome-tags span { padding: 3px 7px; border-radius: 999px; background: #f0e8f4; color: #765292; font-size: 14px; font-weight: 700; }
-.project-row__status { font-size: 14px; text-transform: uppercase; }
-.project-row__actions { display: flex; justify-content: flex-end; }
-.project-row__actions a { border-bottom: 1px solid #000; color: #000; font-size: 14px; text-decoration: none; }
-.project-row__detail { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(160px, .6fr) 2fr minmax(180px, 1fr); gap: 20px; padding: 4px 0 24px; color: #555; font-size: 14px; }
-.project-row__detail p, .project-list__empty { margin: 0; }
-.form-summary { display: flex; align-items: center; gap: 8px; }
-.form-badge { display: inline-flex; padding: 4px 8px; border-radius: 999px; background: #f0e8f4; color: #765292; font-size: 14px; font-weight: 700; white-space: nowrap; }
-.form-badge--published { background: #e5f3e8; color: #2f7140; }
-.project-list__empty { padding: 40px 0; border-bottom: 1px solid #000; color: #555; }
+.project-row__status { display: grid; justify-items: start; gap: 4px; font-size: 14px; }
+.project-row__status small { color: #777; font-size: 13px; }
+.project-list__empty { margin: 0; padding: 40px 0; border-bottom: 1px solid #000; color: #555; }
 @media (max-width: 840px) {
   .project-list__header { display: none; }
-  .project-row { grid-template-columns: 1fr auto; gap: 12px 20px; padding: 22px 0; }
-  .project-name-cell { grid-column: 1 / -1; }
+  .project-row { grid-template-columns: 1fr; gap: 10px; padding: 22px 0; }
   .project-row > span::before { content: attr(data-label) " — "; color: #777; }
-  .project-row__actions { grid-column: 2; grid-row: 2 / span 2; }
-  .project-row__detail { grid-template-columns: 1fr; }
 }
-@media (max-width: 600px) { .projects__intro, .intro-actions { align-items: stretch; flex-direction: column; } }
+@media (max-width: 600px) { .projects__intro { align-items: stretch; flex-direction: column; } }
 </style>

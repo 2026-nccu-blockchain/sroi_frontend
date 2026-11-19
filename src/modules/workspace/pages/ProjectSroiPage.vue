@@ -13,7 +13,7 @@ import {
 } from "@/modules/workspace/api/workspace.api";
 import ConfirmDialog from "@/modules/workspace/components/ConfirmDialog.vue";
 import { isProjectPhaseTab } from "@/modules/workspace/composables/useProjectPhaseTab";
-import { toProjectErrorMessage } from "@/modules/workspace/constants";
+import { isProjectClosed, toProjectErrorMessage } from "@/modules/workspace/constants";
 import { useProjectStore } from "@/modules/workspace/store/project.store";
 import type {
   GroupRole,
@@ -27,7 +27,13 @@ const route = useRoute();
 const projectStore = useProjectStore();
 const projectId = computed(() => String(route.params.projectId ?? ""));
 const stakeholderId = computed(() => String(route.params.stakeholderId ?? ""));
-const phaseQuery = computed(() => (isProjectPhaseTab(route.query.phase) ? { phase: route.query.phase } : {}));
+const phaseQuery = computed(() => ({
+  ...(isProjectPhaseTab(route.query.phase) ? { phase: route.query.phase } : {}),
+  ...(route.query.from === "database" || route.query.from === "review" ? { from: route.query.from } : {})
+}));
+// 從共用資料庫（含審核專案分頁）進來
+const fromReview = computed(() => route.query.from === "review");
+const fromDatabase = computed(() => route.query.from === "database" || fromReview.value);
 const projectEditLink = computed(() => ({
   name: "project-edit",
   params: { projectId: projectId.value },
@@ -35,10 +41,15 @@ const projectEditLink = computed(() => ({
 }));
 const loadFailed = ref(false);
 const backLink = computed(() =>
-  loadFailed.value ? { name: "my-projects", query: phaseQuery.value } : projectEditLink.value
+  !loadFailed.value
+    ? projectEditLink.value
+    : fromReview.value ? { name: "dashboard", query: { tab: "review" } }
+    : fromDatabase.value ? { name: "dashboard" } : { name: "my-projects", query: phaseQuery.value }
 );
 const myRole = ref<GroupRole>("leader");
-const readOnly = computed(() => myRole.value === "viewer");
+const closed = ref(false);
+// 檢視者或專案已結案都只能查看
+const readOnly = computed(() => myRole.value === "viewer" || closed.value);
 const loading = ref(true);
 const saving = ref(false);
 const error = ref("");
@@ -174,6 +185,7 @@ onMounted(async () => {
       getFinancialProxyOptions()
     ]);
     myRole.value = project.my_role ?? "leader";
+    closed.value = isProjectClosed(project);
     financialProxies.value = proxies.map((proxy) => ({ ...proxy, value: Number(proxy.value) }));
     hydrate(sroi);
   } catch (caught) {
@@ -189,7 +201,7 @@ onMounted(async () => {
   <section class="sroi-page">
     <header class="page-header">
       <div>
-        <RouterLink class="back-link" :to="backLink">{{ loadFailed ? "← 返回我的專案" : "← 返回利害關係人" }}</RouterLink>
+        <RouterLink class="back-link" :to="backLink">{{ !loadFailed ? "← 返回利害關係人" : fromDatabase ? "← 返回共用資料庫" : "← 返回我的專案" }}</RouterLink>
         <p class="eyebrow">利害關係人 SROI</p>
         <h1>{{ stakeholder ? `${stakeholder.stakeholder_name}・SROI 計算` : "SROI 計算" }}</h1>
         <p v-if="stakeholder" class="project-name">{{ stakeholder.project_name }}</p>
@@ -217,7 +229,8 @@ onMounted(async () => {
     <p v-if="loading" class="state-card">正在載入 SROI 資料…</p>
 
     <template v-else-if="stakeholder && !loadFailed">
-      <p v-if="readOnly" class="message">你在這個群組是檢視者，只能查看 SROI 計算結果。</p>
+      <p v-if="closed" class="message">此專案已結案，只能查看 SROI 計算結果。</p>
+      <p v-else-if="readOnly" class="message">你在這個群組是檢視者，只能查看 SROI 計算結果。</p>
       <fieldset class="plain-fieldset" :disabled="readOnly">
         <section class="summary-grid">
           <article class="summary-card summary-card--ratio">

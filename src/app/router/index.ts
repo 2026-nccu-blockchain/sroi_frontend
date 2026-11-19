@@ -31,12 +31,13 @@ const routes: RouteRecordRaw[] = [
   {
     path: "/workspace/projects/:projectId/form",
     component: FormLayout,
-    meta: { roles: WORKSPACE_ROLES },
+    // 已發布的專案任何登入使用者都能檢視（含表單），能不能看由後端判斷；只有新增表單限工作區角色
     children: [
       {
         path: "new",
         name: "form-builder-new",
-        component: FormBuilderPage
+        component: FormBuilderPage,
+        meta: { roles: WORKSPACE_ROLES }
       },
       {
         path: ":formId/edit",
@@ -105,15 +106,14 @@ const routes: RouteRecordRaw[] = [
       },
       {
         path: "workspace/projects/:projectId/edit",
+        // 共用資料庫的已發布專案也用這頁檢視，所以不限角色；能不能看由後端判斷
         name: "project-edit",
-        component: ProjectEditPage,
-        meta: { roles: WORKSPACE_ROLES }
+        component: ProjectEditPage
       },
       {
         path: "workspace/projects/:projectId/stakeholders/:stakeholderId/sroi",
         name: "stakeholder-sroi",
-        component: ProjectSroiPage,
-        meta: { roles: WORKSPACE_ROLES }
+        component: ProjectSroiPage
       },
       {
         path: "workspace/groups",
