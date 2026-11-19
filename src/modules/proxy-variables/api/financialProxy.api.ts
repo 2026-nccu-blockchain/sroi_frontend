@@ -5,12 +5,14 @@ export interface FinancialProxy {
   proxy_id: string;
   name: string;
   value: number;
+  unit?: string;
   note: string;
 }
 
 export interface FinancialProxyInput {
   name: string;
   value: number;
+  unit?: string;
   note: string;
 }
 

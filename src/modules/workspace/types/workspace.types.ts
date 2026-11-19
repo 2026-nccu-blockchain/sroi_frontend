@@ -88,8 +88,8 @@ export interface LinkedProjectForm {
   status: "draft" | "published" | "closed";
 }
 
-// 依專案期間計算的進度狀態；closed 之後再接上結案邏輯
-export type ProjectPhase = "not_started" | "in_progress" | "pending_close" | "closed";
+// 依專案期間計算的進度狀態；有 closed_at 是已結案，送出發布後（review_requested_at）是審核中，審核同意（published_at）是已發布
+export type ProjectPhase = "not_started" | "in_progress" | "pending_close" | "closed" | "reviewing" | "published";
 export type ProjectPhaseTab = ProjectPhase | "all";
 
 export interface WorkspaceProject {
@@ -99,6 +99,10 @@ export interface WorkspaceProject {
   group_id: string | null;
   created_by: string;
   my_role?: GroupRole | null;
+  // 是否為專案成員；從共用資料庫檢視別人的已發布專案時是 false
+  is_member?: boolean;
+  // 作者姓名；目前只有共用資料庫的列表會帶
+  creator_name?: string | null;
   name: string;
   organization: string;
   description: string;
@@ -106,6 +110,10 @@ export interface WorkspaceProject {
   begin: string;
   end: string;
   status: ProjectStatus;
+  // 結案、送審、發布至資料庫的時間；null 表示還沒（審核不同意時 review_requested_at 會清回 null）
+  closed_at: string | null;
+  review_requested_at?: string | null;
+  published_at: string | null;
   forms: LinkedProjectForm[];
   stakeholders: ProjectStakeholder[];
   outcomes: ProjectOutcome[];
@@ -121,7 +129,6 @@ export interface ProjectPayload {
   description: string;
   begin: string;
   end: string;
-  status: ProjectStatus;
   // 成果與成本放在各利害關係人底下
   stakeholders: Array<Omit<ProjectStakeholder, "position"> & {
     outcomes?: Array<Pick<ProjectOutcome, "outcome_id" | "name">>;
