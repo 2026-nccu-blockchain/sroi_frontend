@@ -84,6 +84,8 @@ const { load: loadGroups, loadCreatable, titleOf } = useVerifiedGroups();
 const creatableGroups = ref<Group[]>([]);
 const ownerGroupId = ref<string | null>(null);
 const myRole = ref<GroupRole>("leader");
+// 群組專案草稿：只有建立者看得到，所以打得開草稿的人一定是建立者
+const isDraft = ref(false);
 const isViewer = computed(() => myRole.value === "viewer");
 // 審核中、已發布一定已結案
 const isClosed = computed(() =>
@@ -246,6 +248,7 @@ const hydrate = (project: WorkspaceProject): void => {
   }));
   projectForms.value = project.forms ?? [];
   ownerGroupId.value = project.group_id;
+  isDraft.value = Boolean(project.group_id && project.is_draft);
   myRole.value = project.my_role ?? "leader";
   isMember.value = project.is_member ?? true;
   savedSnapshot.value = snapshot();
@@ -449,7 +452,8 @@ const closeDialogOpen = ref(false);
 const publishDialogOpen = ref(false);
 const closing = ref(false);
 const publishing = ref(false);
-const canClose = computed(() => isLeader.value && projectPhase.value === "pending_close");
+// 草稿要先公開給群組才能結案
+const canClose = computed(() => isLeader.value && !isDraft.value && projectPhase.value === "pending_close");
 // 已結案才能送出發布；審核中、已發布不顯示，審核不同意會回到已結案，可以再送一次
 const canPublish = computed(() => isLeader.value && projectPhase.value === "closed");
 
@@ -458,6 +462,26 @@ const authStore = useAuthStore();
 const canReview = computed(() => PROJECT_REVIEWER_ROLES.includes(authStore.user?.role ?? "") && projectPhase.value === "reviewing");
 const reviewDialogOpen = ref(false);
 const reviewing = ref(false);
+
+// 公開給群組：只有草稿的建立者（打得開草稿的人）看得到這個按鈕；公開後不能改回草稿
+const canMakePublic = computed(() => isDraft.value && !isNew.value);
+const makePublicDialogOpen = ref(false);
+const makingPublic = ref(false);
+
+const makePublic = async (): Promise<void> => {
+  makingPublic.value = true;
+  error.value = "";
+  savedMessage.value = "";
+  try {
+    hydrate(await projectStore.makePublic(projectId.value));
+    savedMessage.value = "專案已公開，群組成員都看得到了";
+  } catch (caught) {
+    error.value = toProjectErrorMessage(caught, "公開失敗");
+  } finally {
+    makingPublic.value = false;
+    makePublicDialogOpen.value = false;
+  }
+};
 
 const closeProject = async (): Promise<void> => {
   closing.value = true;
@@ -614,6 +638,14 @@ onMounted(async () => {
           <span v-if="isDirty && !isNew" class="dirty-hint">● 有未儲存的修改</span>
           <div class="editor-header__buttons">
             <button
+              v-if="canMakePublic"
+              class="secondary-button"
+              type="button"
+              :disabled="saving || loading || makingPublic || isDirty"
+              :title="isDirty ? '請先儲存修改再公開' : undefined"
+              @click="makePublicDialogOpen = true"
+            >公開給群組</button>
+            <button
               v-if="canClose"
               class="secondary-button"
               type="button"
@@ -648,6 +680,9 @@ onMounted(async () => {
             : projectPhase === "reviewing" ? `，已於 ${formatDate(savedPeriod?.review_requested_at)} 送出發布，正在審核中` : ""
         }}。
       </p>
+      <p v-else-if="isDraft" class="message message--draft">
+        這是草稿，只有你看得到。公開給群組後，組員才看得到，組長與編輯者也能編輯；公開後無法改回草稿，草稿也需要先公開才能結案。
+      </p>
       <p v-else-if="isViewer" class="message">你在這個群組是檢視者，只能查看專案內容。</p>
 
       <fieldset class="plain-fieldset" :disabled="readOnly">
@@ -668,6 +703,7 @@ onMounted(async () => {
                 群組・{{ group.title }}
               </option>
             </select>
+            <small v-if="ownerGroupId" class="field-hint">群組專案建立後是草稿，只有你看得到，之後可以公開給群組。</small>
           </label>
           <p v-else-if="ownerGroupId && isMember" class="field">專案位置<span class="owner-label">{{ ownerLabel }}</span></p>
           <label class="field field--wide">專案說明<textarea v-model="draft.description" rows="4"></textarea></label>
@@ -761,6 +797,15 @@ onMounted(async () => {
         danger
         @confirm="answerLeave(true)"
         @cancel="answerLeave(false)"
+      />
+      <ConfirmDialog
+        :open="makePublicDialogOpen"
+        title="公開給群組"
+        message="公開後群組所有成員都看得到這個專案，組長與編輯者也能編輯，且無法改回草稿。確定要公開嗎？"
+        confirm-text="公開"
+        :loading="makingPublic"
+        @confirm="makePublic"
+        @cancel="makePublicDialogOpen = false"
       />
       <ConfirmDialog
         :open="closeDialogOpen"
@@ -883,6 +928,8 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .message--error { border-color: #bd7676; color: #8c2020; }
 .message--success { border-color: #87aa8c; color: #286133; }
 .message--closed { border-color: #c9b5d6; background: #faf7fc; color: #5d3f73; }
+.message--draft { border-color: #d9c98a; background: #fdfaee; color: #6b5a14; }
+.field-hint { color: #777; font-size: 13px; font-weight: 400; }
 .plain-fieldset { display: grid; gap: 24px; min-width: 0; margin: 0; padding: 0; border: 0; }
 .owner-label { overflow: hidden; border: 1px solid #e3e3e3; padding: 11px 12px; background: #f7f7f7; color: #111; font-size: 14px; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
 .editor-card { display: grid; gap: 22px; padding: 26px; border: 1px solid #d8d8d8; background: #fff; }

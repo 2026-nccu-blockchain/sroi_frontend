@@ -101,6 +101,10 @@ const projectLink = (project: T): RouteLocationRaw => ({
 });
 
 const statusLabel = (project: T): string => {
+  // 群組專案顯示草稿／公開；個人專案沒有草稿模式，維持原本的顯示
+  if (project.group_id && project.is_draft !== undefined) {
+    return project.is_draft ? "草稿・僅自己可見" : "公開";
+  }
   const hasPublishedForm = project.has_published_form ?? project.forms?.some((form) => form.status === "published");
   return hasPublishedForm || project.status === "published" ? "已發布" : "草稿";
 };

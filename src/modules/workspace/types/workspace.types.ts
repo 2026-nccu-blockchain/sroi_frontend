@@ -116,6 +116,8 @@ export interface WorkspaceProject {
   closed_at: string | null;
   review_requested_at?: string | null;
   published_at: string | null;
+  // 群組專案草稿：只有建立者看得到，公開後組員才看得到
+  is_draft?: boolean;
   forms: LinkedProjectForm[];
   stakeholders: ProjectStakeholder[];
   outcomes: ProjectOutcome[];
@@ -139,6 +141,7 @@ export type ProjectListItem = Pick<
   | "closed_at"
   | "review_requested_at"
   | "published_at"
+  | "is_draft"
   | "creator_name"
   | "group_title"
 > & {

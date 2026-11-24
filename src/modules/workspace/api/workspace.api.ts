@@ -32,6 +32,10 @@ export const getReviewingProjects = (): Promise<WorkspaceProject[]> =>
 export const getGroupProjects = (groupId: string): Promise<WorkspaceProject[]> =>
   httpClient.get<WorkspaceProject[]>(`/project?${new URLSearchParams({ group_id: groupId })}`);
 
+// 群組草稿公開給組員；只有建立者能做，公開後不能改回
+export const makeProjectPublic = (projectId: string): Promise<WorkspaceProject> =>
+  httpClient.post<WorkspaceProject>(`/project/${encodeURIComponent(projectId)}/make-public`);
+
 export const getProject = (projectId: string): Promise<WorkspaceProject> =>
   httpClient.get<WorkspaceProject>(`/project/${encodeURIComponent(projectId)}`);
 
