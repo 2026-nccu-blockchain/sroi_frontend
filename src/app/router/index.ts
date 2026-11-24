@@ -11,7 +11,7 @@ import FormResponsesPage from "@/modules/forms/pages/FormResponsesPage.vue";
 import PublicFormPage from "@/modules/forms/pages/PublicFormPage.vue";
 import ProfilePage from "@/modules/profile/pages/ProfilePage.vue";
 import ProfileEditPage from "@/modules/profile/pages/ProfileEditPage.vue";
-import CampusIdRequestPage from "@/modules/profile/pages/CampusIdRequestPage.vue";
+import EnrollmentVerifyPage from "@/modules/profile/pages/EnrollmentVerifyPage.vue";
 import ProxyVariablesPage from "@/modules/proxy-variables/pages/ProxyVariablesPage.vue";
 import MyGroupsPage from "@/modules/workspace/pages/MyGroupsPage.vue";
 import NewGroupPage from "@/modules/workspace/pages/NewGroupPage.vue";
@@ -65,6 +65,18 @@ const routes: RouteRecordRaw[] = [
     name: "public-form",
     component: PublicFormPage,
     meta: { public: true }
+  },
+  {
+    // 在學驗證：需要驗證的學生只能進這頁，不放在主畫面（側邊欄）裡
+    path: "/enrollment-verify",
+    component: AuthLayout,
+    children: [
+      {
+        path: "",
+        name: "enrollment-verify",
+        component: EnrollmentVerifyPage
+      }
+    ]
   },
   {
     path: "/auth",
@@ -151,12 +163,6 @@ const routes: RouteRecordRaw[] = [
         path: "profile/edit",
         name: "profile-edit",
         component: ProfileEditPage
-      },
-      {
-        path: "profile/campus-id",
-        name: "profile-campus-id",
-        component: CampusIdRequestPage,
-        meta: { roles: WORKSPACE_ROLES }
       },
       {
         path: "admin/users",

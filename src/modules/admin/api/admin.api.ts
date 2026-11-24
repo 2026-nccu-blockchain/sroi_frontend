@@ -7,7 +7,6 @@ import type {
   ManagedRole,
   OneGroupResponse,
   OneUserResponse,
-  ReviewDecision,
   RoleAction,
   SearchUserResponse
 } from "@/modules/admin/types/admin.types";
@@ -15,11 +14,6 @@ import type {
 const ROLE_ENDPOINTS: Record<ManagedRole, Record<RoleAction, string>> = {
   admin: { add: "add_admin", remove: "remove_admin" },
   db_editor: { add: "add_db_editor", remove: "remove_db_editor" }
-};
-
-const CHANGE_REVIEW_ENDPOINTS: Record<ReviewDecision, string> = {
-  approve: "confirm_change",
-  reject: "unconfirm_change"
 };
 
 export const getAllUsers = (): Promise<AllUserResponse> =>
@@ -34,8 +28,15 @@ export const updateUserRole = (role: ManagedRole, action: RoleAction, userId: st
 export const getOneUser = (userId: string): Promise<OneUserResponse> =>
   httpClient.get<OneUserResponse>(`/admin/one_user/${encodeURIComponent(userId)}`);
 
-export const reviewChangeRequest = (decision: ReviewDecision, userId: string): Promise<ApiEnvelope> =>
-  httpClient.post<ApiEnvelope>(`/admin/${CHANGE_REVIEW_ENDPOINTS[decision]}/${encodeURIComponent(userId)}`);
+// 在學驗證：查看證明檔案、通過（延長一年）、退回（要填原因）
+export const getEnrollmentProof = (verificationId: string): Promise<Blob> =>
+  httpClient.getBlob(`/admin/enrollment_proof/${encodeURIComponent(verificationId)}`);
+
+export const approveEnrollment = (verificationId: string): Promise<ApiEnvelope> =>
+  httpClient.post<ApiEnvelope>(`/admin/approve_enrollment/${encodeURIComponent(verificationId)}`);
+
+export const rejectEnrollment = (verificationId: string, reason: string): Promise<ApiEnvelope> =>
+  httpClient.post<ApiEnvelope>(`/admin/reject_enrollment/${encodeURIComponent(verificationId)}`, { reason });
 
 export const getAllGroups = (): Promise<AllGroupsResponse> =>
   httpClient.get<AllGroupsResponse>("/admin/all_groups");

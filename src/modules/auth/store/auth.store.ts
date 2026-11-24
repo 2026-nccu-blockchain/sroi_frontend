@@ -1,7 +1,8 @@
 import { defineStore } from "pinia";
 
 import { login as loginRequest, getProfile } from "@/modules/auth/api/auth.api";
-import type { AuthUser, LoginPayload } from "@/modules/auth/types/auth.types";
+import { ENROLLMENT_BLOCKING_STATES } from "@/modules/auth/constants";
+import type { AuthUser, EnrollmentInfo, LoginPayload } from "@/modules/auth/types/auth.types";
 import { AUTH_TOKEN_COOKIE_NAME } from "@/shared/constants";
 import { getCookie, removeCookie, setCookie } from "@/shared/utils/cookie";
 import { decodeJwt, isJwtExpired, type JwtPayload } from "@/shared/utils/jwt";
@@ -14,6 +15,8 @@ interface AuthJwtPayload extends JwtPayload {
 
 interface AuthState {
   user: AuthUser | null;
+  // 上次抓 profile 的時間；在學驗證狀態會隨時間改變，路由守衛會定期重抓
+  profileFetchedAt: number;
 }
 
 const loadUserFromToken = (): AuthUser | null => {
@@ -31,8 +34,15 @@ const loadUserFromToken = (): AuthUser | null => {
 
 export const useAuthStore = defineStore("auth", {
   state: (): AuthState => ({
-    user: loadUserFromToken()
+    user: loadUserFromToken(),
+    profileFetchedAt: 0
   }),
+  getters: {
+    // 需要在學驗證：只能使用驗證頁
+    needsEnrollmentVerification(state): boolean {
+      return ENROLLMENT_BLOCKING_STATES.includes(state.user?.enrollment?.state ?? "");
+    }
+  },
   actions: {
     async login(payload: LoginPayload): Promise<void> {
       const { token } = await loginRequest(payload);
@@ -49,11 +59,16 @@ export const useAuthStore = defineStore("auth", {
     async fetchProfile(): Promise<void> {
       if (!this.user) return;
 
-      const { user_id, campus_id, email, name, role } = await getProfile();
-      this.user = { user_id, campus_id, email, name, role };
+      const { user_id, campus_id, email, name, role, enrollment } = await getProfile();
+      this.user = { user_id, campus_id, email, name, role, enrollment };
+      this.profileFetchedAt = Date.now();
+    },
+    setEnrollment(enrollment: EnrollmentInfo): void {
+      if (this.user) this.user = { ...this.user, enrollment };
     },
     logout(): void {
       this.user = null;
+      this.profileFetchedAt = 0;
       removeCookie(AUTH_TOKEN_COOKIE_NAME);
       useFormStore().clear();
       useProjectStore().clear();

@@ -5,18 +5,18 @@ import { ROLE_LABELS } from "@/modules/profile/constants";
 const ADMIN_ERROR_MESSAGES: Record<string, string> = {
   "10001": "找不到使用者，或該使用者目前的角色無法執行此操作",
   "10008": "權限不足，只有管理員可以管理使用者",
-  "10012": "此學號已被其他帳號使用",
   "10013": "找不到群組，或群組已經審核過",
   "10015": "無法變更自己的權限",
   "10016": "群組至少需要一位組長",
   "10017": "權限沒有變更",
   "10022": "請選擇要變更的權限",
-  "10023": "此群組沒有申請人，無法通過審核"
+  "10023": "此群組沒有申請人，無法通過審核",
+  "10034": "找不到這份在學證明，或已經審核過"
 };
 
 export const TAB_LABELS: Record<UserTab, string> = {
   ...(ROLE_LABELS as Record<UserRole, string>),
-  change_request: "學號變更"
+  enrollment: "在學驗證"
 };
 
 export const toAdminErrorMessage = (err: unknown): string =>

@@ -18,6 +18,7 @@ import { ROLE_LABELS } from "@/modules/profile/constants";
 import ConfirmDialog from "@/modules/workspace/components/ConfirmDialog.vue";
 import MemberTable from "@/modules/workspace/components/MemberTable.vue";
 import DeleteConfirmDialog from "@/shared/components/DeleteConfirmDialog.vue";
+import { formatTaipeiDate } from "@/shared/utils/date";
 
 const ROLE_TABS: { key: UserRole; field: UserListField }[] = [
   { key: "admin", field: "admin" },
@@ -25,14 +26,14 @@ const ROLE_TABS: { key: UserRole; field: UserListField }[] = [
   { key: "normal", field: "normal_user" }
 ];
 
-// 學號變更申請的使用者同時也在原本的角色清單裡
+// 在學驗證待審的使用者同時也在原本的角色清單裡
 const TABS: { key: UserTab; field: UserListField }[] = [
   ...ROLE_TABS,
-  { key: "change_request", field: "change_request_user" }
+  { key: "enrollment", field: "enrollment_pending_user" }
 ];
 
 // 需要管理員處理的分頁，有待審項目時標示出來
-const REVIEW_TABS: UserTab[] = ["change_request"];
+const REVIEW_TABS: UserTab[] = ["enrollment"];
 
 const MANAGED_ROLES: UserTab[] = ["admin", "db_editor"];
 
@@ -40,7 +41,7 @@ const emptyLists = (): Record<UserTab, AdminUser[]> => ({
   admin: [],
   db_editor: [],
   normal: [],
-  change_request: []
+  enrollment: []
 });
 
 const isUserTab = (value: unknown): value is UserTab => TABS.some((tab) => tab.key === value);
@@ -112,7 +113,8 @@ const confirmDialog = computed(() => {
   if (!manage.value || !pending.value) return { title: "", message: "", confirmText: "" };
 
   const roleName = ROLE_LABELS[manage.value.role];
-  const who = `${pending.value.name}（${pending.value.campus_id}）`;
+  // 非學生沒有學號
+  const who = pending.value.campus_id ? `${pending.value.name}（${pending.value.campus_id}）` : pending.value.name;
 
   return manage.value.action === "add"
     ? { title: `新增${roleName}`, message: `確定要將 ${who} 設為${roleName}嗎？`, confirmText: "新增" }
@@ -186,7 +188,7 @@ const handleConfirm = async (): Promise<void> => {
 
       <MemberTable :key="activeTab" :users="usersByRole[activeTab]" searchable empty-text="沒有符合的使用者">
         <template #action="{ user }">
-          <span v-if="user.new_campus_id" class="muted">→ {{ user.new_campus_id }}</span>
+          <span v-if="user.submitted_at" class="muted">{{ formatTaipeiDate(user.submitted_at) }} 上傳</span>
           <RouterLink class="detail-link" :to="{ name: 'admin-user-detail', params: { userId: user.user_id } }">
             {{ REVIEW_TABS.includes(activeTab) ? "審核" : "查看" }} →
           </RouterLink>

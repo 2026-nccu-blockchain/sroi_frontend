@@ -16,6 +16,7 @@ const error = ref("");
 const LOGIN_ERROR_MESSAGES: Record<string, string> = {
   "10001": "帳號錯誤",
   "10002": "密碼錯誤",
+  "10029": "此帳號因未在期限內完成在學驗證，已停用。如有疑問請聯絡管理員。",
   "10007": "電子郵件格式錯誤"
 };
 

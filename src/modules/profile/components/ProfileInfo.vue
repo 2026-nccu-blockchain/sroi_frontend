@@ -4,10 +4,16 @@ import { computed } from "vue";
 import type { AuthUser } from "@/modules/auth/types/auth.types";
 import { toFullEmail } from "@/modules/auth/utils/email";
 import { ROLE_LABELS } from "@/modules/profile/constants";
+import { formatTaipeiDate } from "@/shared/utils/date";
 
 const props = defineProps<{ user: AuthUser }>();
 
 const roleLabel = computed(() => ROLE_LABELS[props.user.role ?? ""] ?? props.user.role ?? "—");
+// 只有學生有學號與在學驗證；下次驗證日是該民國年的 9/1
+const enrollment = computed(() => (props.user.enrollment?.is_student ? props.user.enrollment : null));
+const nextVerifyText = computed(() =>
+  enrollment.value?.window_start ? formatTaipeiDate(enrollment.value.window_start) : ""
+);
 </script>
 
 <template>
@@ -22,10 +28,10 @@ const roleLabel = computed(() => ROLE_LABELS[props.user.role ?? ""] ?? props.use
       </div>
 
       <div class="profile__actions">
-        <RouterLink class="button" :to="{ name: 'profile-campus-id' }">
-          {{ user.campus_id ? "變更學號" : "申請學號" }}
+        <RouterLink v-if="enrollment && enrollment.state !== 'active'" class="button" :to="{ name: 'enrollment-verify' }">
+          在學驗證
         </RouterLink>
-        <RouterLink class="button button--primary" :to="{ name: 'profile-edit' }">修改</RouterLink>
+        <RouterLink class="button button--primary" :to="{ name: 'profile-edit' }">修改密碼</RouterLink>
       </div>
     </div>
 
@@ -38,10 +44,16 @@ const roleLabel = computed(() => ROLE_LABELS[props.user.role ?? ""] ?? props.use
         <dt>電子郵件</dt>
         <dd>{{ toFullEmail(user.email) || "—" }}</dd>
       </div>
-      <div class="profile__row">
-        <dt>學號 / 教職員編號</dt>
-        <dd>{{ user.campus_id || "—" }}</dd>
-      </div>
+      <template v-if="enrollment">
+        <div class="profile__row">
+          <dt>學號</dt>
+          <dd>{{ enrollment.campus_id }}</dd>
+        </div>
+        <div class="profile__row">
+          <dt>下次在學驗證</dt>
+          <dd>{{ nextVerifyText }} 起（需上傳在學證明）</dd>
+        </div>
+      </template>
       <div class="profile__row">
         <dt>角色</dt>
         <dd>
