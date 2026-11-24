@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
-import { RouterLink, useRoute, useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 
 import { useAuthStore } from "@/modules/auth/store/auth.store";
-import { getAllUsers, updateUserRole } from "@/modules/admin/api/admin.api";
+import { getAllUsers, suspendUser, updateUserRole } from "@/modules/admin/api/admin.api";
 import RoleManageDialog from "@/modules/admin/components/RoleManageDialog.vue";
 import { TAB_LABELS, toAdminErrorMessage } from "@/modules/admin/constants";
 import type {
@@ -95,13 +95,23 @@ onMounted(async () => {
   }
 });
 
-// 新增 / 刪除視窗
-const manage = ref<{ role: ManagedRole; action: RoleAction } | null>(null);
+// 點姓名進詳細頁
+const detailLink = (user: AdminUser) => ({ name: "admin-user-detail", params: { userId: user.user_id } });
+
+// 新增 / 移除角色、停權共用同一個搜尋視窗
+type ManageMode = { kind: "role"; role: ManagedRole; action: RoleAction } | { kind: "suspend" };
+const manage = ref<ManageMode | null>(null);
 const feedback = ref<{ text: string; error: boolean } | null>(null);
 
 const openManage = (action: RoleAction): void => {
   if (!managedRole.value) return;
-  manage.value = { role: managedRole.value, action };
+  manage.value = { kind: "role", role: managedRole.value, action };
+  feedback.value = null;
+};
+
+// 停權只在一般使用者分頁；管理員、資料庫編輯者要先移除權限
+const openSuspend = (): void => {
+  manage.value = { kind: "suspend" };
   feedback.value = null;
 };
 
@@ -112,35 +122,54 @@ const confirming = ref(false);
 const confirmDialog = computed(() => {
   if (!manage.value || !pending.value) return { title: "", message: "", confirmText: "" };
 
-  const roleName = ROLE_LABELS[manage.value.role];
   // 非學生沒有學號
   const who = pending.value.campus_id ? `${pending.value.name}（${pending.value.campus_id}）` : pending.value.name;
 
+  if (manage.value.kind === "suspend") {
+    return {
+      title: "停權使用者",
+      message: `確定要停權 ${who} 嗎？停權後此帳號無法登入、會退出所有群組，且不能再用相同的學號（email）重新註冊。`,
+      confirmText: "停權"
+    };
+  }
+
+  const roleName = ROLE_LABELS[manage.value.role];
   return manage.value.action === "add"
     ? { title: `新增${roleName}`, message: `確定要將 ${who} 設為${roleName}嗎？`, confirmText: "新增" }
     : {
-        title: `刪除${roleName}`,
+        title: `移除${roleName}`,
         message: `確定要移除 ${who} 的${roleName}權限嗎？移除後會變回一般使用者。`,
-        confirmText: "刪除"
+        confirmText: "移除"
       };
 });
+
+// 新增角色用一般確認窗；移除角色、停權用紅色警示窗
+const isDangerAction = computed(
+  () => manage.value?.kind === "suspend" || (manage.value?.kind === "role" && manage.value.action === "remove")
+);
 
 const handleConfirm = async (): Promise<void> => {
   if (!manage.value || !pending.value) return;
 
-  const { role, action } = manage.value;
+  const mode = manage.value;
   const user = pending.value;
-  const roleName = ROLE_LABELS[role];
   confirming.value = true;
   feedback.value = null;
 
   try {
-    await updateUserRole(role, action, user.user_id);
-    await loadUsers();
-    feedback.value = {
-      text: action === "add" ? `已將 ${user.name} 設為${roleName}` : `已移除 ${user.name} 的${roleName}權限`,
-      error: false
-    };
+    if (mode.kind === "suspend") {
+      await suspendUser(user.user_id);
+      await loadUsers();
+      feedback.value = { text: `已停權 ${user.name}`, error: false };
+    } else {
+      const roleName = ROLE_LABELS[mode.role];
+      await updateUserRole(mode.role, mode.action, user.user_id);
+      await loadUsers();
+      feedback.value = {
+        text: mode.action === "add" ? `已將 ${user.name} 設為${roleName}` : `已移除 ${user.name} 的${roleName}權限`,
+        error: false
+      };
+    }
   } catch (err) {
     feedback.value = { text: toAdminErrorMessage(err), error: true };
   } finally {
@@ -160,7 +189,10 @@ const handleConfirm = async (): Promise<void> => {
 
       <div v-if="managedRole" class="admin-users__actions">
         <button class="button button--primary" type="button" @click="openManage('add')">新增</button>
-        <button class="button button--danger" type="button" @click="openManage('remove')">刪除</button>
+        <button class="button button--danger" type="button" @click="openManage('remove')">移除</button>
+      </div>
+      <div v-else-if="activeTab === 'normal'" class="admin-users__actions">
+        <button class="button button--danger" type="button" @click="openSuspend">停權</button>
       </div>
     </div>
 
@@ -186,20 +218,23 @@ const handleConfirm = async (): Promise<void> => {
         </button>
       </div>
 
-      <MemberTable :key="activeTab" :users="usersByRole[activeTab]" searchable empty-text="沒有符合的使用者">
+      <!-- 點姓名進詳細頁 -->
+      <MemberTable
+        :key="activeTab"
+        :users="usersByRole[activeTab]"
+        searchable
+        empty-text="沒有符合的使用者"
+        :link-to="detailLink"
+      >
         <template #action="{ user }">
           <span v-if="user.submitted_at" class="muted">{{ formatTaipeiDate(user.submitted_at) }} 上傳</span>
-          <RouterLink class="detail-link" :to="{ name: 'admin-user-detail', params: { userId: user.user_id } }">
-            {{ REVIEW_TABS.includes(activeTab) ? "審核" : "查看" }} →
-          </RouterLink>
         </template>
       </MemberTable>
     </template>
 
     <RoleManageDialog
       v-if="manage"
-      :role="manage.role"
-      :action="manage.action"
+      :mode="manage"
       :role-of="roleOf"
       :current-user-id="currentUserId"
       :feedback="feedback"
@@ -208,9 +243,9 @@ const handleConfirm = async (): Promise<void> => {
     />
 
     <!-- 放在搜尋視窗後面，才會疊在上層 -->
-    <!-- 新增權限用一般確認窗，刪除權限用刪除警示窗 -->
+    <!-- 新增權限用一般確認窗，移除權限、停權用紅色警示窗 -->
     <ConfirmDialog
-      :open="pending !== null && manage?.action === 'add'"
+      :open="pending !== null && !isDangerAction"
       :title="confirmDialog.title"
       :message="confirmDialog.message"
       :confirm-text="confirmDialog.confirmText"
@@ -219,7 +254,7 @@ const handleConfirm = async (): Promise<void> => {
       @cancel="pending = null"
     />
     <DeleteConfirmDialog
-      :open="pending !== null && manage?.action === 'remove'"
+      :open="pending !== null && isDangerAction"
       :title="confirmDialog.title"
       :message="confirmDialog.message"
       :confirm-text="confirmDialog.confirmText"
@@ -301,16 +336,7 @@ h1 {
   color: #fff;
 }
 
-.detail-link {
-  color: #000;
-  font-size: 14px;
-  font-weight: 700;
-  text-decoration: none;
-}
 
-.detail-link:hover {
-  text-decoration: underline;
-}
 
 .muted {
   color: #777;

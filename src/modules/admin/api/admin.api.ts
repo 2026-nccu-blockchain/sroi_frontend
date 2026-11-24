@@ -25,6 +25,10 @@ export const searchUsers = (search: string): Promise<SearchUserResponse> =>
 export const updateUserRole = (role: ManagedRole, action: RoleAction, userId: string): Promise<ApiEnvelope> =>
   httpClient.post<ApiEnvelope>(`/admin/${ROLE_ENDPOINTS[role][action]}/${encodeURIComponent(userId)}`);
 
+// 停權：只能停權一般使用者；停權後不能登入，也不能用相同的學號（email 前綴）重新註冊
+export const suspendUser = (userId: string): Promise<ApiEnvelope> =>
+  httpClient.post<ApiEnvelope>(`/admin/suspend_user/${encodeURIComponent(userId)}`);
+
 export const getOneUser = (userId: string): Promise<OneUserResponse> =>
   httpClient.get<OneUserResponse>(`/admin/one_user/${encodeURIComponent(userId)}`);
 

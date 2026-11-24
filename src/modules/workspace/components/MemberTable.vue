@@ -1,5 +1,6 @@
 <script setup lang="ts" generic="T extends GroupUser">
 import { computed, ref } from "vue";
+import type { RouteLocationRaw } from "vue-router";
 
 import type { GroupUser } from "@/modules/workspace/types/workspace.types";
 
@@ -8,8 +9,10 @@ const props = withDefaults(
     users: T[];
     searchable?: boolean;
     emptyText?: string;
+    // 有傳就把姓名變成連結（管理員的所有使用者頁點姓名查看詳細資料）
+    linkTo?: (user: T) => RouteLocationRaw;
   }>(),
-  { searchable: false, emptyText: "沒有符合的成員" }
+  { searchable: false, emptyText: "沒有符合的成員", linkTo: undefined }
 );
 
 defineSlots<{ action(props: { user: T }): unknown }>();
@@ -35,7 +38,10 @@ const filteredUsers = computed(() => {
     <ul class="member-table__list">
       <li v-for="user in filteredUsers" :key="user.user_id" class="member-row">
         <div class="member-row__info">
-          <span class="member-row__name">{{ user.name }}</span>
+          <RouterLink v-if="linkTo" class="member-row__name member-row__name--link" :to="linkTo(user)">
+            {{ user.name }}
+          </RouterLink>
+          <span v-else class="member-row__name">{{ user.name }}</span>
           <span class="member-row__id">{{ user.campus_id }}</span>
         </div>
         <div class="member-row__action">
@@ -94,6 +100,16 @@ const filteredUsers = computed(() => {
 .member-row__name {
   font-size: 15px;
   font-weight: 700;
+}
+
+.member-row__name--link {
+  color: #000;
+  text-decoration: none;
+}
+
+.member-row__name--link:hover {
+  text-decoration: underline;
+  text-underline-offset: 4px;
 }
 
 .member-row__id {
