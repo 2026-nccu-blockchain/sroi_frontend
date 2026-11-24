@@ -1,5 +1,5 @@
 import type { ApiEnvelope } from "@/shared/api/http";
-import type { Group, GroupInfo } from "@/modules/workspace/types/workspace.types";
+import type { Group, GroupInfo, ProjectListItem, ProjectPhaseTab } from "@/modules/workspace/types/workspace.types";
 
 export type UserRole = "admin" | "db_editor" | "normal";
 export type ManagedRole = "admin" | "db_editor";
@@ -56,3 +56,25 @@ export interface AllGroupsResponse extends ApiEnvelope {
 }
 
 export interface OneGroupResponse extends ApiEnvelope, GroupInfo {}
+
+// 所有專案的第一層分頁
+export type AdminProjectScope = "all" | "personal" | "group";
+
+export interface AdminProjectQuery {
+  scope: AdminProjectScope;
+  phase: ProjectPhaseTab;
+  q: string;
+  page: number;
+  page_size: number;
+}
+
+// 專案 API 不包 ApiEnvelope
+export interface AdminProjectPage {
+  items: ProjectListItem[];
+  total: number;
+  page: number;
+  page_size: number;
+  scope_counts: Record<AdminProjectScope, number>;
+  // 目前 scope 底下各狀態的數量
+  phase_counts: Record<ProjectPhaseTab, number>;
+}

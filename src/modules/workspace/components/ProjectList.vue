@@ -1,16 +1,16 @@
-<script setup lang="ts">
-import { computed, ref } from "vue";
+<script setup lang="ts" generic="T extends ProjectListItem">
+import { computed } from "vue";
 import type { RouteLocationRaw } from "vue-router";
 
 import ProjectPhaseBadge from "@/modules/workspace/components/ProjectPhaseBadge.vue";
 import { getProjectPhase, PROJECT_PHASE_TAB_LABELS, PROJECT_PHASE_TABS } from "@/modules/workspace/constants";
-import type { ProjectPhaseTab, WorkspaceProject } from "@/modules/workspace/types/workspace.types";
+import type { ProjectListItem, ProjectPhaseTab } from "@/modules/workspace/types/workspace.types";
 import { formatProjectPeriod } from "@/shared/utils/date";
 
-// 我的專案、群組專案共用；權限由父層判斷後傳進來
+// 我的專案、群組專案、管理員所有專案共用；權限由父層判斷後傳進來
 const props = withDefaults(
   defineProps<{
-    projects: WorkspaceProject[];
+    projects: T[];
     loading?: boolean;
     error?: string;
     title?: string;
@@ -21,9 +21,15 @@ const props = withDefaults(
     // 不給就不顯示新增按鈕
     createTo?: RouteLocationRaw;
     createLabel?: string;
-    canDelete?: (project: WorkspaceProject) => boolean;
+    canDelete?: (project: T) => boolean;
     // 完全沒有專案時的提示
     emptyText?: string;
+    // 顯示「擁有者」欄（個人・建立者／群組・群組名），管理員所有專案用
+    showOwner?: boolean;
+    // 進入專案時額外帶的網址參數，例如 { from: "admin" }
+    linkQuery?: Record<string, string>;
+    // 有傳就是伺服器模式：分頁數量用這份、不在前端篩選，搜尋字由父層（v-model:search）拿去查
+    counts?: Record<ProjectPhaseTab, number>;
   }>(),
   {
     title: "我的專案",
@@ -31,17 +37,22 @@ const props = withDefaults(
     headingTag: "h1",
     createLabel: "新增專案",
     canDelete: () => true,
-    emptyText: "找不到符合的專案。"
+    emptyText: "找不到符合的專案。",
+    showOwner: false,
+    linkQuery: () => ({}),
+    counts: undefined
   }
 );
 
 defineEmits<{
-  delete: [project: WorkspaceProject];
+  delete: [project: T];
 }>();
 
 // 父層可以用 v-model:tab 綁到網址，不綁就只存在元件內
 const activeTab = defineModel<ProjectPhaseTab>("tab", { default: "all" });
-const search = ref("");
+// 父層可以用 v-model:search 接走（伺服器搜尋），不接就只存在元件內
+const search = defineModel<string>("search", { default: "" });
+const serverSide = computed(() => Boolean(props.counts));
 
 // 每個專案的狀態只算一次，列表、分頁數量、篩選共用
 const rows = computed(() => {
@@ -50,6 +61,7 @@ const rows = computed(() => {
 });
 
 const tabCounts = computed(() => {
+  if (props.counts) return props.counts;
   const counts: Record<ProjectPhaseTab, number> = {
     all: rows.value.length,
     not_started: 0,
@@ -64,26 +76,33 @@ const tabCounts = computed(() => {
 });
 
 const filteredRows = computed(() => {
+  // 伺服器模式下父層傳進來的已經是篩選、分頁後的結果
+  if (serverSide.value) return rows.value;
   const keyword = search.value.trim().toLowerCase();
+  const matches = (value?: string | null): boolean => Boolean(value?.toLowerCase().includes(keyword));
   return rows.value.filter(
     ({ project, phase }) =>
       (activeTab.value === "all" || phase === activeTab.value) &&
       (!keyword ||
-        project.name.toLowerCase().includes(keyword) ||
-        project.organization.toLowerCase().includes(keyword))
+        matches(project.name) ||
+        matches(project.organization) ||
+        (props.showOwner && (matches(project.creator_name) || matches(project.group_title))))
   );
 });
 
+const ownerLabel = (project: T): string =>
+  project.group_id ? `群組・${project.group_title ?? "（群組已刪除）"}` : `個人・${project.creator_name ?? "—"}`;
+
 // 進入專案時帶著目前分頁，返回時才回得來
-const projectLink = (project: WorkspaceProject): RouteLocationRaw => ({
+const projectLink = (project: T): RouteLocationRaw => ({
   name: "project-edit",
   params: { projectId: project.project_id },
-  query: activeTab.value === "all" ? {} : { phase: activeTab.value }
+  query: { ...props.linkQuery, ...(activeTab.value === "all" ? {} : { phase: activeTab.value }) }
 });
 
-const statusLabel = (project: WorkspaceProject): string => {
-  const status = project.forms.some((form) => form.status === "published") ? "published" : project.status;
-  return status === "published" ? "已發布" : "草稿";
+const statusLabel = (project: T): string => {
+  const hasPublishedForm = project.has_published_form ?? project.forms?.some((form) => form.status === "published");
+  return hasPublishedForm || project.status === "published" ? "已發布" : "草稿";
 };
 </script>
 
@@ -98,6 +117,9 @@ const statusLabel = (project: WorkspaceProject): string => {
         <span>＋</span> {{ createLabel }}
       </RouterLink>
     </div>
+
+    <!-- 放在狀態分頁上面的額外分頁，例如管理員的個人／群組 -->
+    <slot name="before-tabs" />
 
     <div class="tab-bar" role="tablist">
       <button
@@ -116,16 +138,22 @@ const statusLabel = (project: WorkspaceProject): string => {
     </div>
 
     <div class="search-bar">
-      <input v-model="search" type="search" placeholder="搜尋專案名稱或單位..." :aria-label="`搜尋${title}`" />
+      <input
+        v-model="search"
+        type="search"
+        :placeholder="showOwner ? '搜尋專案名稱、單位、建立者或群組...' : '搜尋專案名稱或單位...'"
+        :aria-label="`搜尋${title}`"
+      />
     </div>
 
     <p v-if="error" class="state-message state-message--error">{{ error }}</p>
     <p v-if="loading" class="state-message">專案載入中…</p>
 
-    <div v-else class="project-list">
+    <div v-else class="project-list" :class="{ 'project-list--with-owner': showOwner }">
       <div class="project-list__header" aria-hidden="true">
         <span>專案名稱</span>
         <span>所屬單位</span>
+        <span v-if="showOwner">擁有者</span>
         <span>專案期間</span>
         <span>專案狀態</span>
         <span>操作</span>
@@ -139,6 +167,10 @@ const statusLabel = (project: WorkspaceProject): string => {
           <small class="project-row__status">{{ statusLabel(project) }}</small>
         </div>
         <span data-label="所屬單位">{{ project.organization }}</span>
+        <span v-if="showOwner" data-label="擁有者" class="project-row__owner">
+          {{ ownerLabel(project) }}
+          <small v-if="project.group_id && project.creator_name">建立者：{{ project.creator_name }}</small>
+        </span>
         <span data-label="專案期間">{{ formatProjectPeriod(project.begin, project.end) }}</span>
         <span data-label="專案狀態">
           <ProjectPhaseBadge :phase="phase" />
@@ -149,9 +181,12 @@ const statusLabel = (project: WorkspaceProject): string => {
       </article>
 
       <p v-if="filteredRows.length === 0" class="project-list__empty">
-        {{ projects.length === 0 ? emptyText : "找不到符合的專案。" }}
+        {{ tabCounts.all === 0 && !search.trim() ? emptyText : "找不到符合的專案。" }}
       </p>
     </div>
+
+    <!-- 列表下方的內容，例如分頁器 -->
+    <slot name="after-list" />
   </section>
 </template>
 
@@ -274,6 +309,21 @@ const statusLabel = (project: WorkspaceProject): string => {
   text-transform: uppercase;
 }
 
+.project-list--with-owner .project-list__header,
+.project-list--with-owner .project-row {
+  grid-template-columns: minmax(190px, 1.6fr) minmax(130px, 1fr) minmax(140px, 1fr) 150px 100px 110px;
+}
+
+.project-row__owner {
+  display: grid;
+  gap: 4px;
+}
+
+.project-row__owner small {
+  color: #666;
+  font-size: 13px;
+}
+
 .project-list__header span:last-child {
   text-align: right;
 }
@@ -343,6 +393,11 @@ const statusLabel = (project: WorkspaceProject): string => {
     grid-template-columns: 1fr auto;
     gap: 12px 20px;
     padding: 22px 0;
+  }
+
+  /* 權重要和上面的 --with-owner 一樣，否則窄版會沿用六欄 */
+  .project-list--with-owner .project-row {
+    grid-template-columns: 1fr auto;
   }
 
   .project-name-cell {

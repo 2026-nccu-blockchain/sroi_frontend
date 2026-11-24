@@ -15,7 +15,7 @@ import InterviewUploadDialog from "@/modules/workspace/components/InterviewUploa
 import ProjectPhaseBadge from "@/modules/workspace/components/ProjectPhaseBadge.vue";
 import ProjectReviewDialog from "@/modules/workspace/components/ProjectReviewDialog.vue";
 import StakeholderDialog from "@/modules/workspace/components/StakeholderDialog.vue";
-import { isProjectPhaseTab } from "@/modules/workspace/composables/useProjectPhaseTab";
+import { projectReturnQuery } from "@/modules/workspace/composables/useProjectPhaseTab";
 import { useVerifiedGroups } from "@/modules/workspace/composables/useVerifiedGroups";
 import { getProjectPhase, toProjectErrorMessage } from "@/modules/workspace/constants";
 import { useProjectStore } from "@/modules/workspace/store/project.store";
@@ -112,15 +112,21 @@ const activeTab = computed<EditorTab>({
   }
 });
 
-// 從列表進來時網址帶著 ?phase=，從共用資料庫進來帶著 ?from=database，從審核專案分頁進來帶著 ?from=review；去 SROI 頁也帶著，繞回來才不會弄丟
+// 從列表進來時網址帶著 ?phase=，從共用資料庫進來帶著 ?from=database，從審核專案分頁進來帶著 ?from=review，
+// 從管理員所有專案進來帶著 ?from=admin；去 SROI 頁也帶著，繞回來才不會弄丟
 const isMember = ref(true);
+const fromAdmin = computed(() => route.query.from === "admin");
 const fromReview = computed(() => route.query.from === "review");
-const fromDatabase = computed(() => route.query.from === "database" || fromReview.value || !isMember.value);
-const phaseQuery = computed(() => ({
-  ...(isProjectPhaseTab(route.query.phase) ? { phase: route.query.phase } : {}),
-  ...(route.query.from === "database" || route.query.from === "review" ? { from: route.query.from } : {})
-}));
+// 管理員不一定是成員，從所有專案進來時以 fromAdmin 為準，不要被當成共用資料庫
+const fromDatabase = computed(
+  () => !fromAdmin.value && (route.query.from === "database" || fromReview.value || !isMember.value)
+);
+const phaseQuery = computed(() => projectReturnQuery(route.query));
 const backTo = computed(() => {
+  if (fromAdmin.value) {
+    const { from: _from, ...query } = phaseQuery.value;
+    return { name: "admin-projects", query };
+  }
   if (fromReview.value) return { name: "dashboard", query: { tab: "review" } };
   if (fromDatabase.value) return { name: "dashboard" };
   const query = phaseQuery.value;
@@ -129,7 +135,9 @@ const backTo = computed(() => {
     : { name: "my-projects", query };
 });
 const backLabel = computed(() =>
-  fromDatabase.value ? "← 返回共用資料庫" : ownerGroupId.value ? "← 返回群組" : "← 返回我的專案"
+  fromAdmin.value
+    ? "← 返回所有專案"
+    : fromDatabase.value ? "← 返回共用資料庫" : ownerGroupId.value ? "← 返回群組" : "← 返回我的專案"
 );
 // 編輯時只有群組專案顯示所屬群組
 const ownerLabel = computed(() => `群組・${titleOf(ownerGroupId.value)}`);

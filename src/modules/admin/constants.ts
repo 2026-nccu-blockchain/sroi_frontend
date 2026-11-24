@@ -1,5 +1,5 @@
 import { ApiError, toErrorMessage } from "@/shared/api/error-handler";
-import type { ManagedRole, UserRole, UserTab } from "@/modules/admin/types/admin.types";
+import type { AdminProjectScope, ManagedRole, UserRole, UserTab } from "@/modules/admin/types/admin.types";
 import { ROLE_LABELS } from "@/modules/profile/constants";
 
 const ADMIN_ERROR_MESSAGES: Record<string, string> = {
@@ -20,6 +20,17 @@ export const toAdminErrorMessage = (err: unknown): string =>
   err instanceof ApiError && err.statusCode && ADMIN_ERROR_MESSAGES[err.statusCode]
     ? ADMIN_ERROR_MESSAGES[err.statusCode]
     : toErrorMessage(err);
+
+export const ADMIN_PROJECT_SCOPES: AdminProjectScope[] = ["all", "personal", "group"];
+
+export const ADMIN_PROJECT_SCOPE_LABELS: Record<AdminProjectScope, string> = {
+  all: "所有專案",
+  personal: "個人專案",
+  group: "群組專案"
+};
+
+export const isAdminProjectScope = (value: unknown): value is AdminProjectScope =>
+  typeof value === "string" && (ADMIN_PROJECT_SCOPES as string[]).includes(value);
 
 // 與後端 add_admin / add_db_editor 可接受的原角色一致
 export const ADD_ALLOWED_ROLES: Record<ManagedRole, UserRole[]> = {

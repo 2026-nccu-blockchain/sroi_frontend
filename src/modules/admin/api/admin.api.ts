@@ -1,5 +1,7 @@
 import { httpClient, type ApiEnvelope } from "@/shared/api/http";
 import type {
+  AdminProjectPage,
+  AdminProjectQuery,
   AllGroupsResponse,
   AllUserResponse,
   ManagedRole,
@@ -43,6 +45,17 @@ export const getOneGroup = (groupId: string): Promise<OneGroupResponse> =>
 
 export const approveGroup = (groupId: string): Promise<ApiEnvelope> =>
   httpClient.post<ApiEnvelope>(`/admin/confirm_group/${encodeURIComponent(groupId)}`);
+
+export const getAllProjects = (query: AdminProjectQuery): Promise<AdminProjectPage> =>
+  httpClient.get<AdminProjectPage>(
+    `/project/all?${new URLSearchParams({
+      scope: query.scope,
+      phase: query.phase,
+      q: query.q,
+      page: String(query.page),
+      page_size: String(query.page_size)
+    })}`
+  );
 
 export const rejectGroup = (groupId: string, reason: string): Promise<ApiEnvelope> =>
   httpClient.post<ApiEnvelope>(`/admin/unconfirm_group/${encodeURIComponent(groupId)}`, { reason });
