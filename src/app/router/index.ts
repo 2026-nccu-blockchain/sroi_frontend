@@ -4,6 +4,7 @@ import AuthLayout from "@/layouts/AuthLayout.vue";
 import MainLayout from "@/layouts/MainLayout.vue";
 import LoginPage from "@/modules/auth/pages/LoginPage.vue";
 import RegisterPage from "@/modules/auth/pages/RegisterPage.vue";
+import ForgotPasswordPage from "@/modules/auth/pages/ForgotPasswordPage.vue";
 import DashboardPage from "@/modules/dashboard/pages/DashboardPage.vue";
 import FormLayout from "@/layouts/FormLayout.vue";
 import FormBuilderPage from "@/modules/forms/pages/FormBuilderPage.vue";
@@ -92,6 +93,12 @@ const routes: RouteRecordRaw[] = [
         path: "register",
         name: "register",
         component: RegisterPage,
+        meta: { public: true }
+      },
+      {
+        path: "forgot-password",
+        name: "forgot-password",
+        component: ForgotPasswordPage,
         meta: { public: true }
       }
     ]

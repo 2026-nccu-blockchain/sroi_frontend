@@ -5,7 +5,9 @@ import { EMAIL_DOMAIN, normalizeEmailPrefix } from "@/modules/auth/utils/email";
 import type { RegisterStep } from "@/modules/auth/types/auth.types";
 import { PASSWORD_RULE_HINT, isStrongPassword } from "@/modules/profile/constants";
 
-const props = defineProps<{
+// 註冊與忘記密碼共用：步驟相同（驗證信箱 → 驗證碼 → 第 3 步），reset 的第 3 步只設定新密碼
+const props = withDefaults(defineProps<{
+  mode?: "register" | "reset";
   step: RegisterStep;
   emailPrefix: string;
   loading?: boolean;
@@ -13,7 +15,9 @@ const props = defineProps<{
   info?: string;
   // 距離可以重寄驗證碼還剩幾秒
   resendCooldown?: number;
-}>();
+}>(), { mode: "register", loading: false, error: "", info: "", resendCooldown: 0 });
+
+const isReset = computed(() => props.mode === "reset");
 
 const emit = defineEmits<{
   "send-code": [emailPrefix: string];
@@ -87,15 +91,17 @@ const onSubmit = (): void => {
   <div class="register-form">
     <div class="register-form__heading">
       <span class="register-form__eyebrow">SROI</span>
-      <h1>註冊</h1>
-      <ol class="register-form__steps" aria-label="註冊步驟">
+      <h1>{{ isReset ? "忘記密碼" : "註冊" }}</h1>
+      <ol class="register-form__steps" :aria-label="isReset ? '重設密碼步驟' : '註冊步驟'">
         <li :class="{ 'register-form__step--active': step === 'email' }">1 驗證信箱</li>
         <li :class="{ 'register-form__step--active': step === 'code' }">2 輸入驗證碼</li>
-        <li :class="{ 'register-form__step--active': step === 'profile' }">3 填寫資料</li>
+        <li :class="{ 'register-form__step--active': step === 'profile' }">3 {{ isReset ? "設定新密碼" : "填寫資料" }}</li>
       </ol>
     </div>
 
     <form v-if="step === 'email'" class="register-form__body" @submit.prevent="onSendCode">
+      <p v-if="isReset" class="register-form__info">輸入註冊時使用的政大信箱，我們會寄送驗證碼，驗證後即可設定新密碼。</p>
+
       <label>
         電子郵件
         <div class="register-form__email">
@@ -164,7 +170,7 @@ const onSubmit = (): void => {
     <form v-else class="register-form__body" @submit.prevent="onSubmit">
       <p class="register-form__info" role="status">已驗證：{{ fullEmail }}</p>
 
-      <label>
+      <label v-if="!isReset">
         姓名
         <input
           v-model="form.name"
@@ -176,7 +182,7 @@ const onSubmit = (): void => {
       </label>
 
       <label>
-        密碼 (長度至少8碼、需要有大小寫字母及數字)
+        {{ isReset ? "新密碼" : "密碼" }} (長度至少8碼、需要有大小寫字母及數字)
         <div class="register-form__password">
           <input
             v-model="form.password"
@@ -222,11 +228,13 @@ const onSubmit = (): void => {
       <p v-if="errorMessage" class="register-form__error" role="alert">{{ errorMessage }}</p>
 
       <button type="submit" :disabled="loading || passwordMismatch">
-        {{ loading ? "註冊中..." : "註冊" }}
+        {{ isReset ? (loading ? "更新中..." : "更新密碼") : (loading ? "註冊中..." : "註冊") }}
       </button>
     </form>
 
-    <RouterLink class="register-form__back" :to="{ name: 'login' }">已有帳號？前往登入</RouterLink>
+    <RouterLink class="register-form__back" :to="{ name: 'login' }">
+      {{ isReset ? "想起密碼了？回到登入" : "已有帳號？前往登入" }}
+    </RouterLink>
   </div>
 </template>
 

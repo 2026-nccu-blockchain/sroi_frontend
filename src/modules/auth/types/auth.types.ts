@@ -29,6 +29,16 @@ export interface RegisterPayload {
   name: string;
 }
 
+// 忘記密碼：寄驗證碼與驗證碼驗證的 payload 和註冊相同；驗證通過拿到 reset_token
+export interface ForgotPasswordVerifyResponse extends ApiEnvelope {
+  reset_token: string;
+}
+
+export interface ResetPasswordPayload {
+  reset_token: string;
+  new_password: string;
+}
+
 export interface LoginResponse extends ApiEnvelope {
   token: string;
 }

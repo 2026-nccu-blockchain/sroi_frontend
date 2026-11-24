@@ -33,7 +33,8 @@ export const registerRouterGuards = (router: Router): void => {
       return { name: "dashboard" };
     }
 
-    if ((to.name === "login" || to.name === "register") && authStore.user) {
+    // 已登入就不需要登入、註冊、忘記密碼頁（要改密碼到個人資料頁）
+    if ((to.name === "login" || to.name === "register" || to.name === "forgot-password") && authStore.user) {
       return { name: "dashboard" };
     }
 

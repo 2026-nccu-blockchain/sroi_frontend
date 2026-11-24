@@ -77,6 +77,8 @@ const onSubmit = (): void => {
       </div>
     </label>
 
+    <RouterLink class="login-form__forgot" :to="{ name: 'forgot-password' }">忘記密碼？</RouterLink>
+
     <p v-if="formatError || props.error" class="login-form__error" role="alert">{{ formatError || props.error }}</p>
 
     <button type="submit" :disabled="loading">
@@ -88,6 +90,14 @@ const onSubmit = (): void => {
 </template>
 
 <style scoped>
+.login-form__forgot {
+  justify-self: end;
+  margin-top: -8px;
+  color: #000;
+  font-size: 14px;
+  text-underline-offset: 4px;
+}
+
 .login-form {
   display: grid;
   gap: 16px;
