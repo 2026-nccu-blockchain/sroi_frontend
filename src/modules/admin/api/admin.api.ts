@@ -1,5 +1,8 @@
 import { httpClient, type ApiEnvelope } from "@/shared/api/http";
 import type {
+  ExtendExternalResponse,
+  ExternalInvitationsResponse,
+  ExternalInvitePayload,
   AdminProjectPage,
   AdminProjectQuery,
   AllGroupsResponse,
@@ -64,3 +67,20 @@ export const getAllProjects = (query: AdminProjectQuery): Promise<AdminProjectPa
 
 export const rejectGroup = (groupId: string, reason: string): Promise<ApiEnvelope> =>
   httpClient.post<ApiEnvelope>(`/admin/unconfirm_group/${encodeURIComponent(groupId)}`, { reason });
+
+// 校外人士：邀請（寄 7 天有效的設定密碼連結）、邀請清單、重寄、取消、延長使用期限
+export const inviteExternal = (payload: ExternalInvitePayload): Promise<ApiEnvelope> =>
+  httpClient.post<ApiEnvelope>("/admin/external_invitations", payload);
+
+export const getExternalInvitations = (): Promise<ExternalInvitationsResponse> =>
+  httpClient.get<ExternalInvitationsResponse>("/admin/external_invitations");
+
+export const resendExternalInvitation = (invitationId: string): Promise<ApiEnvelope> =>
+  httpClient.post<ApiEnvelope>(`/admin/external_invitations/${encodeURIComponent(invitationId)}/resend`);
+
+export const cancelExternalInvitation = (invitationId: string): Promise<ApiEnvelope> =>
+  httpClient.delete<ApiEnvelope>(`/admin/external_invitations/${encodeURIComponent(invitationId)}`);
+
+export const extendExternal = (userId: string, years: number): Promise<ExtendExternalResponse> =>
+  httpClient.post<ExtendExternalResponse>(`/admin/extend_external/${encodeURIComponent(userId)}`, { years });
+

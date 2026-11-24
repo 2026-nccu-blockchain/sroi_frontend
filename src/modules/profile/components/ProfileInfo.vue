@@ -11,6 +11,8 @@ const props = defineProps<{ user: AuthUser }>();
 const roleLabel = computed(() => ROLE_LABELS[props.user.role ?? ""] ?? props.user.role ?? "—");
 // 只有學生有學號與在學驗證；下次驗證日是該民國年的 9/1
 const enrollment = computed(() => (props.user.enrollment?.is_student ? props.user.enrollment : null));
+// 校外帳號：所屬單位與使用期限
+const isExternal = computed(() => props.user.account_type === "external");
 const nextVerifyText = computed(() =>
   enrollment.value?.window_start ? formatTaipeiDate(enrollment.value.window_start) : ""
 );
@@ -44,6 +46,16 @@ const nextVerifyText = computed(() =>
         <dt>電子郵件</dt>
         <dd>{{ toFullEmail(user.email) || "—" }}</dd>
       </div>
+      <template v-if="isExternal">
+        <div class="profile__row">
+          <dt>所屬單位</dt>
+          <dd>{{ user.organization || "—" }}</dd>
+        </div>
+        <div class="profile__row">
+          <dt>使用期限</dt>
+          <dd>{{ user.valid_until ? `${formatTaipeiDate(user.valid_until)} 到期（需延長請聯絡管理員）` : "—" }}</dd>
+        </div>
+      </template>
       <template v-if="enrollment">
         <div class="profile__row">
           <dt>學號</dt>

@@ -5,6 +5,7 @@ import MainLayout from "@/layouts/MainLayout.vue";
 import LoginPage from "@/modules/auth/pages/LoginPage.vue";
 import RegisterPage from "@/modules/auth/pages/RegisterPage.vue";
 import ForgotPasswordPage from "@/modules/auth/pages/ForgotPasswordPage.vue";
+import AcceptInvitePage from "@/modules/auth/pages/AcceptInvitePage.vue";
 import DashboardPage from "@/modules/dashboard/pages/DashboardPage.vue";
 import FormLayout from "@/layouts/FormLayout.vue";
 import FormBuilderPage from "@/modules/forms/pages/FormBuilderPage.vue";
@@ -99,6 +100,13 @@ const routes: RouteRecordRaw[] = [
         path: "forgot-password",
         name: "forgot-password",
         component: ForgotPasswordPage,
+        meta: { public: true }
+      },
+      {
+        // 校外人士邀請信的連結：設定姓名與密碼後才建立帳號
+        path: "accept-invite",
+        name: "accept-invite",
+        component: AcceptInvitePage,
         meta: { public: true }
       }
     ]

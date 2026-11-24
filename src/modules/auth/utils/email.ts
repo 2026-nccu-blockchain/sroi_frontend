@@ -15,3 +15,17 @@ export const normalizeEmailPrefix = (value: string): string | null => {
   if (prefix.endsWith(EMAIL_DOMAIN)) prefix = prefix.slice(0, -EMAIL_DOMAIN.length);
   return EMAIL_PREFIX_PATTERN.test(prefix) ? prefix : null;
 };
+
+const EXTERNAL_EMAIL_PATTERN = /^[a-z0-9._%+-]+@[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$/;
+
+// 校外人士的完整 email：轉小寫；格式不合或是政大信箱回傳 null（政大師生要用政大分頁）
+export const normalizeExternalEmail = (value: string): string | null => {
+  const email = value.trim().toLowerCase();
+  if (!EXTERNAL_EMAIL_PATTERN.test(email) || email.endsWith(EMAIL_DOMAIN)) return null;
+  return email;
+};
+
+// 依輸入內容判斷是政大前綴還是校外完整 email，組成 API 要的欄位
+export const toAccountIdentifier = (value: string): { email_prefix: string } | { email: string } =>
+  value.includes("@") ? { email: value } : { email_prefix: value };
+

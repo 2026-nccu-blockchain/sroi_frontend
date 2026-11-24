@@ -2,7 +2,13 @@
 import { computed, onMounted, ref } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 
-import { approveEnrollment, getEnrollmentProof, getOneUser, rejectEnrollment } from "@/modules/admin/api/admin.api";
+import {
+  approveEnrollment,
+  extendExternal,
+  getEnrollmentProof,
+  getOneUser,
+  rejectEnrollment
+} from "@/modules/admin/api/admin.api";
 import { toAdminErrorMessage } from "@/modules/admin/constants";
 import type { AdminUserDetail } from "@/modules/admin/types/admin.types";
 import type { EnrollmentState } from "@/modules/auth/types/auth.types";
@@ -37,6 +43,33 @@ const review = computed(() =>
 const deadlineText = computed(() =>
   enrollment.value?.deadline ? formatTaipeiDate(new Date(new Date(enrollment.value.deadline).getTime() - 1)) : ""
 );
+
+// 校外帳號：所屬單位、到期日、延長使用期限
+const isExternal = computed(() => user.value?.account_type === "external");
+const externalExpired = computed(() =>
+  Boolean(user.value?.valid_until && new Date(user.value.valid_until).getTime() <= Date.now())
+);
+const extendYears = ref(1);
+const extending = ref(false);
+const confirmingExtend = ref(false);
+
+const handleExtend = async (): Promise<void> => {
+  if (!user.value) return;
+  const { name, user_id } = user.value;
+  extending.value = true;
+  actionError.value = "";
+  result.value = "";
+  try {
+    const { valid_until } = await extendExternal(user_id, extendYears.value);
+    result.value = `已延長 ${name} 的使用期限至 ${formatTaipeiDate(valid_until)}`;
+  } catch (err) {
+    actionError.value = toAdminErrorMessage(err);
+  } finally {
+    extending.value = false;
+    confirmingExtend.value = false;
+  }
+  await reloadAfterReview();
+};
 
 const backTo = computed(() => ({
   name: "admin-users",
@@ -174,11 +207,42 @@ const handleReject = async (): Promise<void> => {
             </dd>
           </div>
         </template>
+        <template v-if="isExternal">
+          <div class="info__row">
+            <dt>帳號類型</dt>
+            <dd>校外人士</dd>
+          </div>
+          <div class="info__row">
+            <dt>所屬單位</dt>
+            <dd>{{ user.organization || "—" }}</dd>
+          </div>
+          <div class="info__row">
+            <dt>使用期限</dt>
+            <dd>
+              {{ user.valid_until ? formatTaipeiDate(user.valid_until) : "—" }}
+              <span v-if="externalExpired" class="expired">・已到期，無法登入</span>
+            </dd>
+          </div>
+        </template>
         <div class="info__row">
           <dt>身分</dt>
           <dd>{{ ROLE_LABELS[user.role] }}</dd>
         </div>
       </dl>
+
+      <section v-if="isExternal" class="review">
+        <h2>延長使用期限</h2>
+        <p class="muted">還沒到期會從原本的到期日往後延長；已到期則從今天開始計算，延長後立即可以登入。</p>
+        <div class="extend">
+          <select v-model.number="extendYears" class="extend__select" :disabled="extending" aria-label="延長年數">
+            <option v-for="years in [1, 2, 3, 4]" :key="years" :value="years">延長 {{ years }} 年</option>
+          </select>
+          <button class="button button--primary" type="button" :disabled="extending" @click="confirmingExtend = true">
+            延長
+          </button>
+        </div>
+        <p v-if="actionError && !review" class="user-detail__error" role="alert">{{ actionError }}</p>
+      </section>
 
       <section v-if="review" class="review">
         <h2>在學證明審核</h2>
@@ -219,6 +283,15 @@ const handleReject = async (): Promise<void> => {
       </section>
     </template>
 
+    <ConfirmDialog
+      :open="confirmingExtend"
+      title="延長使用期限"
+      :message="`確定將 ${user?.name ?? ''} 的使用期限延長 ${extendYears} 年嗎？`"
+      confirm-text="延長"
+      :loading="extending"
+      @confirm="handleExtend"
+      @cancel="confirmingExtend = false"
+    />
     <ConfirmDialog
       :open="confirmingApprove"
       title="通過在學驗證"
@@ -403,6 +476,25 @@ h2 {
 .button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.expired {
+  color: #c00;
+}
+
+.extend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.extend__select {
+  min-width: 140px;
+  border: 1px solid #000;
+  padding: 8px 10px;
+  background: #fff;
+  font: inherit;
+  font-size: 14px;
 }
 
 .muted {

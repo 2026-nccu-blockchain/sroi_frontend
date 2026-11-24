@@ -1,7 +1,10 @@
 import { httpClient } from "@/shared/api/http";
 import type { ApiEnvelope } from "@/shared/api/http";
 import type {
+  AcceptInvitationPayload,
+  AccountIdentifier,
   EnrollmentResponse,
+  ExternalInvitationResponse,
   ForgotPasswordVerifyResponse,
   ResetPasswordPayload,
   LoginPayload,
@@ -39,11 +42,19 @@ export const verifyCode = (payload: VerifyCodePayload): Promise<VerifyCodeRespon
   httpClient.post<VerifyCodeResponse>("/auth/user/verify_code", payload);
 
 // 忘記密碼：寄驗證碼 → 驗證碼換 reset_token（15 分鐘、只能用一次）→ 設定新密碼
-export const sendResetCode = (payload: SendCodePayload): Promise<ApiEnvelope> =>
+export const sendResetCode = (payload: AccountIdentifier): Promise<ApiEnvelope> =>
   httpClient.post<ApiEnvelope>("/auth/user/forgot_password/send_code", payload);
 
-export const verifyResetCode = (payload: VerifyCodePayload): Promise<ForgotPasswordVerifyResponse> =>
+export const verifyResetCode = (payload: AccountIdentifier & { code: string }): Promise<ForgotPasswordVerifyResponse> =>
   httpClient.post<ForgotPasswordVerifyResponse>("/auth/user/forgot_password/verify_code", payload);
 
 export const resetPassword = (payload: ResetPasswordPayload): Promise<ApiEnvelope> =>
   httpClient.post<ApiEnvelope>("/auth/user/forgot_password/reset", payload);
+
+// 校外人士：邀請連結的資料、設定姓名與密碼完成註冊
+export const getExternalInvitation = (token: string): Promise<ExternalInvitationResponse> =>
+  httpClient.get<ExternalInvitationResponse>(`/auth/external_invitation?${new URLSearchParams({ token })}`);
+
+export const acceptExternalInvitation = (payload: AcceptInvitationPayload): Promise<ApiEnvelope> =>
+  httpClient.post<ApiEnvelope>("/auth/external_invitation/accept", payload);
+

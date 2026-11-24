@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 
 import { resetPassword, sendResetCode, verifyResetCode } from "@/modules/auth/api/auth.api";
 import RegisterForm from "@/modules/auth/components/RegisterForm.vue";
 import { useAuth } from "@/modules/auth/composables/useAuth";
-import type { RegisterStep } from "@/modules/auth/types/auth.types";
-import { EMAIL_DOMAIN } from "@/modules/auth/utils/email";
+import type { LoginKind, RegisterStep } from "@/modules/auth/types/auth.types";
+import { toAccountIdentifier, toFullEmail } from "@/modules/auth/utils/email";
 import { ApiError, toErrorMessage } from "@/shared/api/error-handler";
 
 // 跟後端的 CODE_EXPIRE_MINUTES、CODE_RESEND_SECONDS 一致
@@ -14,7 +14,10 @@ const CODE_EXPIRE_MINUTES = 5;
 const RESEND_SECONDS = 60;
 
 const RESET_ERROR_MESSAGES: Record<string, string> = {
-  "10001": "找不到此帳號，請確認電子郵件是否正確",
+  "10001": "找不到此帳號，請確認電子郵件與身分（政大師生／非政大師生）是否正確",
+  "10007": "電子郵件格式錯誤",
+  "10038": "此帳號已超過使用期限，請聯絡管理員延長。",
+  "10040": "政大信箱請選擇「政大師生」",
   "10010": "密碼強度不夠",
   "10024": "寄送太頻繁，請稍後再試",
   "10025": "找不到有效的驗證碼，請重新寄送",
@@ -27,7 +30,10 @@ const RESET_ERROR_MESSAGES: Record<string, string> = {
 };
 
 const router = useRouter();
+const route = useRoute();
 const { login } = useAuth();
+// 從登入頁的「非政大師生」分頁點忘記密碼會帶 ?type=external
+const initialKind: LoginKind = route.query.type === "external" ? "external" : "nccu";
 
 const step = ref<RegisterStep>("email");
 const emailPrefix = ref("");
@@ -59,9 +65,10 @@ const handleSendCode = async (prefix: string): Promise<void> => {
   error.value = "";
 
   try {
-    await sendResetCode({ email_prefix: prefix });
+    // prefix 是政大的 @ 前面，或校外人士的完整 email
+    await sendResetCode(toAccountIdentifier(prefix));
     emailPrefix.value = prefix;
-    info.value = `驗證碼已寄到 ${prefix}${EMAIL_DOMAIN}，${CODE_EXPIRE_MINUTES} 分鐘內有效，請到信箱複製後貼上。`;
+    info.value = `驗證碼已寄到 ${toFullEmail(prefix)}，${CODE_EXPIRE_MINUTES} 分鐘內有效，請到信箱複製後貼上。`;
     step.value = "code";
     startCooldown();
   } catch (err) {
@@ -76,7 +83,7 @@ const handleVerifyCode = async (code: string): Promise<void> => {
   error.value = "";
 
   try {
-    const response = await verifyResetCode({ email_prefix: emailPrefix.value, code });
+    const response = await verifyResetCode({ ...toAccountIdentifier(emailPrefix.value), code });
     resetToken.value = response.reset_token;
     step.value = "profile";
   } catch (err) {
@@ -109,7 +116,7 @@ const handleSubmit = async ({ password }: { name: string; password: string }): P
 
   // 密碼已更新，直接用新密碼登入；登入失敗（例如網路問題）就回登入頁自己登入
   try {
-    await login({ email_prefix: emailPrefix.value, password });
+    await login({ ...toAccountIdentifier(emailPrefix.value), password });
     await router.push("/workspace/projects");
   } catch {
     await router.push({ name: "login" });
@@ -122,6 +129,7 @@ const handleSubmit = async ({ password }: { name: string; password: string }): P
 <template>
   <RegisterForm
     mode="reset"
+    :initial-kind="initialKind"
     :step="step"
     :email-prefix="emailPrefix"
     :loading="loading"

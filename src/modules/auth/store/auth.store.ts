@@ -51,7 +51,7 @@ export const useAuthStore = defineStore("auth", {
       setCookie(AUTH_TOKEN_COOKIE_NAME, token);
 
       const decoded = decodeJwt<AuthJwtPayload>(token);
-      this.user = decoded ? { user_id: decoded.user_id, email: payload.email_prefix } : null;
+      this.user = decoded ? { user_id: decoded.user_id, email: payload.email_prefix ?? payload.email } : null;
 
       // 未驗證帳號可能無法取得完整 profile，但仍可使用表單功能。
       await this.fetchProfile().catch(() => undefined);
@@ -59,8 +59,9 @@ export const useAuthStore = defineStore("auth", {
     async fetchProfile(): Promise<void> {
       if (!this.user) return;
 
-      const { user_id, campus_id, email, name, role, enrollment } = await getProfile();
-      this.user = { user_id, campus_id, email, name, role, enrollment };
+      const { user_id, campus_id, email, name, role, enrollment, account_type, organization, valid_until } =
+        await getProfile();
+      this.user = { user_id, campus_id, email, name, role, enrollment, account_type, organization, valid_until };
       this.profileFetchedAt = Date.now();
     },
     setEnrollment(enrollment: EnrollmentInfo): void {
