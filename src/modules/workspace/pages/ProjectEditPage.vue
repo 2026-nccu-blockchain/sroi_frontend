@@ -116,16 +116,24 @@ const activeTab = computed<EditorTab>({
 // 從管理員所有專案進來帶著 ?from=admin；去 SROI 頁也帶著，繞回來才不會弄丟
 const isMember = ref(true);
 const fromAdmin = computed(() => route.query.from === "admin");
+// 從管理員的群組頁進來帶著 ?from=admin-group
+const fromAdminGroup = computed(() => route.query.from === "admin-group");
 const fromReview = computed(() => route.query.from === "review");
-// 管理員不一定是成員，從所有專案進來時以 fromAdmin 為準，不要被當成共用資料庫
+// 管理員不一定是成員，從管理員頁面進來時不要被當成共用資料庫
 const fromDatabase = computed(
-  () => !fromAdmin.value && (route.query.from === "database" || fromReview.value || !isMember.value)
+  () =>
+    !fromAdmin.value &&
+    !fromAdminGroup.value &&
+    (route.query.from === "database" || fromReview.value || !isMember.value)
 );
 const phaseQuery = computed(() => projectReturnQuery(route.query));
 const backTo = computed(() => {
-  if (fromAdmin.value) {
+  if (fromAdmin.value || fromAdminGroup.value) {
     const { from: _from, ...query } = phaseQuery.value;
-    return { name: "admin-projects", query };
+    if (fromAdmin.value) return { name: "admin-projects", query };
+    return ownerGroupId.value
+      ? { name: "admin-group-detail", params: { groupId: ownerGroupId.value }, query }
+      : { name: "admin-groups" };
   }
   if (fromReview.value) return { name: "dashboard", query: { tab: "review" } };
   if (fromDatabase.value) return { name: "dashboard" };
@@ -137,6 +145,7 @@ const backTo = computed(() => {
 const backLabel = computed(() =>
   fromAdmin.value
     ? "← 返回所有專案"
+    : fromAdminGroup.value ? "← 返回群組"
     : fromDatabase.value ? "← 返回共用資料庫" : ownerGroupId.value ? "← 返回群組" : "← 返回我的專案"
 );
 // 編輯時只有群組專案顯示所屬群組

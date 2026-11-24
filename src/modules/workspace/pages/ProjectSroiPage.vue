@@ -30,6 +30,8 @@ const stakeholderId = computed(() => String(route.params.stakeholderId ?? ""));
 const phaseQuery = computed(() => projectReturnQuery(route.query));
 // 從管理員所有專案進來
 const fromAdmin = computed(() => route.query.from === "admin");
+// 從管理員的群組頁進來
+const fromAdminGroup = computed(() => route.query.from === "admin-group");
 // 從共用資料庫（含審核專案分頁）進來
 const fromReview = computed(() => route.query.from === "review");
 const fromDatabase = computed(() => route.query.from === "database" || fromReview.value);
@@ -45,6 +47,7 @@ const backLink = computed(() => {
     const { from: _from, ...query } = phaseQuery.value;
     return { name: "admin-projects", query };
   }
+  if (fromAdminGroup.value) return { name: "admin-groups" };
   if (fromReview.value) return { name: "dashboard", query: { tab: "review" } };
   return fromDatabase.value ? { name: "dashboard" } : { name: "my-projects", query: phaseQuery.value };
 });

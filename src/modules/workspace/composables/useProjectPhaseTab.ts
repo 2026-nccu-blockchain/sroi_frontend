@@ -8,7 +8,7 @@ export const isProjectPhaseTab = (value: unknown): value is ProjectPhaseTab =>
   typeof value === "string" && (PROJECT_PHASE_TABS as string[]).includes(value);
 
 // 從列表進入專案時帶的來源參數；在專案頁、SROI 頁之間來回都要保留，返回時才回得去
-const RETURN_FROMS = ["database", "review", "admin"];
+const RETURN_FROMS = ["database", "review", "admin", "admin-group"];
 
 export const projectReturnQuery = (query: LocationQuery): Record<string, string> => {
   const keep = (key: string): Record<string, string> => {

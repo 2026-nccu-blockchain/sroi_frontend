@@ -28,6 +28,10 @@ export const getPublishedProjects = (): Promise<WorkspaceProject[]> =>
 export const getReviewingProjects = (): Promise<WorkspaceProject[]> =>
   httpClient.get<WorkspaceProject[]>("/project/reviewing");
 
+// 指定群組的專案；管理員看非成員的群組也可以（只能檢視）
+export const getGroupProjects = (groupId: string): Promise<WorkspaceProject[]> =>
+  httpClient.get<WorkspaceProject[]>(`/project?${new URLSearchParams({ group_id: groupId })}`);
+
 export const getProject = (projectId: string): Promise<WorkspaceProject> =>
   httpClient.get<WorkspaceProject>(`/project/${encodeURIComponent(projectId)}`);
 

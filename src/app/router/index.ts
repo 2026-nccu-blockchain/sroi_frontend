@@ -184,6 +184,14 @@ const routes: RouteRecordRaw[] = [
         meta: { roles: ADMIN_ROLES }
       },
       {
+        path: "admin/groups/:groupId/settings",
+        name: "admin-group-settings",
+        component: GroupSettingsPage,
+        // 沿用組長的設定頁，以管理員模式開啟
+        props: (route) => ({ groupId: String(route.params.groupId), admin: true }),
+        meta: { roles: ADMIN_ROLES }
+      },
+      {
         path: "admin/projects",
         name: "admin-projects",
         component: AdminProjectsPage,
