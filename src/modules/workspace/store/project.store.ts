@@ -40,7 +40,7 @@ export const useProjectStore = defineStore("projects", {
         const currentForms = project.forms.map((linkedForm) => {
           const cached = forms.find((item) => item.form_id === linkedForm.form_id);
           return cached
-            ? { form_id: cached.form_id, title: cached.title, status: cached.status }
+            ? { ...linkedForm, title: cached.title, status: cached.status }
             : linkedForm;
         });
         return { ...project, forms: currentForms };

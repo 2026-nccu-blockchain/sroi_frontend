@@ -127,6 +127,7 @@ export interface FormSubmission {
   form_id: string;
   respondent_email: string | null;
   status: "draft" | "submitted";
+  is_duplicate_legacy: boolean;
   started_at: string;
   submitted_at: string | null;
   answers: SubmittedAnswer[];

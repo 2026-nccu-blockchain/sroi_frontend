@@ -296,7 +296,11 @@ const initializeForm = async (): Promise<void> => {
 
 const goBack = async (): Promise<void> => {
   if (sourceProjectId.value) {
-    await router.push({ name: "project-edit", params: { projectId: sourceProjectId.value }, query: { tab: "forms" } });
+    await router.push({
+      name: "project-edit",
+      params: { projectId: sourceProjectId.value },
+      query: { tab: "forms", form: formId.value || undefined }
+    });
     return;
   }
   await router.push({ name: "my-projects" });

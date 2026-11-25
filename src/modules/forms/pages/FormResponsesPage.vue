@@ -31,8 +31,6 @@ const selectedId = ref<string | null>(null);
 const viewMode = ref<"summary" | "individual">("summary");
 const loading = ref(true);
 const error = ref("");
-// 暫定門檻；正式採計規則確認後只需替換這個值或改由後端設定。
-const OUTCOME_ELIGIBILITY_THRESHOLD = 0.5;
 
 const selectedSubmission = computed(() =>
   submissions.value.find((item) => item.response_id === selectedId.value) ?? null
@@ -185,28 +183,45 @@ const scaleAverage = (question: QuestionResponse): string => {
   return (values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(1);
 };
 
+const assessmentAnswers = computed(() => {
+  const scores = new Map<string, number[]>();
+  for (const submission of submissions.value) {
+    if (submission.status !== "submitted" || submission.is_duplicate_legacy) continue;
+    for (const answer of submission.answers) {
+      if (answer.number_value === null) continue;
+      const values = scores.get(answer.question_id) ?? [];
+      values.push(answer.number_value);
+      scores.set(answer.question_id, values);
+    }
+  }
+  return scores;
+});
+
 const outcomeAssessment = (page: PageResponse): {
   status: "eligible" | "below" | "insufficient";
-  score: string;
+  passingCount: number;
 } => {
-  const normalizedScores = page.questions
-    .filter((question) => question.question_type === "SC")
-    .flatMap((question) => {
-      const begin = question.scale_begin ?? 1;
-      const end = question.scale_end ?? 5;
-      if (end <= begin) return [];
-      return answersForQuestion(question.question_id)
-        .map((answer) => answer.number_value)
-        .filter((value): value is number => value !== null)
-        .map((value) => (value - begin) / (end - begin));
-    });
-  if (!normalizedScores.length) return { status: "insufficient", score: "—" };
-  const average = normalizedScores.reduce((sum, value) => sum + value, 0) / normalizedScores.length;
+  let passingCount = 0;
+  let hasAnswers = false;
+  for (const question of page.questions) {
+    const { scale_begin: begin, scale_end: end } = question;
+    if (question.question_type !== "SC" || question.is_temp || begin == null || end == null || end <= begin) continue;
+    const scores = (assessmentAnswers.value.get(question.question_id) ?? [])
+      .filter((value) => value >= begin && value <= end);
+    if (!scores.length) continue;
+    hasAnswers = true;
+    const sum = scores.reduce((total, value) => total + value, 0);
+    if (2 * sum >= (begin + end) * scores.length) passingCount += 1;
+  }
   return {
-    status: average > OUTCOME_ELIGIBILITY_THRESHOLD ? "eligible" : "below",
-    score: `${Math.round(average * 100)}%`
+    status: passingCount > 0 ? "eligible" : hasAnswers ? "below" : "insufficient",
+    passingCount
   };
 };
+const summaryPages = computed(() => (form.value?.pages ?? []).map((page) => ({
+  ...page,
+  assessment: !page.is_respondent_info && page.project_outcome_id ? outcomeAssessment(page) : null
+})));
 
 const load = async (): Promise<void> => {
   loading.value = true;
@@ -277,7 +292,7 @@ watch([projectId, formId], () => void load(), { immediate: true });
           </div>
 
           <div v-if="viewMode === 'summary'" class="block-summary-list">
-            <section v-for="page in form?.pages" :key="page.page_id" class="block-summary">
+            <section v-for="page in summaryPages" :key="page.page_id" class="block-summary">
               <header>
                 <div class="outcome-heading">
                   <div>
@@ -285,19 +300,19 @@ watch([projectId, formId], () => void load(), { immediate: true });
                     <h2>{{ page.title || "未命名區塊" }}</h2>
                   </div>
                   <span
-                    v-if="!page.is_respondent_info"
+                    v-if="page.assessment"
                     class="assessment-badge"
-                    :class="`assessment-badge--${outcomeAssessment(page).status}`"
+                    :class="`assessment-badge--${page.assessment.status}`"
                   >
-                    {{ outcomeAssessment(page).status === 'eligible'
-                      ? `暫定可採計 · ${outcomeAssessment(page).score}`
-                      : outcomeAssessment(page).status === 'below'
-                        ? `未達暫定標準 · ${outcomeAssessment(page).score}`
+                    {{ page.assessment.status === 'eligible'
+                      ? `${page.assessment.passingCount} 題達標`
+                      : page.assessment.status === 'below'
+                        ? '尚無題目達到量表中點'
                         : '尚無量表資料' }}
                   </span>
                 </div>
                 <p v-if="page.content">{{ page.content }}</p>
-                <small v-if="!page.is_respondent_info" class="assessment-note">目前暫以量表正規化平均高於中位數 50% 判定，正式採計標準之後可再調整。</small>
+                <small v-if="page.assessment" class="assessment-note">本表單逐題比較平均分數。只要一題的平均分數達到該題的量表中點，這個成果就達標。</small>
               </header>
 
               <article

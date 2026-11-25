@@ -39,6 +39,16 @@ const form = reactive<StakeholderDraft>({
   costs: []
 });
 
+const defaultForm = computed(() => props.forms.find((item) =>
+  item.stakeholder_id && item.stakeholder_id === form.stakeholder_id
+));
+const formOptions = computed(() => defaultForm.value
+  ? [defaultForm.value, ...props.forms.filter((item) => item.form_id !== defaultForm.value?.form_id)]
+  : props.forms
+);
+const formOptionLabel = (item: LinkedProjectForm): string =>
+  `${item.title || "未命名表單"}${item.form_id === defaultForm.value?.form_id ? "（預設表單）" : ""}`;
+
 // 下拉選單的選項與「其他」的自訂文字分開存，儲存時再合成一個值
 const relationChoice = ref("");
 const relationOther = ref("");
@@ -296,28 +306,30 @@ const confirmDiscard = (): void => {
 
         <section class="dialog-section">
           <h3>前測與後測</h3>
-          <p v-if="!forms.length" class="form-hint">這個專案還沒有表單，請先在「專案表單」新增後，再選擇前測與後測。</p>
+          <p v-if="!form.stakeholder_id" class="form-hint">後測留空時，儲存專案會帶入這位利害關係人的專屬表單。</p>
+          <p v-else-if="defaultForm" class="form-hint">這位利害關係人的預設表單已標示，可依需求指定為前測或後測。</p>
+          <p v-else-if="!formOptions.length" class="form-hint">可先在「專案表單」新增表單，再指定前測或後測。</p>
           <div class="dialog-grid dialog-grid--half">
             <label class="field">前測表單
-              <select v-model="form.pre_form_id" :disabled="!forms.length">
+              <select v-model="form.pre_form_id" :disabled="!formOptions.length">
                 <option :value="null">不指定</option>
                 <option
-                  v-for="item in forms"
+                  v-for="item in formOptions"
                   :key="item.form_id"
                   :value="item.form_id"
                   :disabled="item.form_id === form.post_form_id"
-                >{{ item.title || "未命名表單" }}</option>
+                >{{ formOptionLabel(item) }}</option>
               </select>
             </label>
             <label class="field">後測表單
-              <select v-model="form.post_form_id" :disabled="!forms.length">
-                <option :value="null">不指定</option>
+              <select v-model="form.post_form_id" :disabled="!formOptions.length">
+                <option :value="null">{{ form.stakeholder_id ? "不指定" : "儲存後帶入預設表單" }}</option>
                 <option
-                  v-for="item in forms"
+                  v-for="item in formOptions"
                   :key="item.form_id"
                   :value="item.form_id"
                   :disabled="item.form_id === form.pre_form_id"
-                >{{ item.title || "未命名表單" }}</option>
+                >{{ formOptionLabel(item) }}</option>
               </select>
             </label>
           </div>

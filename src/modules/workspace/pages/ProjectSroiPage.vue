@@ -1,17 +1,20 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import { useRoute } from "vue-router";
 
 import {
   getFinancialProxyOptions,
-  type FinancialProxy
+  type FinancialProxyOption
 } from "@/modules/proxy-variables/api/financialProxy.api";
+import ProxyProposalDialog from "@/modules/proxy-variables/components/ProxyProposalDialog.vue";
+import FinancialProxySelect from "@/modules/proxy-variables/components/FinancialProxySelect.vue";
 import {
   getProject,
   getStakeholderSROI,
   saveStakeholderSROI
 } from "@/modules/workspace/api/workspace.api";
 import ConfirmDialog from "@/modules/workspace/components/ConfirmDialog.vue";
+import ExchangeMonthPicker from "@/modules/workspace/components/ExchangeMonthPicker.vue";
 import { isProjectPhaseTab } from "@/modules/workspace/composables/useProjectPhaseTab";
 import { isProjectClosed, toProjectErrorMessage } from "@/modules/workspace/constants";
 import { useProjectStore } from "@/modules/workspace/store/project.store";
@@ -55,78 +58,127 @@ const saving = ref(false);
 const error = ref("");
 const savedMessage = ref("");
 const stakeholder = ref<StakeholderSROI | null>(null);
-const financialProxies = ref<FinancialProxy[]>([]);
+const financialProxies = ref<FinancialProxyOption[]>([]);
+const showProxyProposal = ref(false);
+const refreshingProxies = ref(false);
+const proxyMessage = ref("");
+const proxyError = ref("");
+const quoteRequests = reactive(new Map<string, symbol>());
+const quoteErrors = reactive(new Map<string, string>());
+const ratesRefreshed = ref(false);
 const savedSnapshot = ref("");
 
 const finite = (value: number, fallback = 0): number =>
   Number.isFinite(Number(value)) ? Number(value) : fallback;
 const clamp = (value: number, minimum: number, maximum: number): number =>
   Math.min(maximum, Math.max(minimum, finite(value)));
-const discountRatePercent = computed({
-  get: () => Math.round(finite(stakeholder.value?.discount_rate ?? 0.035) * 10000) / 100,
-  set: (value: number) => {
-    if (stakeholder.value) stakeholder.value.discount_rate = clamp(value / 100, 0, 1);
-  }
-});
-
 const proxyById = computed(() =>
   new Map(financialProxies.value.map((proxy) => [proxy.proxy_id, proxy]))
 );
 
-const applyFinancialProxy = (outcome: OutcomeValuation): void => {
-  const proxy = outcome.financial_proxy_id
-    ? proxyById.value.get(outcome.financial_proxy_id)
-    : undefined;
+const applyFinancialProxy = (outcome: OutcomeValuation, proxy?: FinancialProxyOption): void => {
   outcome.financial_proxy_name = proxy?.name ?? null;
   outcome.financial_proxy_note = proxy?.note ?? null;
-  outcome.financial_proxy_value = proxy ? Number(proxy.value) : 0;
+  outcome.financial_proxy_value = proxy?.value_twd == null ? null : Number(proxy.value_twd);
+  outcome.financial_proxy_amount = proxy?.value ?? null;
+  outcome.financial_proxy_currency = proxy?.currency ?? null;
+  outcome.exchange_rate = proxy?.exchange_rate ?? null;
+  outcome.exchange_rate_date = proxy?.exchange_rate_date ?? null;
 };
 
-const outcomeValue = (outcome: OutcomeValuation): number => {
+const updateOutcomeMonth = async (outcome: OutcomeValuation, month: string | null): Promise<void> => {
+  if (readOnly.value || saving.value) return;
+  const id = outcome.outcome_id;
+  quoteRequests.delete(id);
+  quoteErrors.delete(id);
+  const proxy = outcome.financial_proxy_id ? proxyById.value.get(outcome.financial_proxy_id) : undefined;
+  outcome.exchange_rate_month = proxy && proxy.currency !== "TWD" ? month : null;
+  applyFinancialProxy(outcome, proxy);
+  ratesRefreshed.value = true;
+  if (!proxy || proxy.currency === "TWD" || !month) return;
+  const request = Symbol();
+  quoteRequests.set(id, request);
+  try {
+    const datedOptions = await getFinancialProxyOptions(month);
+    if (quoteRequests.get(id) !== request) return;
+    const datedProxy = datedOptions.find((item) => item.proxy_id === proxy.proxy_id);
+    if (datedProxy) applyFinancialProxy(outcome, datedProxy);
+    else quoteErrors.set(id, "這筆財務代理變數已無法選用。");
+  } catch (caught) {
+    if (quoteRequests.get(id) === request) {
+      quoteErrors.set(id, caught instanceof Error ? caught.message : "無法查詢月底匯率。");
+    }
+  } finally {
+    if (quoteRequests.get(id) === request) quoteRequests.delete(id);
+  }
+};
+
+const selectFinancialProxy = (outcome: OutcomeValuation, id: string | null): void => {
+  if (readOnly.value || saving.value) return;
+  outcome.financial_proxy_id = id;
+  void updateOutcomeMonth(outcome, null);
+};
+
+const outcomeValue = (outcome: OutcomeValuation): number | null => {
   if (!outcome.is_included) return 0;
-  const base = Math.max(0, finite(outcome.quantity))
-    * Math.max(0, finite(outcome.financial_proxy_value))
+  if (outcome.financial_proxy_value === null) return null;
+  let annualValue = Math.max(0, finite(outcome.quantity))
+    * finite(outcome.financial_proxy_value)
     * (1 - clamp(outcome.deadweight_rate, 0, 1))
     * (1 - clamp(outcome.attribution_rate, 0, 1))
     * (1 - clamp(outcome.displacement_rate, 0, 1));
   const years = Math.round(clamp(outcome.duration_years, 1, 20));
   const dropoff = clamp(outcome.dropoff_rate, 0, 1);
-  const discount = clamp(stakeholder.value?.discount_rate ?? 0.035, 0, 1);
   let total = 0;
   for (let year = 0; year < years; year += 1) {
-    total += base * ((1 - dropoff) ** year) / ((1 + discount) ** year);
+    total += annualValue;
+    annualValue *= 1 - dropoff;
   }
-  return total;
+  return Math.sign(total) * Math.round(Math.abs(total) * 100) / 100;
 };
 
-const totalSocialValue = computed(() =>
-  stakeholder.value?.outcomes.reduce((total, outcome) => total + outcomeValue(outcome), 0) ?? 0
-);
+const totalSocialValue = computed(() => {
+  if (!isPreview.value) return stakeholder.value?.total_social_value ?? null;
+  return stakeholder.value?.outcomes.reduce((total, outcome) => total + (outcomeValue(outcome) ?? 0), 0) ?? 0;
+});
 const missingFinancialProxy = computed(() =>
   stakeholder.value?.outcomes.some(
     (outcome) => outcome.is_included && !outcome.financial_proxy_id
   ) ?? false
 );
+const missingExchangeRate = computed(() =>
+  stakeholder.value?.outcomes.some(
+    (outcome) => outcome.is_included && outcome.financial_proxy_id && outcome.financial_proxy_value === null
+  ) ?? false
+);
+const missingRateMonth = computed(() =>
+  stakeholder.value?.outcomes.some(
+    (outcome) => outcome.is_included && outcome.financial_proxy_currency
+      && outcome.financial_proxy_currency !== "TWD" && !outcome.exchange_rate_month
+  ) ?? false
+);
+const hasIncludedOutcome = computed(() => stakeholder.value?.outcomes.some((outcome) => outcome.is_included) ?? false);
 const sroiRatio = computed(() => {
-  if (!stakeholder.value || stakeholder.value.input_cost <= 0 || missingFinancialProxy.value) return null;
-  return totalSocialValue.value / stakeholder.value.input_cost;
+  if (!stakeholder.value || !hasIncludedOutcome.value || stakeholder.value.input_cost <= 0 || missingFinancialProxy.value || missingExchangeRate.value) return null;
+  if (!isPreview.value) return stakeholder.value.sroi_ratio;
+  return (totalSocialValue.value ?? 0) / stakeholder.value.input_cost;
 });
 
-const formatMoney = (value: number): string =>
-  `${Math.round(finite(value)).toLocaleString("zh-TW")} 元`;
+const formatNumber = (value: number | string, maximumFractionDigits: number): string =>
+  Number(value).toLocaleString("zh-TW", { maximumFractionDigits });
+const formatMoney = (value: number | null): string =>
+  value === null ? "—" : `NT$ ${formatNumber(value, 2)}`;
 
 const payload = (): StakeholderSROIPayload => ({
-  discount_rate: clamp(stakeholder.value?.discount_rate ?? 0.035, 0, 1),
   outcomes: (stakeholder.value?.outcomes ?? []).map((outcome) => ({
     outcome_id: outcome.outcome_id,
-    quantity: Math.max(0, finite(outcome.quantity)),
     financial_proxy_id: outcome.financial_proxy_id || null,
+    exchange_rate_month: outcome.exchange_rate_month,
     deadweight_rate: clamp(outcome.deadweight_rate, 0, 1),
     attribution_rate: clamp(outcome.attribution_rate, 0, 1),
     displacement_rate: clamp(outcome.displacement_rate, 0, 1),
     duration_years: Math.round(clamp(outcome.duration_years, 1, 20)),
-    dropoff_rate: clamp(outcome.dropoff_rate, 0, 1),
-    is_included: outcome.is_included
+    dropoff_rate: clamp(outcome.dropoff_rate, 0, 1)
   }))
 });
 
@@ -135,32 +187,49 @@ const hydrate = (data: StakeholderSROI): void => {
   stakeholder.value = {
     ...data,
     input_cost: Number(data.input_cost),
-    discount_rate: Number(data.discount_rate),
-    total_social_value: Number(data.total_social_value),
+    total_social_value: data.total_social_value === null ? null : Number(data.total_social_value),
     sroi_ratio: data.sroi_ratio === null ? null : Number(data.sroi_ratio),
     outcomes: data.outcomes.map((outcome) => ({
       ...outcome,
       quantity: Number(outcome.quantity),
-      financial_proxy_value: Number(outcome.financial_proxy_value),
+      financial_proxy_value: outcome.financial_proxy_value === null ? null : Number(outcome.financial_proxy_value),
       deadweight_rate: Number(outcome.deadweight_rate),
       attribution_rate: Number(outcome.attribution_rate),
       displacement_rate: Number(outcome.displacement_rate),
       duration_years: Number(outcome.duration_years),
       dropoff_rate: Number(outcome.dropoff_rate),
       scale_score: outcome.scale_score === null ? null : Number(outcome.scale_score),
-      calculated_value: Number(outcome.calculated_value)
+      calculated_value: outcome.calculated_value === null ? null : Number(outcome.calculated_value)
     }))
   };
+  ratesRefreshed.value = false;
+  quoteErrors.clear();
   savedSnapshot.value = snapshot();
 };
 
+const isPreview = computed(() => ratesRefreshed.value || snapshot() !== savedSnapshot.value);
 const isDirty = computed(() =>
   !loadFailed.value && !readOnly.value && !loading.value && snapshot() !== savedSnapshot.value
 );
 const { leaveDialogOpen, answerLeave } = useUnsavedChanges(isDirty);
 
+const refreshProxyOptions = async (): Promise<void> => {
+  if (!stakeholder.value || saving.value || refreshingProxies.value) return;
+  refreshingProxies.value = true;
+  proxyError.value = "";
+  proxyMessage.value = "";
+  try {
+    financialProxies.value = await getFinancialProxyOptions(null);
+    proxyMessage.value = "已更新可選的財務代理變數。";
+  } catch (caught) {
+    proxyError.value = caught instanceof Error ? caught.message : "無法更新財務代理變數。";
+  } finally {
+    refreshingProxies.value = false;
+  }
+};
+
 const save = async (): Promise<void> => {
-  if (readOnly.value || !stakeholder.value) return;
+  if (readOnly.value || !stakeholder.value || saving.value || quoteRequests.size || refreshingProxies.value) return;
   saving.value = true;
   error.value = "";
   savedMessage.value = "";
@@ -182,11 +251,11 @@ onMounted(async () => {
     const [sroi, project, proxies] = await Promise.all([
       getStakeholderSROI(projectId.value, stakeholderId.value),
       cached ? Promise.resolve(cached) : getProject(projectId.value),
-      getFinancialProxyOptions()
+      getFinancialProxyOptions(null)
     ]);
     myRole.value = project.my_role ?? "leader";
     closed.value = isProjectClosed(project);
-    financialProxies.value = proxies.map((proxy) => ({ ...proxy, value: Number(proxy.value) }));
+    financialProxies.value = proxies;
     hydrate(sroi);
   } catch (caught) {
     error.value = toProjectErrorMessage(caught, "無法載入此利害關係人的 SROI 資料");
@@ -208,7 +277,7 @@ onMounted(async () => {
       </div>
       <div v-if="!loadFailed" class="page-header__actions">
         <span v-if="isDirty" class="dirty-hint">有未儲存的修改</span>
-        <button v-if="!readOnly" class="primary-button" type="button" :disabled="loading || saving" @click="save">
+        <button v-if="!readOnly" class="primary-button" type="button" :disabled="loading || saving || quoteRequests.size > 0 || refreshingProxies" @click="save">
           {{ saving ? "儲存中…" : "儲存這位利害關係人的 SROI" }}
         </button>
       </div>
@@ -222,6 +291,11 @@ onMounted(async () => {
       danger
       @confirm="answerLeave(true)"
       @cancel="answerLeave(false)"
+    />
+    <ProxyProposalDialog
+      v-if="showProxyProposal"
+      @close="showProxyProposal = false"
+      @submitted="proxyMessage = '財務代理變數已送出，等待審核。'"
     />
 
     <p v-if="error" class="message message--error">{{ error }}</p>
@@ -237,29 +311,38 @@ onMounted(async () => {
             <span>{{ stakeholder.stakeholder_name }} 的 SROI</span>
             <strong>{{ sroiRatio === null ? "—" : `${sroiRatio.toFixed(2)} : 1` }}</strong>
             <p v-if="sroiRatio !== null">每投入 1 元，暫估產生 {{ sroiRatio.toFixed(2) }} 元社會價值。</p>
+            <p v-else-if="!hasIncludedOutcome">目前沒有量表題達標的成果。</p>
             <p v-else-if="stakeholder.input_cost <= 0">請先在此利害關係人中新增成本。</p>
             <p v-else-if="missingFinancialProxy">請先為每項納入的成果選擇財務代理變數。</p>
+            <p v-else-if="missingRateMonth">請為納入的外幣代理變數選擇匯率年月。</p>
+            <p v-else-if="missingExchangeRate">{{ quoteRequests.size ? "正在查詢月底匯率。" : "所選月底的匯率暫無資料。" }}</p>
             <p v-else>尚無可採計的成果價值。</p>
           </article>
           <article class="summary-card">
             <span>成果總價值</span>
-            <strong>{{ missingFinancialProxy ? "待選擇代理變數" : formatMoney(totalSocialValue) }}</strong>
+            <strong>{{ !hasIncludedOutcome ? "—" : missingFinancialProxy ? "待選擇代理變數" : missingRateMonth ? "待選擇匯率年月" : missingExchangeRate ? "待取得匯率" : formatMoney(totalSocialValue) }}</strong>
           </article>
           <article class="summary-card">
             <span>此利害關係人的投入成本</span>
             <strong>{{ formatMoney(stakeholder.input_cost) }}</strong>
             <RouterLink v-if="!readOnly" class="cost-link" :to="projectEditLink">回利害關係人修改成本 →</RouterLink>
           </article>
-          <label class="summary-card summary-card--input">
-            <span>折現率（%）</span>
-            <input v-model.number="discountRatePercent" type="number" min="0" max="100" step="0.1" />
-          </label>
         </section>
 
         <section class="explanation">
           <strong>單一利害關係人計算</strong>
-          <p>SROI＝此利害關係人的成果總價值 ÷ 此利害關係人的投入成本。這裡只會載入與儲存「{{ stakeholder.stakeholder_name }}」的資料。</p>
+          <p>成果只要有一題量表的平均分數達到該題中點，就會納入 SROI。採計數量由有效填答人數自動帶入，同一人在同一成果只算一次。</p>
         </section>
+
+        <div v-if="!readOnly && stakeholder.outcomes.length" class="proxy-toolbar">
+          <div>
+            <p v-if="proxyMessage" role="status">{{ proxyMessage }}</p>
+            <p v-if="proxyError" class="proxy-error" role="alert">{{ proxyError }}</p>
+          </div>
+          <button type="button" class="proxy-action" :disabled="refreshingProxies || saving" @click="refreshProxyOptions">
+            {{ refreshingProxies ? "更新中…" : "更新代理變數選項" }}
+          </button>
+        </div>
 
         <section v-if="stakeholder.outcomes.length" class="outcome-list">
           <article v-for="outcome in stakeholder.outcomes" :key="outcome.outcome_id" class="outcome-card">
@@ -269,31 +352,57 @@ onMounted(async () => {
                 <h2>#{{ outcome.outcome_name }}</h2>
               </div>
               <div class="outcome-status">
-                <span :class="['evidence-badge', outcome.suggested_eligible === true ? 'evidence-badge--eligible' : outcome.suggested_eligible === false ? 'evidence-badge--below' : '']">
-                  {{ outcome.suggested_eligible === true ? `建議採計 · ${Math.round((outcome.scale_score ?? 0) * 100)}%` : outcome.suggested_eligible === false ? `未達暫定標準 · ${Math.round((outcome.scale_score ?? 0) * 100)}%` : "尚無量表資料" }}
+                <span :class="['evidence-badge', outcome.is_included ? 'evidence-badge--eligible' : outcome.scale_answer_count ? 'evidence-badge--below' : '']">
+                  {{ outcome.is_included ? `已納入 · ${outcome.scale_passing_question_count} 題達標` : outcome.scale_answer_count ? "尚未達標" : "尚無量表資料" }}
                 </span>
                 <small>{{ outcome.scale_answer_count }} 筆量表回答</small>
               </div>
             </header>
-            <label class="include-toggle"><input v-model="outcome.is_included" type="checkbox" /><span>納入 SROI 計算</span></label>
-            <div class="valuation-grid" :class="{ 'valuation-grid--disabled': !outcome.is_included }">
-              <label>採計數量<input v-model.number="outcome.quantity" type="number" min="0" step="1" /></label>
-              <label class="proxy-field">
-                財務代理變數
-                <select v-model="outcome.financial_proxy_id" @change="applyFinancialProxy(outcome)">
-                  <option :value="null">請選擇財務代理變數</option>
-                  <option v-for="proxy in financialProxies" :key="proxy.proxy_id" :value="proxy.proxy_id">
-                    {{ proxy.name }}・{{ formatMoney(proxy.value) }}
-                  </option>
-                </select>
+            <div class="valuation-grid">
+              <div class="outcome-quantity">
+                <span>採計人數</span>
+                <strong>{{ formatNumber(outcome.quantity, 0) }} 人</strong>
+                <small>依問卷有效填答自動計算</small>
+              </div>
+              <div class="proxy-field">
+                <div class="proxy-field__heading">
+                  <label :id="`proxy-${outcome.outcome_id}-label`" :for="`proxy-${outcome.outcome_id}`">財務代理變數</label>
+                  <button v-if="!readOnly" type="button" class="proxy-action" @click="showProxyProposal = true">＋ 新增並送審</button>
+                </div>
+                <div class="proxy-choice">
+                  <FinancialProxySelect
+                    :id="`proxy-${outcome.outcome_id}`"
+                    :model-value="outcome.financial_proxy_id"
+                    :options="financialProxies"
+                    :disabled="readOnly || saving"
+                    @update:model-value="selectFinancialProxy(outcome, $event)"
+                  />
+                  <ExchangeMonthPicker
+                    v-if="outcome.financial_proxy_currency && outcome.financial_proxy_currency !== 'TWD'"
+                    class="proxy-choice__calendar"
+                    :month="outcome.exchange_rate_month"
+                    :disabled="readOnly || saving"
+                    @select="updateOutcomeMonth(outcome, $event)"
+                  />
+                </div>
                 <small v-if="outcome.financial_proxy_id">
-                  {{ formatMoney(outcome.financial_proxy_value) }}<template v-if="outcome.financial_proxy_note">・{{ outcome.financial_proxy_note }}</template>
+                  {{ outcome.financial_proxy_currency }} {{ formatNumber(outcome.financial_proxy_amount ?? 0, 4) }}
+                  <template v-if="outcome.financial_proxy_currency !== 'TWD'">
+                    <template v-if="outcome.exchange_rate">
+                      ≈ {{ formatMoney(outcome.financial_proxy_value) }}<br />
+                      1 {{ outcome.financial_proxy_currency }} ≈ {{ formatNumber(outcome.exchange_rate, 8) }} TWD（{{ outcome.exchange_rate_date }}）
+                    </template>
+                    <template v-else-if="quoteRequests.has(outcome.outcome_id)">・正在查詢月底匯率</template>
+                    <template v-else-if="!quoteErrors.has(outcome.outcome_id)">・{{ outcome.exchange_rate_month ? "所選月底匯率暫無資料" : "請選擇匯率年月" }}</template>
+                  </template>
+                  <template v-if="outcome.financial_proxy_note"><br />{{ outcome.financial_proxy_note }}</template>
                 </small>
                 <small v-else>金額由財務代理變數資料庫帶入，不另外手動輸入。</small>
-              </label>
+                <small v-if="quoteErrors.has(outcome.outcome_id)" class="proxy-error" role="alert">{{ quoteErrors.get(outcome.outcome_id) }}</small>
+              </div>
               <label>持續年數<input v-model.number="outcome.duration_years" type="number" min="1" max="20" step="1" /></label>
             </div>
-            <fieldset class="sensitivity-panel" :disabled="!outcome.is_included">
+            <fieldset class="sensitivity-panel">
               <legend>調整係數設定（敏感度分析）</legend>
               <p>輸入 0–100%，系統會立即試算調整後的成果價值。</p>
               <div class="sensitivity-grid">
@@ -305,7 +414,10 @@ onMounted(async () => {
             </fieldset>
             <footer>
               <span>這項成果暫估價值</span>
-              <strong>{{ outcome.is_included && !outcome.financial_proxy_id ? "待選擇財務代理變數" : formatMoney(outcomeValue(outcome)) }}</strong>
+              <strong v-if="!outcome.is_included">尚未納入 SROI</strong>
+              <strong v-else-if="!outcome.financial_proxy_id">待選擇財務代理變數</strong>
+              <strong v-else-if="outcome.financial_proxy_value === null">{{ outcome.exchange_rate_month ? "待取得匯率" : "待選擇匯率年月" }}</strong>
+              <strong v-else>{{ formatMoney(isPreview ? outcomeValue(outcome) : outcome.calculated_value) }}</strong>
             </footer>
           </article>
         </section>
@@ -335,14 +447,13 @@ h2 { font-size: 18px; }
 .message, .state-card { padding: 14px 16px; border: 1px solid #bbb; background: #fff; }
 .message--error { border-color: #333; color: #111; }
 .message--success { border-color: #777; color: #222; }
-.summary-grid { display: grid; grid-template-columns: 1.4fr 1fr 1fr 1fr; gap: 14px; }
+.summary-grid { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 14px; }
 .summary-card { display: grid; align-content: space-between; min-height: 128px; gap: 10px; padding: 20px; border: 1px solid #ccc; background: #fff; }
 .summary-card span { color: #555; font-size: 14px; font-weight: 750; }
 .summary-card strong { font-size: 24px; letter-spacing: -.04em; }
 .summary-card p { color: #555; font-size: 14px; line-height: 1.6; }
 .summary-card--ratio { background: #111; color: #fff; }
 .summary-card--ratio span, .summary-card--ratio p { color: #eee; }
-.summary-card--input input { width: 100%; border: 0; border-bottom: 1px solid #777; padding: 8px 0; background: transparent; color: #111; font: inherit; font-size: 18px; font-weight: 700; outline: none; }
 .cost-link { color: #111; font-size: 14px; font-weight: 750; text-decoration: underline; text-underline-offset: 3px; }
 .explanation { display: grid; grid-template-columns: 220px 1fr; gap: 22px; padding: 17px 20px; border-left: 4px solid #111; background: #f4f4f4; }
 .explanation strong { font-size: 14px; }
@@ -355,14 +466,28 @@ h2 { font-size: 18px; }
 .evidence-badge { padding: 5px 9px; border-radius: 999px; background: #eee; color: #555; font-size: 14px; font-weight: 750; }
 .evidence-badge--eligible { background: #222; color: #fff; }
 .evidence-badge--below { border: 1px solid #888; background: #fff; color: #333; }
-.include-toggle { display: flex; align-items: center; gap: 8px; width: fit-content; font-size: 14px; font-weight: 750; cursor: pointer; }
-.include-toggle input { accent-color: #111; }
 .valuation-grid { display: grid; grid-template-columns: 1fr 1.6fr 1fr; gap: 15px; transition: opacity .15s ease; }
-.valuation-grid--disabled { pointer-events: none; opacity: .4; }
 .valuation-grid label, .sensitivity-grid label { display: grid; gap: 7px; color: #444; font-size: 14px; font-weight: 750; }
-.valuation-grid input, .valuation-grid select, .sensitivity-grid input { width: 100%; min-width: 0; border: 1px solid #bbb; padding: 10px; background: #fff; color: #111; font: inherit; font-size: 14px; outline: none; }
-.valuation-grid input:focus, .valuation-grid select:focus, .sensitivity-grid input:focus { border-color: #111; box-shadow: 0 0 0 2px #ddd; }
+.outcome-quantity { display: grid; align-content: start; gap: 7px; }
+.outcome-quantity span { color: #444; font-size: 14px; font-weight: 750; }
+.outcome-quantity strong { font-size: 18px; }
+.outcome-quantity small { color: #666; font-size: 13px; }
+.valuation-grid input, .sensitivity-grid input { width: 100%; min-width: 0; border: 1px solid #bbb; padding: 10px; background: #fff; color: #111; font: inherit; font-size: 14px; outline: none; }
+.valuation-grid input:focus, .sensitivity-grid input:focus { border-color: #111; box-shadow: 0 0 0 2px #ddd; }
 .proxy-field small { color: #666; font-weight: 400; line-height: 1.5; }
+.proxy-field { display: grid; align-content: start; min-width: 0; gap: 7px; }
+.proxy-choice { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; min-width: 0; border: 1px solid #bbb; background: #fff; }
+.proxy-choice:focus-within { border-color: #111; box-shadow: 0 0 0 2px #ddd; }
+.proxy-choice__calendar { border-inline-start: 1px solid #ddd; }
+.proxy-choice__calendar.month-readonly { padding: 0 8px; font-size: 13px; }
+.proxy-choice__calendar :deep(summary) { border: 0; border-radius: 0; }
+.proxy-choice__calendar :deep(summary:focus-visible) { outline-offset: -3px; }
+.proxy-choice__calendar :deep(.month-picker__panel) { right: 0; left: auto; }
+.proxy-toolbar, .proxy-field__heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px 16px; }
+.proxy-toolbar p { font-size: 14px; color: #444; }
+.proxy-toolbar .proxy-error, .proxy-field .proxy-error { color: #a12424; }
+.proxy-action { border: 1px solid #bbb; border-radius: 6px; padding: 5px 9px; background: #fff; color: #111; font: inherit; font-size: 14px; cursor: pointer; }
+.proxy-action:disabled { opacity: .55; cursor: not-allowed; }
 .sensitivity-panel { display: grid; gap: 12px; margin: 0; border: 1px solid #ccc; padding: 16px; background: #f7f7f7; transition: opacity .15s ease; }
 .sensitivity-panel:disabled { opacity: .4; }
 .sensitivity-panel legend { padding: 0 8px; color: #111; font-size: 14px; font-weight: 800; }
