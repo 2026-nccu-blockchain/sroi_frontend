@@ -9,8 +9,8 @@ import MemberTable from "@/modules/workspace/components/MemberTable.vue";
 import BaseModal from "@/shared/components/BaseModal.vue";
 
 const props = defineProps<{
-  role: ManagedRole;
-  action: RoleAction;
+  // 新增 / 移除角色，或停權（停權沒有角色，只能停權一般使用者）
+  mode: { kind: "role"; role: ManagedRole; action: RoleAction } | { kind: "suspend" };
   roleOf: Map<string, UserRole>;
   currentUserId?: string;
   feedback: { text: string; error: boolean } | null;
@@ -18,8 +18,12 @@ const props = defineProps<{
 
 const emit = defineEmits<{ close: []; select: [user: AdminUser] }>();
 
-const roleName = ROLE_LABELS[props.role];
-const actionLabel = props.action === "add" ? "新增" : "刪除";
+const ACTION_LABELS: Record<RoleAction, string> = { add: "新增", remove: "移除" };
+
+const title =
+  props.mode.kind === "suspend" ? "停權使用者" : `${ACTION_LABELS[props.mode.action]}${ROLE_LABELS[props.mode.role]}`;
+const buttonLabel = props.mode.kind === "suspend" ? "停權" : ACTION_LABELS[props.mode.action];
+const danger = props.mode.kind === "suspend" || props.mode.action === "remove";
 
 const keyword = ref("");
 const results = ref<AdminUser[]>([]);
@@ -50,12 +54,21 @@ const statusOf = (user: AdminUser): { actionable: boolean; note: string } => {
   const role = props.roleOf.get(user.user_id);
   const roleLabel = role ? ROLE_LABELS[role] : "";
 
-  if (props.action === "add") {
-    if (role === props.role) return { actionable: false, note: `已是${roleName}` };
-    return { actionable: !!role && ADD_ALLOWED_ROLES[props.role].includes(role), note: roleLabel };
+  // 停權只限一般使用者；管理員、資料庫編輯者要先到各自的分頁移除權限
+  if (props.mode.kind === "suspend") {
+    if (user.user_id === props.currentUserId) return { actionable: false, note: "無法停權自己" };
+    if (role && role !== "normal") return { actionable: false, note: `${roleLabel}・需先移除權限` };
+    return { actionable: role === "normal", note: roleLabel };
   }
 
-  if (role !== props.role) return { actionable: false, note: `非${roleName}` };
+  const { role: target, action } = props.mode;
+  const roleName = ROLE_LABELS[target];
+  if (action === "add") {
+    if (role === target) return { actionable: false, note: `已是${roleName}` };
+    return { actionable: !!role && ADD_ALLOWED_ROLES[target].includes(role), note: roleLabel };
+  }
+
+  if (role !== target) return { actionable: false, note: `非${roleName}` };
   if (user.user_id === props.currentUserId) return { actionable: false, note: "無法移除自己" };
   return { actionable: true, note: roleLabel };
 };
@@ -63,9 +76,9 @@ const statusOf = (user: AdminUser): { actionable: boolean; note: string } => {
 
 <template>
   <BaseModal :open="true">
-    <div class="manage" role="dialog" aria-modal="true" :aria-label="`${actionLabel}${roleName}`">
+    <div class="manage" role="dialog" aria-modal="true" :aria-label="title">
       <div class="manage__header">
-        <h2>{{ actionLabel }}{{ roleName }}</h2>
+        <h2>{{ title }}</h2>
         <button class="manage__close" type="button" aria-label="關閉" @click="emit('close')">✕</button>
       </div>
 
@@ -93,11 +106,11 @@ const statusOf = (user: AdminUser): { actionable: boolean; note: string } => {
             <button
               v-if="statusOf(user).actionable"
               class="button"
-              :class="{ 'button--danger': action === 'remove' }"
+              :class="{ 'button--danger': danger }"
               type="button"
               @click="emit('select', user)"
             >
-              {{ actionLabel }}
+              {{ buttonLabel }}
             </button>
           </template>
         </MemberTable>

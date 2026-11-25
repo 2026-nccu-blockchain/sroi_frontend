@@ -16,6 +16,7 @@ import {
 import ConfirmDialog from "@/modules/workspace/components/ConfirmDialog.vue";
 import ExchangeMonthPicker from "@/modules/workspace/components/ExchangeMonthPicker.vue";
 import { isProjectPhaseTab } from "@/modules/workspace/composables/useProjectPhaseTab";
+import { projectReturnQuery } from "@/modules/workspace/composables/useProjectPhaseTab";
 import { isProjectClosed, toProjectErrorMessage } from "@/modules/workspace/constants";
 import { useProjectStore } from "@/modules/workspace/store/project.store";
 import type {
@@ -30,10 +31,11 @@ const route = useRoute();
 const projectStore = useProjectStore();
 const projectId = computed(() => String(route.params.projectId ?? ""));
 const stakeholderId = computed(() => String(route.params.stakeholderId ?? ""));
-const phaseQuery = computed(() => ({
-  ...(isProjectPhaseTab(route.query.phase) ? { phase: route.query.phase } : {}),
-  ...(route.query.from === "database" || route.query.from === "review" ? { from: route.query.from } : {})
-}));
+const phaseQuery = computed(() => projectReturnQuery(route.query));
+// 從管理員所有專案進來
+const fromAdmin = computed(() => route.query.from === "admin");
+// 從管理員的群組頁進來
+const fromAdminGroup = computed(() => route.query.from === "admin-group");
 // 從共用資料庫（含審核專案分頁）進來
 const fromReview = computed(() => route.query.from === "review");
 const fromDatabase = computed(() => route.query.from === "database" || fromReview.value);
@@ -43,12 +45,16 @@ const projectEditLink = computed(() => ({
   query: { ...phaseQuery.value, tab: "stakeholders" }
 }));
 const loadFailed = ref(false);
-const backLink = computed(() =>
-  !loadFailed.value
-    ? projectEditLink.value
-    : fromReview.value ? { name: "dashboard", query: { tab: "review" } }
-    : fromDatabase.value ? { name: "dashboard" } : { name: "my-projects", query: phaseQuery.value }
-);
+const backLink = computed(() => {
+  if (!loadFailed.value) return projectEditLink.value;
+  if (fromAdmin.value) {
+    const { from: _from, ...query } = phaseQuery.value;
+    return { name: "admin-projects", query };
+  }
+  if (fromAdminGroup.value) return { name: "admin-groups" };
+  if (fromReview.value) return { name: "dashboard", query: { tab: "review" } };
+  return fromDatabase.value ? { name: "dashboard" } : { name: "my-projects", query: phaseQuery.value };
+});
 const myRole = ref<GroupRole>("leader");
 const closed = ref(false);
 // 檢視者或專案已結案都只能查看

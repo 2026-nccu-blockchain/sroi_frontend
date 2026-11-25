@@ -4,9 +4,12 @@ import { computed, nextTick, onMounted, ref } from "vue";
 import { approveGroup, getOneGroup, rejectGroup } from "@/modules/admin/api/admin.api";
 import { toAdminErrorMessage } from "@/modules/admin/constants";
 import type { ReviewDecision } from "@/modules/admin/types/admin.types";
+import { getGroupProjects } from "@/modules/workspace/api/workspace.api";
 import GroupDetail from "@/modules/workspace/components/GroupDetail.vue";
-import { GROUP_BUCKET_LABELS, STATUS_TO_BUCKET } from "@/modules/workspace/constants";
-import type { GroupInfo } from "@/modules/workspace/types/workspace.types";
+import ProjectList from "@/modules/workspace/components/ProjectList.vue";
+import { useProjectPhaseTab } from "@/modules/workspace/composables/useProjectPhaseTab";
+import { GROUP_BUCKET_LABELS, STATUS_TO_BUCKET, toProjectErrorMessage } from "@/modules/workspace/constants";
+import type { GroupInfo, WorkspaceProject } from "@/modules/workspace/types/workspace.types";
 
 const props = defineProps<{ groupId: string }>();
 
@@ -17,8 +20,28 @@ const pageError = ref("");
 const bucket = computed(() => (group.value ? STATUS_TO_BUCKET[group.value.status] : "inProgress"));
 const backTo = computed(() => ({ name: "admin-groups", query: { tab: bucket.value } }));
 
+// 群組專案：管理員只能檢視，不能新增或刪除
+const projects = ref<WorkspaceProject[]>([]);
+const projectsLoading = ref(false);
+const projectsError = ref("");
+const phaseTab = useProjectPhaseTab();
+
+const loadProjects = async (): Promise<void> => {
+  projectsLoading.value = true;
+  projectsError.value = "";
+  try {
+    projects.value = await getGroupProjects(props.groupId);
+  } catch (err) {
+    projectsError.value = toProjectErrorMessage(err, "專案載入失敗");
+  } finally {
+    projectsLoading.value = false;
+  }
+};
+
 const loadGroup = async (): Promise<void> => {
   group.value = await getOneGroup(props.groupId);
+  // 審核通過後才有群組專案；剛審核同意時也會走到這裡
+  if (group.value.status === "verified") void loadProjects();
 };
 
 onMounted(async () => {
@@ -91,7 +114,19 @@ const handleSubmit = async (): Promise<void> => {
 
 <template>
   <section class="group-page">
-    <RouterLink class="back-link" :to="backTo">← 所有群組</RouterLink>
+    <div class="group-page__bar">
+      <RouterLink class="back-link" :to="backTo" aria-label="返回所有群組">
+        <span aria-hidden="true">←</span> 返回
+      </RouterLink>
+
+      <RouterLink
+        v-if="group?.status === 'verified'"
+        class="settings-link"
+        :to="{ name: 'admin-group-settings', params: { groupId } }"
+      >
+        <span aria-hidden="true">⚙</span> 設定
+      </RouterLink>
+    </div>
 
     <p v-if="loading">載入中...</p>
     <p v-else-if="pageError" class="error">{{ pageError }}</p>
@@ -99,7 +134,7 @@ const handleSubmit = async (): Promise<void> => {
     <template v-else-if="group">
       <p v-if="result" class="result" role="status">{{ result }}</p>
 
-      <GroupDetail :group="group" :eyebrow="GROUP_BUCKET_LABELS[bucket]">
+      <GroupDetail :group="group" :eyebrow="`所有群組 · ${GROUP_BUCKET_LABELS[bucket]}`">
         <form v-if="group.status === 'in_progress'" class="review" @submit.prevent="handleSubmit">
           <h2>審核申請</h2>
 
@@ -149,6 +184,20 @@ const handleSubmit = async (): Promise<void> => {
             </button>
           </div>
         </form>
+
+        <ProjectList
+          v-if="group.status === 'verified'"
+          v-model:tab="phaseTab"
+          :projects="projects"
+          :loading="projectsLoading"
+          :error="projectsError"
+          title="群組專案"
+          :eyebrow="null"
+          heading-tag="h2"
+          :link-query="{ from: 'admin-group' }"
+          :can-delete="() => false"
+          empty-text="這個群組還沒有專案。"
+        />
       </GroupDetail>
     </template>
   </section>
@@ -160,16 +209,50 @@ const handleSubmit = async (): Promise<void> => {
   gap: 22px;
 }
 
+.group-page__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
 .back-link {
-  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   color: #000;
   font-size: 14px;
   font-weight: 700;
   text-decoration: none;
 }
 
+.back-link span {
+  font-size: 18px;
+  line-height: 1;
+}
+
 .back-link:hover {
   text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+.settings-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 8px 14px;
+  border: 1px solid #000;
+  background: #000;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.settings-link:hover {
+  background: #fff;
+  color: #000;
 }
 
 .error {
@@ -265,4 +348,5 @@ const handleSubmit = async (): Promise<void> => {
   opacity: 0.4;
   cursor: not-allowed;
 }
+
 </style>

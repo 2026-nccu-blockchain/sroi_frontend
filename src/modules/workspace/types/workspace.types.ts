@@ -102,8 +102,10 @@ export interface WorkspaceProject {
   my_role?: GroupRole | null;
   // 是否為專案成員；從共用資料庫檢視別人的已發布專案時是 false
   is_member?: boolean;
-  // 作者姓名；目前只有共用資料庫的列表會帶
+  // 作者姓名；目前只有共用資料庫、管理員的列表會帶
   creator_name?: string | null;
+  // 群組名稱；只有管理員的所有專案列表會帶
+  group_title?: string | null;
   name: string;
   organization: string;
   description: string;
@@ -115,6 +117,8 @@ export interface WorkspaceProject {
   closed_at: string | null;
   review_requested_at?: string | null;
   published_at: string | null;
+  // 群組專案草稿：只有建立者看得到，公開後組員才看得到
+  is_draft?: boolean;
   forms: LinkedProjectForm[];
   stakeholders: ProjectStakeholder[];
   outcomes: ProjectOutcome[];
@@ -123,6 +127,29 @@ export interface WorkspaceProject {
   create_time?: string | null;
   update_time?: string | null;
 }
+
+// 專案列表只需要這些欄位；WorkspaceProject 也符合，所以我的專案、群組專案照舊傳整包
+export type ProjectListItem = Pick<
+  WorkspaceProject,
+  | "project_id"
+  | "owner_id"
+  | "group_id"
+  | "name"
+  | "organization"
+  | "begin"
+  | "end"
+  | "status"
+  | "closed_at"
+  | "review_requested_at"
+  | "published_at"
+  | "is_draft"
+  | "creator_name"
+  | "group_title"
+> & {
+  forms?: WorkspaceProject["forms"];
+  // 管理員列表不帶 forms，改帶這個
+  has_published_form?: boolean;
+};
 
 export interface ProjectPayload {
   name: string;

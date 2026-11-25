@@ -1,11 +1,15 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from "vue";
 
-import { EMAIL_DOMAIN, normalizeEmailPrefix } from "@/modules/auth/utils/email";
-import type { RegisterStep } from "@/modules/auth/types/auth.types";
+import { EMAIL_DOMAIN, normalizeEmailPrefix, normalizeExternalEmail, toFullEmail } from "@/modules/auth/utils/email";
+import type { LoginKind, RegisterStep } from "@/modules/auth/types/auth.types";
 import { PASSWORD_RULE_HINT, isStrongPassword } from "@/modules/profile/constants";
 
-const props = defineProps<{
+// 註冊與忘記密碼共用：步驟相同（驗證信箱 → 驗證碼 → 第 3 步），reset 的第 3 步只設定新密碼
+const props = withDefaults(defineProps<{
+  mode?: "register" | "reset";
+  // 忘記密碼才有：政大師生輸入 @ 前面，非政大師生輸入完整 email
+  initialKind?: LoginKind;
   step: RegisterStep;
   emailPrefix: string;
   loading?: boolean;
@@ -13,7 +17,15 @@ const props = defineProps<{
   info?: string;
   // 距離可以重寄驗證碼還剩幾秒
   resendCooldown?: number;
-}>();
+}>(), { mode: "register", initialKind: "nccu", loading: false, error: "", info: "", resendCooldown: 0 });
+
+const isReset = computed(() => props.mode === "reset");
+const KINDS: { key: LoginKind; label: string }[] = [
+  { key: "nccu", label: "政大師生" },
+  { key: "external", label: "非政大師生" }
+];
+// 註冊只限政大師生
+const kind = ref<LoginKind>(props.mode === "reset" ? props.initialKind : "nccu");
 
 const emit = defineEmits<{
   "send-code": [emailPrefix: string];
@@ -37,10 +49,23 @@ const localError = ref("");
 const passwordMismatch = computed(
   () => confirmPassword.value.length > 0 && confirmPassword.value !== form.password
 );
-const fullEmail = computed(() => props.emailPrefix + EMAIL_DOMAIN);
+// 校外帳號本身就是完整 email
+const fullEmail = computed(() => toFullEmail(props.emailPrefix));
 const errorMessage = computed(() => localError.value || props.error);
 
 const onSendCode = (): void => {
+  if (kind.value === "external") {
+    const email = normalizeExternalEmail(emailInput.value);
+    if (!email) {
+      localError.value = emailInput.value.trim().toLowerCase().endsWith(EMAIL_DOMAIN)
+        ? "政大信箱請選擇「政大師生」"
+        : "請輸入完整的電子郵件，例如 name@example.com";
+      return;
+    }
+    localError.value = "";
+    emit("send-code", email);
+    return;
+  }
   const emailPrefix = normalizeEmailPrefix(emailInput.value);
   if (!emailPrefix) {
     localError.value = "請輸入 @ 前面的帳號，只能包含英數字與 . _ % + -";
@@ -87,16 +112,48 @@ const onSubmit = (): void => {
   <div class="register-form">
     <div class="register-form__heading">
       <span class="register-form__eyebrow">SROI</span>
-      <h1>註冊</h1>
-      <ol class="register-form__steps" aria-label="註冊步驟">
+      <h1>{{ isReset ? "忘記密碼" : "註冊" }}</h1>
+      <ol class="register-form__steps" :aria-label="isReset ? '重設密碼步驟' : '註冊步驟'">
         <li :class="{ 'register-form__step--active': step === 'email' }">1 驗證信箱</li>
         <li :class="{ 'register-form__step--active': step === 'code' }">2 輸入驗證碼</li>
-        <li :class="{ 'register-form__step--active': step === 'profile' }">3 填寫資料</li>
+        <li :class="{ 'register-form__step--active': step === 'profile' }">3 {{ isReset ? "設定新密碼" : "填寫資料" }}</li>
       </ol>
     </div>
 
     <form v-if="step === 'email'" class="register-form__body" @submit.prevent="onSendCode">
-      <label>
+      <div v-if="isReset" class="register-form__kinds" role="tablist" aria-label="帳號身分">
+        <button
+          v-for="item in KINDS"
+          :key="item.key"
+          type="button"
+          role="tab"
+          class="register-form__kind"
+          :class="{ 'register-form__kind--active': kind === item.key }"
+          :aria-selected="kind === item.key"
+          @click="kind = item.key; localError = ''; emailInput = ''"
+        >
+          {{ item.label }}
+        </button>
+      </div>
+
+      <p v-if="isReset" class="register-form__info">
+        {{ kind === "external" ? "輸入你的帳號（完整的電子郵件）" : "輸入註冊時使用的政大信箱" }}，我們會寄送驗證碼，驗證後即可設定新密碼。
+      </p>
+
+      <label v-if="kind === 'external'">
+        電子郵件
+        <input
+          v-model="emailInput"
+          type="email"
+          placeholder="完整的電子郵件，例如 name@example.com"
+          autocomplete="username"
+          autocapitalize="off"
+          spellcheck="false"
+          required
+          @input="localError = ''"
+        />
+      </label>
+      <label v-else>
         電子郵件
         <div class="register-form__email">
           <input
@@ -164,7 +221,7 @@ const onSubmit = (): void => {
     <form v-else class="register-form__body" @submit.prevent="onSubmit">
       <p class="register-form__info" role="status">已驗證：{{ fullEmail }}</p>
 
-      <label>
+      <label v-if="!isReset">
         姓名
         <input
           v-model="form.name"
@@ -176,7 +233,7 @@ const onSubmit = (): void => {
       </label>
 
       <label>
-        密碼 (長度至少8碼、需要有大小寫字母及數字)
+        {{ isReset ? "新密碼" : "密碼" }} (長度至少8碼、需要有大小寫字母及數字)
         <div class="register-form__password">
           <input
             v-model="form.password"
@@ -222,11 +279,13 @@ const onSubmit = (): void => {
       <p v-if="errorMessage" class="register-form__error" role="alert">{{ errorMessage }}</p>
 
       <button type="submit" :disabled="loading || passwordMismatch">
-        {{ loading ? "註冊中..." : "註冊" }}
+        {{ isReset ? (loading ? "更新中..." : "更新密碼") : (loading ? "註冊中..." : "註冊") }}
       </button>
     </form>
 
-    <RouterLink class="register-form__back" :to="{ name: 'login' }">已有帳號？前往登入</RouterLink>
+    <RouterLink class="register-form__back" :to="{ name: 'login' }">
+      {{ isReset ? "想起密碼了？回到登入" : "已有帳號？前往登入" }}
+    </RouterLink>
   </div>
 </template>
 
@@ -263,6 +322,32 @@ h1 {
 .register-form__body {
   display: grid;
   gap: 16px;
+}
+
+.register-form__kinds {
+  display: flex;
+  gap: 24px;
+  box-shadow: inset 0 -1px 0 #000;
+}
+
+.register-form .register-form__kind {
+  min-height: 0;
+  padding: 8px 0;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  background: transparent;
+  color: #777;
+  font-size: 15px;
+}
+
+.register-form .register-form__kind:hover:not(:disabled) {
+  background: transparent;
+  color: #000;
+}
+
+.register-form .register-form__kind--active {
+  border-bottom-color: #000;
+  color: #000;
 }
 
 .register-form__steps {

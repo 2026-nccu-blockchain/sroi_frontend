@@ -4,6 +4,8 @@ import AuthLayout from "@/layouts/AuthLayout.vue";
 import MainLayout from "@/layouts/MainLayout.vue";
 import LoginPage from "@/modules/auth/pages/LoginPage.vue";
 import RegisterPage from "@/modules/auth/pages/RegisterPage.vue";
+import ForgotPasswordPage from "@/modules/auth/pages/ForgotPasswordPage.vue";
+import AcceptInvitePage from "@/modules/auth/pages/AcceptInvitePage.vue";
 import DashboardPage from "@/modules/dashboard/pages/DashboardPage.vue";
 import FormLayout from "@/layouts/FormLayout.vue";
 import FormBuilderPage from "@/modules/forms/pages/FormBuilderPage.vue";
@@ -11,7 +13,7 @@ import FormResponsesPage from "@/modules/forms/pages/FormResponsesPage.vue";
 import PublicFormPage from "@/modules/forms/pages/PublicFormPage.vue";
 import ProfilePage from "@/modules/profile/pages/ProfilePage.vue";
 import ProfileEditPage from "@/modules/profile/pages/ProfileEditPage.vue";
-import CampusIdRequestPage from "@/modules/profile/pages/CampusIdRequestPage.vue";
+import EnrollmentVerifyPage from "@/modules/profile/pages/EnrollmentVerifyPage.vue";
 import ProxyVariablesPage from "@/modules/proxy-variables/pages/ProxyVariablesPage.vue";
 import MyGroupsPage from "@/modules/workspace/pages/MyGroupsPage.vue";
 import NewGroupPage from "@/modules/workspace/pages/NewGroupPage.vue";
@@ -23,6 +25,7 @@ import ProjectSroiPage from "@/modules/workspace/pages/ProjectSroiPage.vue";
 import { registerRouterGuards } from "@/app/router/guards";
 import AdminGroupDetailPage from "@/modules/admin/pages/AdminGroupDetailPage.vue";
 import AdminGroupsPage from "@/modules/admin/pages/AdminGroupsPage.vue";
+import AdminProjectsPage from "@/modules/admin/pages/AdminProjectsPage.vue";
 import AdminUserDetailPage from "@/modules/admin/pages/AdminUserDetailPage.vue";
 import AdminUsersPage from "@/modules/admin/pages/AdminUsersPage.vue";
 import { ADMIN_ROLES, WORKSPACE_ROLES } from "@/modules/auth/constants";
@@ -66,6 +69,18 @@ const routes: RouteRecordRaw[] = [
     meta: { public: true }
   },
   {
+    // 在學驗證：需要驗證的學生只能進這頁，不放在主畫面（側邊欄）裡
+    path: "/enrollment-verify",
+    component: AuthLayout,
+    children: [
+      {
+        path: "",
+        name: "enrollment-verify",
+        component: EnrollmentVerifyPage
+      }
+    ]
+  },
+  {
     path: "/auth",
     component: AuthLayout,
     children: [
@@ -79,6 +94,19 @@ const routes: RouteRecordRaw[] = [
         path: "register",
         name: "register",
         component: RegisterPage,
+        meta: { public: true }
+      },
+      {
+        path: "forgot-password",
+        name: "forgot-password",
+        component: ForgotPasswordPage,
+        meta: { public: true }
+      },
+      {
+        // 校外人士邀請信的連結：設定姓名與密碼後才建立帳號
+        path: "accept-invite",
+        name: "accept-invite",
+        component: AcceptInvitePage,
         meta: { public: true }
       }
     ]
@@ -152,12 +180,6 @@ const routes: RouteRecordRaw[] = [
         component: ProfileEditPage
       },
       {
-        path: "profile/campus-id",
-        name: "profile-campus-id",
-        component: CampusIdRequestPage,
-        meta: { roles: WORKSPACE_ROLES }
-      },
-      {
         path: "admin/users",
         name: "admin-users",
         component: AdminUsersPage,
@@ -180,6 +202,20 @@ const routes: RouteRecordRaw[] = [
         name: "admin-group-detail",
         component: AdminGroupDetailPage,
         props: true,
+        meta: { roles: ADMIN_ROLES }
+      },
+      {
+        path: "admin/groups/:groupId/settings",
+        name: "admin-group-settings",
+        component: GroupSettingsPage,
+        // 沿用組長的設定頁，以管理員模式開啟
+        props: (route) => ({ groupId: String(route.params.groupId), admin: true }),
+        meta: { roles: ADMIN_ROLES }
+      },
+      {
+        path: "admin/projects",
+        name: "admin-projects",
+        component: AdminProjectsPage,
         meta: { roles: ADMIN_ROLES }
       },
       {

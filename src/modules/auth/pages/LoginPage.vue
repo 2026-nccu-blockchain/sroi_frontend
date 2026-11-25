@@ -16,7 +16,11 @@ const error = ref("");
 const LOGIN_ERROR_MESSAGES: Record<string, string> = {
   "10001": "帳號錯誤",
   "10002": "密碼錯誤",
-  "10007": "電子郵件格式錯誤"
+  "10029": "此帳號因未在期限內完成在學驗證，已停用。如有疑問請聯絡管理員。",
+  "10035": "此帳號已被停權。如有疑問請聯絡管理員。",
+  "10007": "電子郵件格式錯誤",
+  "10038": "此帳號已超過使用期限，請聯絡管理員延長。",
+  "10040": "政大信箱請使用「政大師生」登入"
 };
 
 const handleSubmit = async (payload: LoginPayload): Promise<void> => {

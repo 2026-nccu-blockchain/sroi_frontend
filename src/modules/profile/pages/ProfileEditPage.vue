@@ -1,20 +1,12 @@
 <script setup lang="ts">
-import { computed, reactive } from "vue";
-import { useRoute, useRouter } from "vue-router";
+import { reactive } from "vue";
 
-import { useAuthStore } from "@/modules/auth/store/auth.store";
-import { EMAIL_DOMAIN, normalizeEmailPrefix } from "@/modules/auth/utils/email";
-import { changeEmail, changePassword } from "@/modules/profile/api/profile.api";
+import { changePassword } from "@/modules/profile/api/profile.api";
 import { PASSWORD_RULE_HINT, isStrongPassword } from "@/modules/profile/constants";
 import { ApiError, toErrorMessage } from "@/shared/api/error-handler";
 
-type Tab = "account" | "password";
+// 註冊後不能改 email（學號就是 email 前綴），這頁只能改密碼
 type PasswordField = "oldPassword" | "newPassword" | "confirmPassword";
-
-const TABS: { key: Tab; label: string }[] = [
-  { key: "account", label: "帳號" },
-  { key: "password", label: "密碼" }
-];
 
 const PASSWORD_FIELDS: { key: PasswordField; label: string; autocomplete: string }[] = [
   { key: "oldPassword", label: "目前密碼", autocomplete: "current-password" },
@@ -22,64 +14,16 @@ const PASSWORD_FIELDS: { key: PasswordField; label: string; autocomplete: string
   { key: "confirmPassword", label: "確認新密碼", autocomplete: "new-password" }
 ];
 
-const EMAIL_ERROR_MESSAGES: Record<string, string> = {
-  "10001": "找不到使用者",
-  "10006": "此電子郵件已被其他帳號使用",
-  "10007": "電子郵件格式錯誤，只需輸入 @ 前面的帳號"
-};
-
 const PASSWORD_ERROR_MESSAGES: Record<string, string> = {
   "10001": "找不到使用者",
   "10002": "目前密碼錯誤",
   "10010": `密碼強度不足，${PASSWORD_RULE_HINT}`
 };
 
-const route = useRoute();
-const router = useRouter();
-const authStore = useAuthStore();
-
-// 分頁記在 query，重新整理後仍停在同一頁
-const activeTab = computed<Tab>(() => (route.query.tab === "password" ? "password" : "account"));
-const switchTab = (tab: Tab): void => {
-  router.replace({ query: { tab } });
-};
-
 const toMessage = (err: unknown, messages: Record<string, string>): string =>
   err instanceof ApiError && err.statusCode && messages[err.statusCode]
     ? messages[err.statusCode]
     : toErrorMessage(err);
-
-// 舊資料可能是完整 email，輸入框只放 @ 前面的部分
-const account = reactive({
-  email: (authStore.user?.email ?? "").split("@")[0],
-  error: "",
-  serverError: "",
-  success: "",
-  submitting: false
-});
-
-const submitEmail = async (): Promise<void> => {
-  const emailPrefix = normalizeEmailPrefix(account.email);
-  account.success = "";
-  account.serverError = "";
-
-  if (!account.email.trim()) account.error = "請輸入電子郵件";
-  else if (!emailPrefix) account.error = "只能包含英數字與 . _ % + -";
-  else if (emailPrefix === authStore.user?.email) account.error = "新電子郵件與目前相同";
-  else account.error = "";
-  if (account.error || !emailPrefix) return;
-
-  account.submitting = true;
-  try {
-    await changeEmail({ email_prefix: emailPrefix });
-    await authStore.fetchProfile();
-    account.success = "電子郵件已更新";
-  } catch (err) {
-    account.serverError = toMessage(err, EMAIL_ERROR_MESSAGES);
-  } finally {
-    account.submitting = false;
-  }
-};
 
 const passwordForm = reactive<Record<PasswordField, string>>({ oldPassword: "", newPassword: "", confirmPassword: "" });
 const passwordErrors = reactive<Record<PasswordField, string>>({ oldPassword: "", newPassword: "", confirmPassword: "" });
@@ -126,52 +70,10 @@ const submitPassword = async (): Promise<void> => {
 
     <div>
       <p class="profile-edit__eyebrow">個人資料</p>
-      <h1>修改資料</h1>
+      <h1>修改密碼</h1>
     </div>
 
-    <div class="tabs" role="tablist">
-      <button
-        v-for="tab in TABS"
-        :key="tab.key"
-        type="button"
-        role="tab"
-        class="tabs__item"
-        :class="{ 'tabs__item--active': activeTab === tab.key }"
-        :aria-selected="activeTab === tab.key"
-        @click="switchTab(tab.key)"
-      >
-        {{ tab.label }}
-      </button>
-    </div>
-
-    <form v-if="activeTab === 'account'" class="form" novalidate @submit.prevent="submitEmail">
-      <label class="field">
-        <span class="field__label">電子郵件 <em>*</em></span>
-        <div class="field__email" :class="{ 'field__input--error': account.error }">
-          <input
-            v-model="account.email"
-            type="text"
-            autocomplete="username"
-            autocapitalize="off"
-            spellcheck="false"
-            @input="account.error = ''"
-          />
-          <span class="field__domain">{{ EMAIL_DOMAIN }}</span>
-        </div>
-        <span v-if="account.error" class="field__error">{{ account.error }}</span>
-      </label>
-
-      <p v-if="account.serverError" class="form__server-error" role="alert">{{ account.serverError }}</p>
-      <p v-if="account.success" class="form__success" role="status">{{ account.success }}</p>
-
-      <div class="form__actions">
-        <button class="button button--primary" type="submit" :disabled="account.submitting">
-          {{ account.submitting ? "儲存中..." : "儲存" }}
-        </button>
-      </div>
-    </form>
-
-    <form v-else class="form" novalidate @submit.prevent="submitPassword">
+    <form class="form" novalidate @submit.prevent="submitPassword">
       <label v-for="field in PASSWORD_FIELDS" :key="field.key" class="field">
         <span class="field__label">{{ field.label }} <em>*</em></span>
         <input
@@ -240,27 +142,8 @@ h1 {
   letter-spacing: -0.04em;
 }
 
-.tabs {
-  display: flex;
-  border-bottom: 2px solid #000;
-}
 
-.tabs__item {
-  min-width: 96px;
-  padding: 12px 18px;
-  border: 0;
-  background: #fff;
-  color: #777;
-  font: inherit;
-  font-size: 14px;
-  font-weight: 700;
-  cursor: pointer;
-}
 
-.tabs__item--active {
-  background: #000;
-  color: #fff;
-}
 
 .form {
   display: grid;
@@ -303,30 +186,9 @@ h1 {
   border-color: #c00;
 }
 
-.field__email {
-  display: flex;
-  align-items: center;
-  border: 1px solid #000;
-  background: #fff;
-}
 
-.field__email:focus-within {
-  box-shadow: inset 0 0 0 1px #000;
-}
 
-.field .field__email input {
-  flex: 1;
-  min-width: 0;
-  border: 0;
-  box-shadow: none;
-}
 
-.field__domain {
-  padding-right: 14px;
-  color: #555;
-  font-size: 15px;
-  white-space: nowrap;
-}
 
 .field__hint {
   color: #777;

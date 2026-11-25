@@ -41,7 +41,10 @@ const PROJECT_ERROR_MESSAGES: Record<string, string> = {
   "30017": "專案已發布至資料庫",
   "30018": "專案已送出，正在審核中",
   "30019": "只有資料庫編輯者或管理員能審核專案",
-  "30020": "專案不在審核中，可能已被其他人審核"
+  "30020": "專案不在審核中，可能已被其他人審核",
+  "30021": "草稿需要先公開給群組才能結案",
+  "30022": "個人專案沒有草稿模式",
+  "30023": "專案已經公開"
 };
 
 export const toProjectErrorMessage = (err: unknown, fallback: string): string => {
