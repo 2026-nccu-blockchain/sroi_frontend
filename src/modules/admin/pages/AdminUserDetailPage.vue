@@ -2,12 +2,30 @@
 import { computed, onMounted, ref } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 
-import { getOneUser, reviewChangeRequest } from "@/modules/admin/api/admin.api";
+import {
+  approveEnrollment,
+  extendExternal,
+  getEnrollmentProof,
+  getOneUser,
+  rejectEnrollment
+} from "@/modules/admin/api/admin.api";
 import { toAdminErrorMessage } from "@/modules/admin/constants";
-import type { AdminUserDetail, ReviewDecision } from "@/modules/admin/types/admin.types";
+import type { AdminUserDetail } from "@/modules/admin/types/admin.types";
+import type { EnrollmentState } from "@/modules/auth/types/auth.types";
+import { toFullEmail } from "@/modules/auth/utils/email";
 import { ROLE_LABELS } from "@/modules/profile/constants";
 import ConfirmDialog from "@/modules/workspace/components/ConfirmDialog.vue";
-import { formatDate } from "@/shared/utils/date";
+import { formatTaipeiDate } from "@/shared/utils/date";
+import { formatFileSize } from "@/shared/utils/format";
+
+const ENROLLMENT_STATE_LABELS: Record<EnrollmentState, string> = {
+  not_student: "非學生",
+  active: "正常",
+  required: "需要驗證（尚未上傳）",
+  pending: "待審核",
+  rejected: "已退回，等待重新上傳",
+  expired: "已逾期"
+};
 
 const route = useRoute();
 const userId = String(route.params.userId);
@@ -16,11 +34,46 @@ const user = ref<AdminUserDetail | null>(null);
 const loading = ref(false);
 const pageError = ref("");
 
-const review = computed(() => user.value?.change_request ?? null);
+const enrollment = computed(() => (user.value?.enrollment?.is_student ? user.value.enrollment : null));
+// 待審核的在學證明
+const review = computed(() =>
+  enrollment.value?.state === "pending" && enrollment.value.latest?.status === "pending" ? enrollment.value.latest : null
+);
+// 截止時間是 10/1 00:00，顯示成 9/30
+const deadlineText = computed(() =>
+  enrollment.value?.deadline ? formatTaipeiDate(new Date(new Date(enrollment.value.deadline).getTime() - 1)) : ""
+);
+
+// 校外帳號：所屬單位、到期日、延長使用期限
+const isExternal = computed(() => user.value?.account_type === "external");
+const externalExpired = computed(() =>
+  Boolean(user.value?.valid_until && new Date(user.value.valid_until).getTime() <= Date.now())
+);
+const extendYears = ref(1);
+const extending = ref(false);
+const confirmingExtend = ref(false);
+
+const handleExtend = async (): Promise<void> => {
+  if (!user.value) return;
+  const { name, user_id } = user.value;
+  extending.value = true;
+  actionError.value = "";
+  result.value = "";
+  try {
+    const { valid_until } = await extendExternal(user_id, extendYears.value);
+    result.value = `已延長 ${name} 的使用期限至 ${formatTaipeiDate(valid_until)}`;
+  } catch (err) {
+    actionError.value = toAdminErrorMessage(err);
+  } finally {
+    extending.value = false;
+    confirmingExtend.value = false;
+  }
+  await reloadAfterReview();
+};
 
 const backTo = computed(() => ({
   name: "admin-users",
-  query: { tab: review.value ? "change_request" : (user.value?.role ?? "admin") }
+  query: { tab: review.value ? "enrollment" : (user.value?.role ?? "admin") }
 }));
 
 const loadUser = async (): Promise<void> => {
@@ -40,66 +93,80 @@ onMounted(async () => {
   }
 });
 
-// 審核
-const decision = ref<ReviewDecision | null>(null);
-const deciding = ref(false);
+// 查看證明：檔案要帶 token 下載，轉成 blob 網址再開新分頁
+const opening = ref(false);
 const actionError = ref("");
-const result = ref("");
 
-const confirmDialog = computed(() => {
-  const empty = { title: "", message: "", confirmText: "", danger: false };
-  if (!decision.value || !user.value || !review.value) return empty;
-
-  const approve = decision.value === "approve";
-  const { name, campus_id } = user.value;
-  const newId = review.value.campus_id;
-  const current = campus_id || "（尚無學號）";
-
-  return approve
-    ? {
-        title: "同意變更學號",
-        message: `確定將 ${name} 的學號由 ${current} 變更為 ${newId} 嗎？帳號權限不會改變。`,
-        confirmText: "同意",
-        danger: false
-      }
-    : {
-        title: "不同意變更學號",
-        message: `確定不同意 ${name} 的學號變更申請嗎？學號會維持 ${current}。`,
-        confirmText: "不同意",
-        danger: true
-      };
-});
-
-const RESULT_TEXT: Record<ReviewDecision, (name: string) => string> = {
-  approve: (name) => `已同意，${name} 的學號已更新`,
-  reject: (name) => `已退回 ${name} 的學號變更申請`
-};
-
-const handleDecision = async (): Promise<void> => {
-  if (!user.value || !review.value || !decision.value) return;
-
-  const chosen = decision.value;
-  const { name } = user.value;
-  deciding.value = true;
+const openProof = async (): Promise<void> => {
+  if (!review.value) return;
+  // 先開視窗再填網址，避免瀏覽器把非同步開的視窗當成彈出式廣告擋掉
+  const preview = window.open("", "_blank");
+  opening.value = true;
   actionError.value = "";
-  result.value = "";
-
   try {
-    await reviewChangeRequest(chosen, user.value.user_id);
-    result.value = RESULT_TEXT[chosen](name);
+    const blob = await getEnrollmentProof(review.value.verification_id);
+    const url = URL.createObjectURL(blob);
+    if (preview) preview.location.href = url;
+    else window.location.href = url;
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
   } catch (err) {
+    preview?.close();
     actionError.value = toAdminErrorMessage(err);
   } finally {
-    deciding.value = false;
-    decision.value = null;
+    opening.value = false;
   }
+};
 
-  // 審核後重新讀取，顯示最新的身分與學號
+// 審核：通過跳確認窗；退回要填原因（學生會看到）
+const confirmingApprove = ref(false);
+const rejecting = ref(false);
+const reason = ref("");
+const deciding = ref(false);
+const result = ref("");
+
+const reloadAfterReview = async (): Promise<void> => {
   try {
     await loadUser();
   } catch (err) {
     pageError.value = toAdminErrorMessage(err);
   }
+};
+
+const handleApprove = async (): Promise<void> => {
+  if (!user.value || !review.value) return;
+  const { name } = user.value;
+  deciding.value = true;
+  actionError.value = "";
+  result.value = "";
+  try {
+    await approveEnrollment(review.value.verification_id);
+    result.value = `已通過，${name} 的帳號延長一年`;
+  } catch (err) {
+    actionError.value = toAdminErrorMessage(err);
+  } finally {
+    deciding.value = false;
+    confirmingApprove.value = false;
+  }
+  await reloadAfterReview();
+};
+
+const handleReject = async (): Promise<void> => {
+  if (!user.value || !review.value || !reason.value.trim()) return;
+  const { name } = user.value;
+  deciding.value = true;
+  actionError.value = "";
+  result.value = "";
+  try {
+    await rejectEnrollment(review.value.verification_id, reason.value.trim());
+    result.value = `已退回 ${name} 的在學證明，學生需在截止前重新上傳`;
+    rejecting.value = false;
+    reason.value = "";
+  } catch (err) {
+    actionError.value = toAdminErrorMessage(err);
+  } finally {
+    deciding.value = false;
+  }
+  await reloadAfterReview();
 };
 </script>
 
@@ -125,60 +192,114 @@ const handleDecision = async (): Promise<void> => {
         </div>
         <div class="info__row">
           <dt>電子郵件</dt>
-          <dd>{{ user.email }}</dd>
+          <dd>{{ toFullEmail(user.email) }}</dd>
         </div>
-        <div class="info__row">
-          <dt>學號</dt>
-          <dd>{{ user.campus_id || "—" }}</dd>
-        </div>
+        <template v-if="enrollment">
+          <div class="info__row">
+            <dt>學號</dt>
+            <dd>{{ enrollment.campus_id }}</dd>
+          </div>
+          <div class="info__row">
+            <dt>在學驗證</dt>
+            <dd>
+              {{ ENROLLMENT_STATE_LABELS[enrollment.state] }}
+              <span class="muted">・{{ enrollment.due_year }} 年驗證期，{{ deadlineText }} 截止</span>
+            </dd>
+          </div>
+        </template>
+        <template v-if="isExternal">
+          <div class="info__row">
+            <dt>帳號類型</dt>
+            <dd>校外人士</dd>
+          </div>
+          <div class="info__row">
+            <dt>所屬單位</dt>
+            <dd>{{ user.organization || "—" }}</dd>
+          </div>
+          <div class="info__row">
+            <dt>使用期限</dt>
+            <dd>
+              {{ user.valid_until ? formatTaipeiDate(user.valid_until) : "—" }}
+              <span v-if="externalExpired" class="expired">・已到期，無法登入</span>
+            </dd>
+          </div>
+        </template>
         <div class="info__row">
           <dt>身分</dt>
           <dd>{{ ROLE_LABELS[user.role] }}</dd>
         </div>
       </dl>
 
-      <section v-if="review" class="review">
-        <h2>學號變更申請</h2>
-        <p class="muted">申請時間：{{ formatDate(new Date(review.create_time)) }}</p>
+      <section v-if="isExternal" class="review">
+        <h2>延長使用期限</h2>
+        <p class="muted">還沒到期會從原本的到期日往後延長；已到期則從今天開始計算，延長後立即可以登入。</p>
+        <div class="extend">
+          <select v-model.number="extendYears" class="extend__select" :disabled="extending" aria-label="延長年數">
+            <option v-for="years in [1, 2, 3, 4]" :key="years" :value="years">延長 {{ years }} 年</option>
+          </select>
+          <button class="button button--primary" type="button" :disabled="extending" @click="confirmingExtend = true">
+            延長
+          </button>
+        </div>
+        <p v-if="actionError && !review" class="user-detail__error" role="alert">{{ actionError }}</p>
+      </section>
 
-        <div class="review__compare">
-          <div class="review__field">
-            <span class="review__label">目前學號</span>
-            <span class="review__campus-id review__campus-id--old">{{ user.campus_id || "—" }}</span>
-          </div>
-          <span class="review__arrow" aria-hidden="true">→</span>
-          <div class="review__field">
-            <span class="review__label">申請變更為</span>
-            <span class="review__campus-id">{{ review.campus_id }}</span>
-          </div>
+      <section v-if="review" class="review">
+        <h2>在學證明審核</h2>
+        <p class="muted">上傳時間：{{ review.create_time ? formatTaipeiDate(review.create_time) : "—" }}</p>
+
+        <div class="review__file">
+          <span>{{ review.original_name }}・{{ formatFileSize(review.size_bytes) }}</span>
+          <button class="button" type="button" :disabled="opening" @click="openProof">
+            {{ opening ? "開啟中..." : "查看檔案" }}
+          </button>
         </div>
 
         <p class="review__question">
-          是否同意將 <strong>{{ user.name }}</strong> 的學號變更為 <strong>{{ review.campus_id }}</strong>？審核期間與審核後，此帳號的權限和群組都不會改變。
+          通過後 <strong>{{ user.name }}</strong> 的帳號可再使用一年，明年 9 月需要再次驗證；退回後學生需在 {{ deadlineText }} 前重新上傳，逾期帳號會被停用。
         </p>
+
+        <label v-if="rejecting" class="review__reason">
+          <span>退回原因<strong>（必填，學生會看到）</strong></span>
+          <textarea v-model="reason" rows="3" placeholder="例如：證明文件模糊、不是本學期的在學證明" :disabled="deciding" />
+        </label>
 
         <p v-if="actionError" class="user-detail__error" role="alert">{{ actionError }}</p>
 
         <div class="review__actions">
-          <button class="button button--danger" type="button" :disabled="deciding" @click="decision = 'reject'">
-            不同意
-          </button>
-          <button class="button button--primary" type="button" :disabled="deciding" @click="decision = 'approve'">
-            同意
-          </button>
+          <template v-if="rejecting">
+            <button class="button" type="button" :disabled="deciding" @click="rejecting = false">取消</button>
+            <button class="button button--danger" type="button" :disabled="deciding || !reason.trim()" @click="handleReject">
+              {{ deciding ? "送出中..." : "確定退回" }}
+            </button>
+          </template>
+          <template v-else>
+            <button class="button button--danger" type="button" :disabled="deciding" @click="rejecting = true">退回</button>
+            <button class="button button--primary" type="button" :disabled="deciding" @click="confirmingApprove = true">
+              通過
+            </button>
+          </template>
         </div>
       </section>
     </template>
 
     <ConfirmDialog
-      :open="decision !== null"
-      :title="confirmDialog.title"
-      :message="confirmDialog.message"
-      :confirm-text="confirmDialog.confirmText"
-      :danger="confirmDialog.danger"
+      :open="confirmingExtend"
+      title="延長使用期限"
+      :message="`確定將 ${user?.name ?? ''} 的使用期限延長 ${extendYears} 年嗎？`"
+      confirm-text="延長"
+      :loading="extending"
+      @confirm="handleExtend"
+      @cancel="confirmingExtend = false"
+    />
+    <ConfirmDialog
+      :open="confirmingApprove"
+      title="通過在學驗證"
+      :message="`確定通過 ${user?.name ?? ''} 的在學證明嗎？帳號會延長一年。`"
+      confirm-text="通過"
       :loading="deciding"
-      @confirm="handleDecision"
-      @cancel="decision = null"
+      @confirm="handleApprove"
+      @cancel="confirmingApprove = false"
     />
   </section>
 </template>
@@ -268,39 +389,41 @@ h2 {
   border: 1px solid #000;
 }
 
-.review__field {
-  display: grid;
-  gap: 8px;
-  align-content: start;
-  min-width: 0;
+
+
+
+
+
+
+.review__file {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid #d8d8d8;
+  font-size: 14px;
+  overflow-wrap: anywhere;
 }
 
-.review__label {
-  color: #777;
+.review__reason {
+  display: grid;
+  gap: 8px;
   font-size: 14px;
 }
 
-.review__campus-id {
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  word-break: break-all;
+.review__reason strong {
+  color: #c00;
 }
 
-.review__campus-id--old {
-  color: #777;
-  text-decoration: line-through;
-}
-
-.review__compare {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 16px;
-}
-
-.review__arrow {
-  font-size: 18px;
+.review__reason textarea {
+  padding: 10px 12px;
+  border: 1px solid #000;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.6;
+  resize: vertical;
 }
 
 .review__question {
@@ -355,8 +478,28 @@ h2 {
   cursor: not-allowed;
 }
 
+.expired {
+  color: #c00;
+}
+
+.extend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.extend__select {
+  min-width: 140px;
+  border: 1px solid #000;
+  padding: 8px 10px;
+  background: #fff;
+  font: inherit;
+  font-size: 14px;
+}
+
 .muted {
   margin: 0;
+  font-weight: 400;
   color: #777;
   font-size: 14px;
 }

@@ -92,6 +92,9 @@ const handleLogout = async (): Promise<void> => {
               <RouterLink class="sidebar__link" to="/admin/groups" active-class="sidebar__link--active">
                 <span>所有群組</span>
               </RouterLink>
+              <RouterLink class="sidebar__link" to="/admin/projects" active-class="sidebar__link--active">
+                <span>所有專案</span>
+              </RouterLink>
             </div>
           </nav>
         </div>

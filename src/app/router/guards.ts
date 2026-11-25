@@ -2,6 +2,9 @@ import type { Router } from "vue-router";
 
 import { useAuthStore } from "@/modules/auth/store/auth.store";
 
+const PROFILE_REFRESH_MS = 5 * 60 * 1000;
+const ENROLLMENT_ROUTE = "enrollment-verify";
+
 export const registerRouterGuards = (router: Router): void => {
   router.beforeEach(async (to) => {
     const authStore = useAuthStore();
@@ -13,13 +16,25 @@ export const registerRouterGuards = (router: Router): void => {
       };
     }
 
-    if (authStore.user && !authStore.user.role) {
+    // 在學驗證狀態會隨時間改變（例如 9/1 起需要驗證），profile 超過 5 分鐘就重抓
+    const profileStale = Date.now() - authStore.profileFetchedAt > PROFILE_REFRESH_MS;
+    if (authStore.user && (!authStore.user.role || profileStale)) {
       await authStore.fetchProfile().catch(() => {
         // profile 抓失敗就讓畫面照常渲染，只是資料不完整
       });
     }
 
-    if ((to.name === "login" || to.name === "register") && authStore.user) {
+    // 需要在學驗證的學生只能使用驗證頁
+    if (authStore.user && authStore.needsEnrollmentVerification && to.name !== ENROLLMENT_ROUTE) {
+      return { name: ENROLLMENT_ROUTE };
+    }
+    // 不是學生就沒有驗證頁
+    if (to.name === ENROLLMENT_ROUTE && authStore.user?.enrollment && !authStore.user.enrollment.is_student) {
+      return { name: "dashboard" };
+    }
+
+    // 已登入就不需要登入、註冊、忘記密碼頁（要改密碼到個人資料頁）
+    if ((to.name === "login" || to.name === "register" || to.name === "forgot-password") && authStore.user) {
       return { name: "dashboard" };
     }
 

@@ -6,6 +6,7 @@ import {
   createProject as createProjectRequest,
   deleteProject as deleteProjectRequest,
   getProjects,
+  makeProjectPublic as makeProjectPublicRequest,
   publishProject as publishProjectRequest,
   updateProject as updateProjectRequest
 } from "@/modules/workspace/api/workspace.api";
@@ -99,6 +100,11 @@ export const useProjectStore = defineStore("projects", {
     },
     async close(projectId: string): Promise<WorkspaceProject> {
       const project = await closeProjectRequest(projectId);
+      this.upsert(project);
+      return project;
+    },
+    async makePublic(projectId: string): Promise<WorkspaceProject> {
+      const project = await makeProjectPublicRequest(projectId);
       this.upsert(project);
       return project;
     },
