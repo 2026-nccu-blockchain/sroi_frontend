@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import { PROJECT_REVIEWER_ROLES } from "@/modules/auth/constants";
@@ -7,6 +7,7 @@ import { useAuthStore } from "@/modules/auth/store/auth.store";
 import {
   downloadProjectInterviewFile,
   getProject,
+  getProjectSROI,
   reviewProject,
   uploadTempInterviewFile
 } from "@/modules/workspace/api/workspace.api";
@@ -24,6 +25,7 @@ import type {
   GroupRole,
   LinkedProjectForm,
   ProjectPayload,
+  ProjectSROI,
   StakeholderDraft,
   WorkspaceProject
 } from "@/modules/workspace/types/workspace.types";
@@ -66,6 +68,13 @@ const savedMessage = ref("");
 const uploadingInterviewFile = ref(false);
 const interviewFiles = ref<DraftInterviewFile[]>([]);
 const projectForms = ref<LinkedProjectForm[]>([]);
+const formsByStakeholder = computed(() => {
+  const forms = new Map<string, LinkedProjectForm>();
+  for (const form of projectForms.value) {
+    if (form.stakeholder_id) forms.set(form.stakeholder_id, form);
+  }
+  return forms;
+});
 const currentYear = currentTaipeiYear();
 const beginMonth = ref(`${currentYear}-01`);
 const endMonth = ref(`${currentYear}-12`);
@@ -109,8 +118,29 @@ const isEditorTab = (value: unknown): value is EditorTab =>
 const activeTab = computed<EditorTab>({
   get: () => (!isNew.value && isEditorTab(route.query.tab) ? route.query.tab : "info"),
   set: (tab) => {
-    const { tab: _removed, ...rest } = route.query;
+    const { tab: _removed, form: _form, ...rest } = route.query;
     void router.replace({ query: tab === "info" ? rest : { ...rest, tab } });
+  }
+});
+const focusedFormId = computed(() =>
+  activeTab.value === "forms" && typeof route.query.form === "string" ? route.query.form : ""
+);
+
+watch([focusedFormId, loading], async ([formId, isLoading]) => {
+  if (!formId || isLoading) return;
+  await nextTick();
+  const card = document.getElementById(`project-form-${formId}`);
+  card?.focus({ preventScroll: true });
+  card?.scrollIntoView({ block: "nearest" });
+}, { immediate: true });
+
+const stakeholderFormLink = (stakeholder: StakeholderDraft) => ({
+  name: "project-edit",
+  params: { projectId: projectId.value },
+  query: {
+    ...route.query,
+    tab: "forms",
+    form: formsByStakeholder.value.get(stakeholder.stakeholder_id ?? "")?.form_id
   }
 });
 
@@ -397,6 +427,46 @@ const snapshot = (): string => JSON.stringify(normalizedPayload());
 
 // 找不到專案或沒有權限時，只顯示錯誤，不畫出編輯器
 const loadFailed = ref(false);
+const projectSroi = ref<ProjectSROI | null>(null);
+const projectSroiLoading = ref(false);
+const projectSroiError = ref("");
+
+watch([activeTab, projectId, loading, savedSnapshot], async ([tab, id, isLoading], _, onCleanup) => {
+  if (tab !== "info" || !id || isLoading || loadFailed.value) return;
+  let cancelled = false;
+  onCleanup(() => { cancelled = true; });
+  projectSroiLoading.value = true;
+  projectSroiError.value = "";
+  projectSroi.value = null;
+  try {
+    const result = await getProjectSROI(id);
+    if (!cancelled) projectSroi.value = result;
+  } catch (caught) {
+    if (!cancelled) projectSroiError.value = toProjectErrorMessage(caught, "無法載入專案 SROI");
+  } finally {
+    if (!cancelled) projectSroiLoading.value = false;
+  }
+}, { immediate: true });
+
+const projectSroiRatio = computed(() => {
+  const ratio = projectSroi.value?.sroi_ratio;
+  return ratio == null ? "—" : `${Number(ratio).toFixed(2)} : 1`;
+});
+
+const projectSroiDetail = computed(() => {
+  if (projectSroiLoading.value) return "正在計算已儲存的專案資料。";
+  if (projectSroiError.value) return projectSroiError.value;
+  const result = projectSroi.value;
+  if (!result) return "";
+  if (!result.included_outcome_count) return "目前沒有達到量表門檻的成果。";
+  const missing = [
+    result.missing_proxy_count ? `${result.missing_proxy_count} 項成果待選擇財務代理變數` : "",
+    result.missing_exchange_rate_count ? `${result.missing_exchange_rate_count} 項成果待取得匯率` : ""
+  ].filter(Boolean);
+  if (missing.length) return `${missing.join("，")}。`;
+  if (Number(result.input_cost) <= 0) return "請先設定並儲存專案投入成本。";
+  return `成果總價值 ${formatMoney(result.total_social_value ?? "0")} ÷ 專案總投入 ${formatMoney(result.input_cost)}（依已儲存資料）`;
+});
 
 const isDirty = computed(() =>
   !loadFailed.value && !readOnly.value && !loading.value && snapshot() !== savedSnapshot.value
@@ -589,7 +659,10 @@ onMounted(async () => {
       ownerGroupId.value = creatableGroups.value.some((group) => group.group_id === requested) ? requested : null;
     } else {
       const cachedProject = projectStore.projects.find((item) => item.project_id === projectId.value) ?? null;
-      const project = cachedProject ?? await getProject(projectId.value);
+      const hasLinkedForms = cachedProject?.stakeholders.every((stakeholder) =>
+        cachedProject.forms.some((form) => form.stakeholder_id === stakeholder.stakeholder_id)
+      );
+      const project = cachedProject && hasLinkedForms ? cachedProject : await getProject(projectId.value);
       projectStore.upsert(project);
       hydrate(project);
     }
@@ -713,6 +786,13 @@ onMounted(async () => {
           <span>總成本（所有利害關係人的成本加總，請在「利害關係人」分頁編輯）</span>
           <strong>{{ formatMoney(totalCost) }}</strong>
         </div>
+        <div v-if="!isNew" class="project-sroi-summary" aria-live="polite">
+          <div>
+            <h3>專案整體 SROI</h3>
+            <p>{{ projectSroiDetail }}</p>
+          </div>
+          <strong>{{ projectSroiRatio }}</strong>
+        </div>
       </section>
       </fieldset>
 
@@ -751,6 +831,12 @@ onMounted(async () => {
           </div>
           <div class="stakeholder-actions">
             <RouterLink
+              v-if="formsByStakeholder.has(stakeholder.stakeholder_id ?? '')"
+              class="secondary-button stakeholder-form-link"
+              :to="stakeholderFormLink(stakeholder)"
+            >表單</RouterLink>
+            <small v-else-if="!stakeholder.stakeholder_id">儲存專案後建立表單</small>
+            <RouterLink
               v-if="stakeholder.stakeholder_id"
               class="sroi-link"
               :to="{
@@ -767,7 +853,7 @@ onMounted(async () => {
       <StakeholderDialog
         :open="stakeholderDialogOpen"
         :stakeholder="editingStakeholder"
-        :forms="projectForms"
+        :forms="projectForms.filter((form) => !form.stakeholder_id || form.stakeholder_id === editingStakeholder?.stakeholder_id)"
         :read-only="readOnly"
         :new-key="newKey"
         @save="saveStakeholder"
@@ -878,9 +964,13 @@ onMounted(async () => {
           <div><span>04</span><h2>專案表單</h2></div>
           <button v-if="!readOnly" class="secondary-button" type="button" :disabled="!canCreateForm" @click="createProjectForm">＋ 新增表單</button>
         </div>
-        <div v-for="form in projectForms" :key="form.form_id" class="linked-form-card">
+        <div v-for="form in projectForms" :id="`project-form-${form.form_id}`" :key="form.form_id" tabindex="-1"
+          class="linked-form-card" :class="{ 'linked-form-card--focused': focusedFormId === form.form_id }">
           <div>
             <strong>{{ form.title || "未命名表單" }}</strong>
+            <small v-if="form.stakeholder_id && stakeholderNameOf(form.stakeholder_id)">
+              利害關係人 · {{ stakeholderNameOf(form.stakeholder_id) }}
+            </small>
             <span :class="{ 'form-status--published': form.status === 'published' }">
               {{ form.status === "published" ? "已發布" : form.status === "closed" ? "已關閉" : "編輯中" }}
             </span>
@@ -891,9 +981,9 @@ onMounted(async () => {
           </div>
         </div>
         <div v-if="!projectForms.length" class="form-linker">
-          <p>這個專案還沒有表單，新增時會使用各利害關係人的成果作為預設區塊。</p>
+          <p>這個專案還沒有表單。儲存利害關係人後會建立專屬表單，也可以新增專案共用表單。</p>
         </div>
-        <p v-if="projectForms.some((form) => form.status === 'draft')" class="form-hint">利害關係人的成果會同步到編輯中的表單；已發布的表單不會被修改。</p>
+        <p v-if="projectForms.some((form) => form.status === 'draft')" class="form-hint">可在表單編輯器同步後續新增的成果區塊。</p>
       </section>
     </template>
   </section>
@@ -975,6 +1065,9 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .outcome-tags--static span { padding: 5px 11px; border-radius: 999px; background: #f0e8f4; color: #6d4688; font-size: 14px; font-weight: 700; }
 .stakeholder-number { padding-top: 3px; color: #999; font-size: 14px; }
 .stakeholder-actions { display: grid; gap: 7px; }
+.stakeholder-actions small { align-self: center; color: #666; font-size: 13px; }
+.stakeholder-form-link { display: grid; place-items: center; text-decoration: none; }
+.stakeholder-form-link:hover { background: #f4f4f4; }
 .sroi-link { display: grid; min-height: 40px; box-sizing: border-box; place-items: center; border: 1px solid #111; padding: 8px 12px; background: #111; color: #fff; font-size: 14px; font-weight: 750; text-align: center; text-decoration: none; white-space: nowrap; }
 .sroi-link:hover, .sroi-link:focus-visible { background: #fff; color: #111; }
 /* 會刪掉資料的按鈕：紅框，滑過變紅底 */
@@ -984,6 +1077,10 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .cost-total { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 14px 16px; background: #111; color: #fff; }
 .cost-total span { font-size: 14px; font-weight: 700; }
 .cost-total strong { font-size: 18px; }
+.project-sroi-summary { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px 18px; padding: 16px; border: 1px solid #111; }
+.project-sroi-summary h3 { margin-bottom: 6px; font-size: 15px; }
+.project-sroi-summary p { color: #555; font-size: 14px; line-height: 1.6; }
+.project-sroi-summary strong { font-size: 22px; white-space: nowrap; }
 .outcome-tags { display: flex; flex-wrap: wrap; gap: 8px; }
 .upload-hint { margin: -8px 0 0; color: #888; font-size: 14px; }
 .upload-failure { display: grid; gap: 14px; width: min(420px, calc(100vw - 72px)); }
@@ -1000,6 +1097,8 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .linked-form-card { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 18px; border: 1px solid #ded6e3; background: #faf7fc; }
 .linked-form-card > div:first-child { display: grid; gap: 7px; }
 .linked-form-card strong { font-size: 15px; }
+.linked-form-card small { color: #5f466d; font-size: 14px; }
+.linked-form-card--focused { outline: 2px solid #765292; outline-offset: 2px; }
 .linked-form-card span { width: fit-content; padding: 4px 8px; border-radius: 999px; background: #f0e8f4; color: #765292; font-size: 14px; font-weight: 700; }
 .linked-form-card .form-status--published { background: #e5f3e8; color: #2f7140; }
 .form-actions { display: flex; gap: 10px; }

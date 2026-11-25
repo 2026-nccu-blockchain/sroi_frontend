@@ -11,6 +11,7 @@ import type {
   ProjectCostsResponse,
   ProjectCreatePayload,
   ProjectPayload,
+  ProjectSROI,
   StakeholderSROI,
   StakeholderSROIPayload,
   TempInterviewFile,
@@ -67,6 +68,9 @@ export const getStakeholderSROI = (
   httpClient.get<StakeholderSROI>(
     `/project/${encodeURIComponent(projectId)}/stakeholders/${encodeURIComponent(stakeholderId)}/sroi`
   );
+
+export const getProjectSROI = (projectId: string): Promise<ProjectSROI> =>
+  httpClient.get<ProjectSROI>(`/project/${encodeURIComponent(projectId)}/sroi`);
 
 export const saveStakeholderSROI = (
   projectId: string,
