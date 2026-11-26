@@ -21,7 +21,6 @@ export interface FinancialProxy {
   name: string;
   value: string;
   currency: ProxyCurrency;
-  unit?: string;
   note: string;
   review_status: ProxyReviewStatus;
 }
@@ -30,7 +29,6 @@ export interface FinancialProxyInput {
   name: string;
   value: string;
   currency: ProxyCurrency;
-  unit?: string;
   note: string;
 }
 
