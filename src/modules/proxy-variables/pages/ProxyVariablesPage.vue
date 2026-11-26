@@ -1,100 +1,125 @@
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import {
   getFinancialProxies,
-  createFinancialProxy,
-  updateFinancialProxy,
+  getFinancialProxyCatalog,
+  getPendingFinancialProxies,
+  reviewFinancialProxy,
   deleteFinancialProxy,
-  type FinancialProxy,
+  proxyReviewLabels,
+  type FinancialProxy
 } from "../api/financialProxy.api";
+import ProxyProposalDialog from "../components/ProxyProposalDialog.vue";
+import { useAuth } from "@/modules/auth/composables/useAuth";
+import { PROJECT_REVIEWER_ROLES } from "@/modules/auth/constants";
 import { useDeleteConfirm } from "@/shared/composables/useDeleteConfirm";
 import DeleteConfirmDialog from "@/shared/components/DeleteConfirmDialog.vue";
 
 const { deleteDialog, askDelete, answerDelete } = useDeleteConfirm();
+const { user } = useAuth();
+const route = useRoute();
+const router = useRouter();
+const canReview = computed(() => PROJECT_REVIEWER_ROLES.includes(user.value?.role ?? ""));
+type ProxyTab = "catalog" | "mine" | "review";
+const tab = computed<ProxyTab>(() => {
+  if (route.query.tab === "mine") return "mine";
+  if (route.query.tab === "review" && canReview.value) return "review";
+  return "catalog";
+});
+const loaders = {
+  catalog: getFinancialProxyCatalog,
+  mine: getFinancialProxies,
+  review: getPendingFinancialProxies
+};
+const tabDescriptions: Record<ProxyTab, string> = {
+  catalog: "已通過審核的財務代理變數，登入後即可查閱及用於 SROI。",
+  mine: "查看已送出的申請和審核進度。",
+  review: "審核使用者送出的財務代理變數。"
+};
+const emptyMessages: Record<ProxyTab, string> = {
+  catalog: "目前沒有已通過的財務代理變數",
+  mine: "目前尚無財務代理變數申請",
+  review: "目前沒有待審核的申請"
+};
 
 const proxies = ref<FinancialProxy[]>([]);
 const search = ref("");
-const showForm = ref(false);
-const editingId = ref<string | null>(null);
+const showProposal = ref(false);
+const proposal = ref<FinancialProxy>();
 const error = ref("");
 const loading = ref(false);
-const saving = ref(false);
 const deletingId = ref<string | null>(null);
-const form = ref({ name: "", value: "",unit:"元",note: "" });
+const reviewingId = ref<string | null>(null);
+const reviewMessage = ref("");
+let requestId = 0;
 
 const filteredProxies = computed(() => {
   const keyword = search.value.trim().toLowerCase();
   return keyword
     ? proxies.value.filter((item) =>
         item.name.toLowerCase().includes(keyword) ||
-        item.note.toLowerCase().includes(keyword),
+        item.note.toLowerCase().includes(keyword) ||
+        item.currency.toLowerCase().includes(keyword),
       )
     : proxies.value;
 });
 
 async function loadProxies() {
+  const id = ++requestId;
   loading.value = true;
   error.value = "";
   try {
-    proxies.value = await getFinancialProxies();
+    const next = await loaders[tab.value]();
+    if (id === requestId) proxies.value = next;
   } catch (err) {
-    error.value = err instanceof Error ? err.message : "資料載入失敗";
+    if (id === requestId) error.value = err instanceof Error ? err.message : "資料載入失敗";
   } finally {
-    loading.value = false;
+    if (id === requestId) loading.value = false;
   }
 }
-onMounted(() => { void loadProxies(); });
+watch(tab, () => {
+  proxies.value = [];
+  search.value = "";
+  reviewMessage.value = "";
+  void loadProxies();
+}, { immediate: true });
 
-function openCreate() {
-  editingId.value = null;
-  form.value = { name: "", value: "",unit:"元", note: "" };
-  error.value = "";
-  showForm.value = true;
+function changeTab(next: ProxyTab) {
+  if (tab.value === next) return;
+  void router.push({ name: "proxy-variables", query: next === "catalog" ? {} : { tab: next } });
 }
-function openEdit(item: FinancialProxy) {
-  editingId.value = item.proxy_id;
-  form.value = { name: item.name, value: String(item.value),unit: item.unit ?? "元", note: item.note };
-  error.value = "";
-  showForm.value = true;
+
+function openProposal(item?: FinancialProxy) {
+  proposal.value = item;
+  showProposal.value = true;
 }
-function closeForm() {
-  if (saving.value) return;
-  showForm.value = false;
-  error.value = "";
-}
-async function saveProxy() {
-  if (saving.value) return;
-  const name = form.value.name.trim();
-  const rawValue = form.value.value.trim();
-  const value = Number(rawValue);
-  if (!name) { error.value = "請輸入財務代理變數名稱"; return; }
-  if (!rawValue || !Number.isFinite(value)) {
-    error.value = "請輸入有效的數值";
-    return;
-  }
-  saving.value = true;
+
+async function decide(item: FinancialProxy, approved: boolean) {
+  if (reviewingId.value !== null) return;
+  reviewingId.value = item.proxy_id;
+  reviewMessage.value = "";
   error.value = "";
   try {
-    const data = { name, value, unit: form.value.unit.trim(),note: form.value.note.trim() };
-    if (editingId.value) {
-      await updateFinancialProxy(editingId.value, data);
-    } else {
-      await createFinancialProxy(data);
+    await reviewFinancialProxy(item.proxy_id, approved);
+    if (tab.value === "review") {
+      proxies.value = proxies.value.filter((row) => row.proxy_id !== item.proxy_id);
+      reviewMessage.value = `「${item.name}」${approved ? "已通過審核" : "已退回"}。`;
     }
-    showForm.value = false;
-    await loadProxies();
   } catch (err) {
-    error.value = err instanceof Error ? err.message : "儲存失敗";
+    await loadProxies();
+    error.value = err instanceof Error ? err.message : "審核失敗";
   } finally {
-    saving.value = false;
+    reviewingId.value = null;
   }
 }
 async function deleteProxy(item: FinancialProxy) {
   if (deletingId.value) return;
+  const action = item.review_status === "pending" ? "撤回" : "刪除";
   const confirmed = await askDelete({
-    title: "刪除財務代理變數",
-    message: `確定要刪除「${item.name}」嗎？此動作無法復原。`
+    title: `${action}財務代理變數`,
+    message: `確定要${action}「${item.name}」嗎？此動作無法復原。`
   });
   if (!confirmed) return;
   deletingId.value = item.proxy_id;
@@ -108,74 +133,77 @@ async function deleteProxy(item: FinancialProxy) {
     deletingId.value = null;
   }
 }
-function formatValue(value: number) {
-  return new Intl.NumberFormat("zh-TW", { maximumFractionDigits: 4 }).format(value);
+function formatValue(value: string) {
+  return new Intl.NumberFormat("zh-TW", { maximumFractionDigits: 4 }).format(Number(value));
 }
 </script>
 
 <template>
   <section class="proxy-variables">
-    <p class="proxy-variables__eyebrow">共用資料庫</p>
     <h1>財務代理變數</h1>
 
     <div class="toolbar">
-      <p class="description">
-        管理 SROI 分析使用的財務代理變數。
-      </p>
-      <button class="primary-button" @click="openCreate">
-        ＋ 新增財務代理變數
-      </button>
+      <p class="description">{{ tabDescriptions[tab] }}</p>
+      <div class="toolbar-actions">
+        <button type="button" class="secondary-button" :disabled="loading || reviewingId !== null" @click="loadProxies">重新整理</button>
+        <button v-if="tab !== 'review'" type="button" class="primary-button" @click="openProposal()">＋ 新增財務代理變數</button>
+      </div>
     </div>
+
+    <nav class="review-tabs" aria-label="財務代理變數清單">
+      <button type="button" :aria-pressed="tab === 'catalog'" @click="changeTab('catalog')">共用資料庫</button>
+      <button type="button" :aria-pressed="tab === 'mine'" @click="changeTab('mine')">我的申請</button>
+      <button v-if="canReview" type="button" :aria-pressed="tab === 'review'" @click="changeTab('review')">待審核</button>
+    </nav>
 
     <div class="search-bar">
       <input
         v-model="search"
         type="search"
-        placeholder="搜尋財務代理變數名稱或備註"
+        placeholder="搜尋名稱、幣別或備註"
       />
       <span>共 {{ filteredProxies.length }} 筆</span>
     </div>
 
     <p v-if="loading" class="local-hint">正在載入資料...</p>
-    <p v-if="error && !showForm" class="error-message" role="alert">{{ error }}</p>
+    <p v-if="reviewMessage" class="local-hint" role="status">{{ reviewMessage }}</p>
+    <p v-if="error" class="error-message" role="alert">{{ error }}</p>
 
     <div class="table-wrapper">
       <table>
         <thead>
           <tr>
             <th>名稱</th>
-            <th>數值</th>
+            <th>原幣金額</th>
             <th>備註</th>
-            <th class="actions-heading">操作</th>
+            <th v-if="tab !== 'catalog'">狀態</th>
+            <th v-if="tab !== 'catalog'" class="actions-heading">操作</th>
           </tr>
         </thead>
 
         <tbody>
           <tr v-for="item in filteredProxies" :key="item.proxy_id">
             <td class="name-cell">{{ item.name }}</td>
-            <td class="value-cell">{{ formatValue(item.value) }} {{ item.unit ?? "元" }}</td>
+            <td class="value-cell">{{ item.currency }} {{ formatValue(item.value) }}</td>
             <td class="note-cell">{{ item.note || "—" }}</td>
-            <td class="actions-cell">
-              <button class="text-button" @click="openEdit(item)">
-                編輯
-              </button>
-              <button
-                class="text-button danger"
-                :disabled="deletingId !== null"
-                @click="deleteProxy(item)"
-              >
-                刪除
-              </button>
+            <td v-if="tab !== 'catalog'"><span class="review-status" :data-status="item.review_status">{{ proxyReviewLabels[item.review_status] }}</span></td>
+            <td v-if="tab !== 'catalog'" class="actions-cell">
+              <template v-if="tab === 'review'">
+                <button type="button" class="text-button" :disabled="reviewingId !== null" @click="decide(item, true)">通過</button>
+                <button type="button" class="text-button danger" :disabled="reviewingId !== null" @click="decide(item, false)">退回</button>
+              </template>
+              <template v-else>
+                <button v-if="item.review_status === 'rejected'" type="button" class="text-button" @click="openProposal(item)">修改並送審</button>
+                <button type="button" class="text-button danger" :disabled="deletingId !== null" @click="deleteProxy(item)">
+                  {{ item.review_status === "pending" ? "撤回" : "刪除" }}
+                </button>
+              </template>
             </td>
           </tr>
 
           <tr v-if="!loading && !error && filteredProxies.length === 0">
-            <td colspan="4" class="empty-state">
-              {{
-                search
-                  ? "找不到符合條件的財務代理變數"
-                  : "目前尚無財務代理變數，點擊右上角新增"
-              }}
+            <td :colspan="tab === 'catalog' ? 3 : 5" class="empty-state">
+              {{ search ? "找不到符合條件的財務代理變數" : emptyMessages[tab] }}
             </td>
           </tr>
         </tbody>
@@ -183,77 +211,12 @@ function formatValue(value: number) {
     </div>
 
 
-    <div v-if="showForm" class="modal-overlay" @click.self="closeForm">
-      <div
-        class="modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="proxy-modal-title"
-      >
-        <div class="modal-header">
-          <h2 id="proxy-modal-title">
-            {{ editingId ? "編輯財務代理變數" : "新增財務代理變數" }}
-          </h2>
-          <button class="close-button" aria-label="關閉" @click="closeForm">
-            ×
-          </button>
-        </div>
-
-        <form @submit.prevent="saveProxy">
-          <label>
-            名稱 <span class="required">*</span>
-            <input
-              v-model="form.name"
-              type="text"
-              maxlength="255"
-              placeholder="請輸入名稱"
-              required
-            />
-          </label>
-
-          <label>
-            數值 <span class="required">*</span>
-            <input
-              v-model.trim="form.value"
-              type="text"
-              inputmode="decimal"
-              placeholder="請輸入數值"
-              required
-            />
-          </label>
-
-          <label>
-            單位
-            <input
-              v-model.trim="form.unit"
-              type="text"
-              maxlength="50"
-              placeholder="例如：元／小時、元／人次"
-            />
-          </label>
-
-          <label>
-            備註
-            <textarea
-              v-model="form.note"
-              rows="4"
-              placeholder="請輸入備註（選填）"
-            ></textarea>
-          </label>
-
-          <p v-if="error" class="error-message">{{ error }}</p>
-
-          <div class="form-actions">
-            <button type="button" class="cancel-button" :disabled="saving" @click="closeForm">
-              取消
-            </button>
-            <button type="submit" class="primary-button" :disabled="saving">
-              {{ saving ? "儲存中..." : editingId ? "儲存修改" : "新增資料" }}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+    <ProxyProposalDialog
+      v-if="showProposal"
+      :proposal="proposal"
+      @close="showProposal = false"
+      @submitted="loadProxies"
+    />
     <DeleteConfirmDialog v-bind="deleteDialog" @confirm="answerDelete(true)" @cancel="answerDelete(false)" />
   </section>
 </template>
@@ -262,13 +225,6 @@ function formatValue(value: number) {
 .proxy-variables {
   display: grid;
   gap: 12px;
-}
-
-.proxy-variables__eyebrow {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 700;
-  letter-spacing: 0.15em;
 }
 
 h1 {
@@ -407,100 +363,29 @@ tbody tr:last-child td {
   font-size: 14px;
 }
 
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 1000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-  background: rgba(0, 0, 0, 0.45);
-}
-
-.modal {
-  width: min(100%, 480px);
-  max-height: 90vh;
-  overflow-y: auto;
-  border-radius: 10px;
-  padding: 24px;
-  background: #fff;
-  color: #222;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.2);
-}
-
-.modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 24px;
-}
-
-.modal-header h2 {
-  margin: 0;
-  font-size: 18px;
-}
-
-.close-button {
-  border: none;
-  background: transparent;
-  font-size: 20px;
-  cursor: pointer;
-}
-
-form {
-  display: grid;
-  gap: 18px;
-}
-
-form label {
-  display: grid;
-  gap: 8px;
-  font-size: 14px;
-  font-weight: 600;
-}
-
-form input,
-form textarea {
-  width: 100%;
-  box-sizing: border-box;
+.error-message { margin: 0; color: #b42318; font-size: 14px; }
+.toolbar-actions, .review-tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+.secondary-button, .review-tabs button {
   border: 1px solid #ccc;
   border-radius: 6px;
-  padding: 10px 12px;
+  padding: 8px 12px;
   background: #fff;
   color: #222;
   font: inherit;
-  font-weight: 400;
-}
-
-form textarea {
-  resize: vertical;
-}
-
-.required,
-.error-message {
-  color: #b42318;
-}
-
-.error-message {
-  margin: 0;
   font-size: 14px;
-}
-
-.form-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-top: 8px;
-}
-
-.cancel-button {
-  border: 1px solid #ccc;
-  border-radius: 6px;
-  padding: 10px 16px;
-  background: white;
   cursor: pointer;
 }
+.review-tabs button[aria-pressed="true"] { border-color: #222; background: #eee; font-weight: 700; }
+.review-status {
+  display: inline-block;
+  white-space: nowrap;
+  border-radius: 6px;
+  padding: 4px 8px;
+  background: #f5efe0;
+  color: #594411;
+}
+.review-status[data-status="approved"] { background: #e8f3eb; color: #245333; }
+.review-status[data-status="rejected"] { background: #f7e9e9; color: #882e2e; }
 
 @media (max-width: 600px) {
   .toolbar {

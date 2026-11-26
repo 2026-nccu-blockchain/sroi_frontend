@@ -1,8 +1,15 @@
 import type { ApiEnvelope } from "@/shared/api/http";
 
-// email 相關欄位都只傳 @ 前面的部分
-export interface LoginPayload {
-  email_prefix: string;
+// 政大師生只傳 email @ 前面的部分（email_prefix）；校外人士傳完整 email，兩者擇一
+export interface AccountIdentifier {
+  email_prefix?: string;
+  email?: string;
+}
+
+// 登入頁的分頁：政大師生、非政大師生（校外人士）
+export type LoginKind = "nccu" | "external";
+
+export interface LoginPayload extends AccountIdentifier {
   password: string;
 }
 
@@ -29,22 +36,93 @@ export interface RegisterPayload {
   name: string;
 }
 
+// 忘記密碼：寄驗證碼與驗證碼驗證的 payload 和註冊相同；驗證通過拿到 reset_token
+export interface ForgotPasswordVerifyResponse extends ApiEnvelope {
+  reset_token: string;
+}
+
+export interface ResetPasswordPayload {
+  reset_token: string;
+  new_password: string;
+}
+
 export interface LoginResponse extends ApiEnvelope {
   token: string;
 }
 
+// 在學驗證狀態：not_student 非學生；active 還沒到驗證期；required 驗證期內還沒上傳；
+// pending 已上傳等審核；rejected 被退回；expired 逾期（帳號會被刪除）
+export type EnrollmentState = "not_student" | "active" | "required" | "pending" | "rejected" | "expired";
+
+export interface EnrollmentSubmission {
+  verification_id: string;
+  status: "pending" | "approved" | "rejected";
+  reason: string | null;
+  original_name: string;
+  size_bytes: number;
+  create_time: string | null;
+  reviewed_at: string | null;
+}
+
+export interface EnrollmentInfo {
+  is_student: boolean;
+  campus_id: string | null;
+  state: EnrollmentState;
+  // 下次要驗證的民國年；當年 9/1 起驗證、10/1 00:00 截止
+  due_year: number | null;
+  window_start: string | null;
+  deadline: string | null;
+  // 這一期最新一次上傳
+  latest: EnrollmentSubmission | null;
+}
+
+export interface EnrollmentResponse extends ApiEnvelope {
+  enrollment: EnrollmentInfo;
+}
+
+export type AccountType = "nccu" | "external";
+
+// 校外人士邀請：設定密碼頁顯示的資料
+export interface ExternalInvitationInfo {
+  email: string;
+  organization: string;
+  valid_years: number;
+  expires_at: string;
+}
+
+export interface ExternalInvitationResponse extends ApiEnvelope {
+  invitation: ExternalInvitationInfo;
+}
+
+export interface AcceptInvitationPayload {
+  token: string;
+  name: string;
+  password: string;
+}
+
 export interface ProfileResponse extends ApiEnvelope {
   user_id: string;
-  campus_id?: string; // 還沒申請過學號的帳號沒有學號
+  // email 前綴是 9 碼數字才是學生，學號就是前綴；其他帳號沒有學號
+  campus_id?: string | null;
   email: string; // 只有 @ 前面的部分
   name: string;
   role?: string;
+  enrollment?: EnrollmentInfo;
+  account_type?: AccountType;
+  // 校外帳號才有
+  organization?: string | null;
+  valid_until?: string | null;
 }
 
 export interface AuthUser {
   user_id: string;
-  campus_id?: string;
+  campus_id?: string | null;
+  // 政大帳號是 @ 前面的部分；校外帳號是完整 email
   email?: string;
   name?: string;
   role?: string;
+  enrollment?: EnrollmentInfo;
+  account_type?: AccountType;
+  organization?: string | null;
+  valid_until?: string | null;
 }

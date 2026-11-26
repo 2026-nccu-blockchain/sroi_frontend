@@ -84,12 +84,13 @@ export interface TempInterviewFile {
 
 export interface LinkedProjectForm {
   form_id: string;
+  stakeholder_id?: string | null;
   title?: string | null;
   status: "draft" | "published" | "closed";
 }
 
-// 依專案期間計算的進度狀態；closed 之後再接上結案邏輯
-export type ProjectPhase = "not_started" | "in_progress" | "pending_close" | "closed";
+// 依專案期間計算的進度狀態；有 closed_at 是已結案，送出發布後（review_requested_at）是審核中，審核同意（published_at）是已發布
+export type ProjectPhase = "not_started" | "in_progress" | "pending_close" | "closed" | "reviewing" | "published";
 export type ProjectPhaseTab = ProjectPhase | "all";
 
 export interface WorkspaceProject {
@@ -99,6 +100,12 @@ export interface WorkspaceProject {
   group_id: string | null;
   created_by: string;
   my_role?: GroupRole | null;
+  // 是否為專案成員；從共用資料庫檢視別人的已發布專案時是 false
+  is_member?: boolean;
+  // 作者姓名；目前只有共用資料庫、管理員的列表會帶
+  creator_name?: string | null;
+  // 群組名稱；只有管理員的所有專案列表會帶
+  group_title?: string | null;
   name: string;
   organization: string;
   description: string;
@@ -106,6 +113,12 @@ export interface WorkspaceProject {
   begin: string;
   end: string;
   status: ProjectStatus;
+  // 結案、送審、發布至資料庫的時間；null 表示還沒（審核不同意時 review_requested_at 會清回 null）
+  closed_at: string | null;
+  review_requested_at?: string | null;
+  published_at: string | null;
+  // 群組專案草稿：只有建立者看得到，公開後組員才看得到
+  is_draft?: boolean;
   forms: LinkedProjectForm[];
   stakeholders: ProjectStakeholder[];
   outcomes: ProjectOutcome[];
@@ -115,13 +128,35 @@ export interface WorkspaceProject {
   update_time?: string | null;
 }
 
+// 專案列表只需要這些欄位；WorkspaceProject 也符合，所以我的專案、群組專案照舊傳整包
+export type ProjectListItem = Pick<
+  WorkspaceProject,
+  | "project_id"
+  | "owner_id"
+  | "group_id"
+  | "name"
+  | "organization"
+  | "begin"
+  | "end"
+  | "status"
+  | "closed_at"
+  | "review_requested_at"
+  | "published_at"
+  | "is_draft"
+  | "creator_name"
+  | "group_title"
+> & {
+  forms?: WorkspaceProject["forms"];
+  // 管理員列表不帶 forms，改帶這個
+  has_published_form?: boolean;
+};
+
 export interface ProjectPayload {
   name: string;
   organization: string;
   description: string;
   begin: string;
   end: string;
-  status: ProjectStatus;
   // 成果與成本放在各利害關係人底下
   stakeholders: Array<Omit<ProjectStakeholder, "position"> & {
     outcomes?: Array<Pick<ProjectOutcome, "outcome_id" | "name">>;
@@ -140,7 +175,12 @@ export interface OutcomeValuation {
   financial_proxy_id: string | null;
   financial_proxy_name: string | null;
   financial_proxy_note: string | null;
-  financial_proxy_value: number;
+  financial_proxy_value: number | null;
+  financial_proxy_amount: string | null;
+  financial_proxy_currency: string | null;
+  exchange_rate_month: string | null;
+  exchange_rate: string | null;
+  exchange_rate_date: string | null;
   deadweight_rate: number;
   attribution_rate: number;
   displacement_rate: number;
@@ -149,8 +189,9 @@ export interface OutcomeValuation {
   is_included: boolean;
   scale_score: number | null;
   scale_answer_count: number;
+  scale_passing_question_count: number;
   suggested_eligible: boolean | null;
-  calculated_value: number;
+  calculated_value: number | null;
 }
 
 export interface StakeholderSROI {
@@ -161,19 +202,25 @@ export interface StakeholderSROI {
   stakeholder_role: string;
   position: number;
   input_cost: number;
-  discount_rate: number;
   outcomes: OutcomeValuation[];
-  total_social_value: number;
+  total_social_value: number | null;
   sroi_ratio: number | null;
 }
 
 export interface StakeholderSROIPayload {
-  discount_rate: number;
   outcomes: Array<Pick<OutcomeValuation,
-    "outcome_id" | "quantity" | "financial_proxy_id" | "deadweight_rate" |
-    "attribution_rate" | "displacement_rate" | "duration_years" | "dropoff_rate" |
-    "is_included"
+    "outcome_id" | "financial_proxy_id" | "deadweight_rate" |
+    "attribution_rate" | "displacement_rate" | "duration_years" | "dropoff_rate" | "exchange_rate_month"
   >>;
+}
+
+export interface ProjectSROI {
+  input_cost: string;
+  total_social_value: string | null;
+  sroi_ratio: string | null;
+  included_outcome_count: number;
+  missing_proxy_count: number;
+  missing_exchange_rate_count: number;
 }
 
 // 只有建立時能指定專案位置，建立後不能在個人 / 群組之間移動

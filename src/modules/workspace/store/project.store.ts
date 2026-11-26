@@ -2,9 +2,12 @@ import { defineStore } from "pinia";
 import { useFormStore } from "@/modules/forms/store/form.store";
 
 import {
+  closeProject as closeProjectRequest,
   createProject as createProjectRequest,
   deleteProject as deleteProjectRequest,
   getProjects,
+  makeProjectPublic as makeProjectPublicRequest,
+  publishProject as publishProjectRequest,
   updateProject as updateProjectRequest
 } from "@/modules/workspace/api/workspace.api";
 import type { ProjectCreatePayload, ProjectPayload, WorkspaceProject } from "@/modules/workspace/types/workspace.types";
@@ -38,7 +41,7 @@ export const useProjectStore = defineStore("projects", {
         const currentForms = project.forms.map((linkedForm) => {
           const cached = forms.find((item) => item.form_id === linkedForm.form_id);
           return cached
-            ? { form_id: cached.form_id, title: cached.title, status: cached.status }
+            ? { ...linkedForm, title: cached.title, status: cached.status }
             : linkedForm;
         });
         return { ...project, forms: currentForms };
@@ -92,6 +95,21 @@ export const useProjectStore = defineStore("projects", {
     },
     async update(projectId: string, payload: Partial<ProjectPayload>): Promise<WorkspaceProject> {
       const project = await updateProjectRequest(projectId, payload);
+      this.upsert(project);
+      return project;
+    },
+    async close(projectId: string): Promise<WorkspaceProject> {
+      const project = await closeProjectRequest(projectId);
+      this.upsert(project);
+      return project;
+    },
+    async makePublic(projectId: string): Promise<WorkspaceProject> {
+      const project = await makeProjectPublicRequest(projectId);
+      this.upsert(project);
+      return project;
+    },
+    async publish(projectId: string): Promise<WorkspaceProject> {
+      const project = await publishProjectRequest(projectId);
       this.upsert(project);
       return project;
     },

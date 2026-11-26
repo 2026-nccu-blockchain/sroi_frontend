@@ -2,6 +2,7 @@
 import { computed, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 
+import { getOneGroup } from "@/modules/admin/api/admin.api";
 import { useAuthStore } from "@/modules/auth/store/auth.store";
 import {
   changeMemberRole,
@@ -27,7 +28,16 @@ import type {
 import { ApiError, toErrorMessage } from "@/shared/api/error-handler";
 import DeleteConfirmDialog from "@/shared/components/DeleteConfirmDialog.vue";
 
-const props = defineProps<{ groupId: string }>();
+// admin：管理員從所有群組進來，不用是組長；返回、刪除群組後都回到管理員頁面
+const props = withDefaults(defineProps<{ groupId: string; admin?: boolean }>(), { admin: false });
+
+const backTo = computed(() => ({
+  name: props.admin ? "admin-group-detail" : "group-detail",
+  params: { groupId: props.groupId }
+}));
+
+const fetchGroup = (groupId: string): Promise<GroupInfo> =>
+  props.admin ? getOneGroup(groupId) : getGroupInfo(groupId);
 
 type TabKey = "role" | "add" | "remove" | "edit";
 
@@ -75,7 +85,7 @@ const members = computed<GroupMember[]>(() => {
 const memberIds = computed(() => new Set(members.value.map((member) => member.user_id)));
 
 const refreshGroup = async (): Promise<void> => {
-  group.value = await getGroupInfo(props.groupId);
+  group.value = await fetchGroup(props.groupId);
 };
 
 const loadPage = async (groupId: string): Promise<void> => {
@@ -84,11 +94,17 @@ const loadPage = async (groupId: string): Promise<void> => {
   group.value = null;
 
   try {
-    // 先確認是組長才載入設定頁資料
-    const { group_role } = await getGroupRole(groupId);
-    if (group_role !== "leader") throw new ApiError("權限不足", "10008");
-
-    const info = await getGroupInfo(groupId);
+    let info: GroupInfo;
+    if (props.admin) {
+      info = await getOneGroup(groupId);
+      // 和組長一樣，只有審核通過的群組有設定頁
+      if (info.status !== "verified") throw new ApiError("群組尚未通過審核", "10013");
+    } else {
+      // 先確認是組長才載入設定頁資料
+      const { group_role } = await getGroupRole(groupId);
+      if (group_role !== "leader") throw new ApiError("權限不足", "10008");
+      info = await getGroupInfo(groupId);
+    }
     if (groupId !== props.groupId) return;
 
     group.value = info;
@@ -228,7 +244,7 @@ const handleDeleteGroup = async (): Promise<void> => {
 
   try {
     await deleteGroup(props.groupId);
-    await router.push("/workspace/groups");
+    await router.push(props.admin ? { name: "admin-groups" } : "/workspace/groups");
   } catch (err) {
     actionError.value = toMessage(err);
     confirmingDeleteGroup.value = false;
@@ -240,7 +256,7 @@ const handleDeleteGroup = async (): Promise<void> => {
 
 <template>
   <section class="settings-page">
-    <RouterLink class="back-link" :to="{ name: 'group-detail', params: { groupId } }" aria-label="返回群組">
+    <RouterLink class="back-link" :to="backTo" aria-label="返回群組">
       <span aria-hidden="true">←</span> 返回
     </RouterLink>
 

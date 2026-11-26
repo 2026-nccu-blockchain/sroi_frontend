@@ -1,17 +1,22 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
+import { PROJECT_REVIEWER_ROLES } from "@/modules/auth/constants";
+import { useAuthStore } from "@/modules/auth/store/auth.store";
 import {
   downloadProjectInterviewFile,
   getProject,
+  getProjectSROI,
+  reviewProject,
   uploadTempInterviewFile
 } from "@/modules/workspace/api/workspace.api";
 import ConfirmDialog from "@/modules/workspace/components/ConfirmDialog.vue";
 import InterviewUploadDialog from "@/modules/workspace/components/InterviewUploadDialog.vue";
 import ProjectPhaseBadge from "@/modules/workspace/components/ProjectPhaseBadge.vue";
+import ProjectReviewDialog from "@/modules/workspace/components/ProjectReviewDialog.vue";
 import StakeholderDialog from "@/modules/workspace/components/StakeholderDialog.vue";
-import { isProjectPhaseTab } from "@/modules/workspace/composables/useProjectPhaseTab";
+import { projectReturnQuery } from "@/modules/workspace/composables/useProjectPhaseTab";
 import { useVerifiedGroups } from "@/modules/workspace/composables/useVerifiedGroups";
 import { getProjectPhase, toProjectErrorMessage } from "@/modules/workspace/constants";
 import { useProjectStore } from "@/modules/workspace/store/project.store";
@@ -20,6 +25,7 @@ import type {
   GroupRole,
   LinkedProjectForm,
   ProjectPayload,
+  ProjectSROI,
   StakeholderDraft,
   WorkspaceProject
 } from "@/modules/workspace/types/workspace.types";
@@ -62,6 +68,13 @@ const savedMessage = ref("");
 const uploadingInterviewFile = ref(false);
 const interviewFiles = ref<DraftInterviewFile[]>([]);
 const projectForms = ref<LinkedProjectForm[]>([]);
+const formsByStakeholder = computed(() => {
+  const forms = new Map<string, LinkedProjectForm>();
+  for (const form of projectForms.value) {
+    if (form.stakeholder_id) forms.set(form.stakeholder_id, form);
+  }
+  return forms;
+});
 const currentYear = currentTaipeiYear();
 const beginMonth = ref(`${currentYear}-01`);
 const endMonth = ref(`${currentYear}-12`);
@@ -71,15 +84,24 @@ const editingStakeholder = ref<StakeholderDraft | null>(null);
 // 最後一次儲存（或載入）時的內容，用來判斷有沒有未儲存的修改
 const savedSnapshot = ref("");
 // 已儲存（或載入）的專案期間；狀態只依這份計算，畫面上改年月要等儲存後才會變
-const savedPeriod = ref<Pick<WorkspaceProject, "begin" | "end"> | null>(null);
+const savedPeriod = ref<Pick<WorkspaceProject, "begin" | "end" | "closed_at" | "published_at" | "review_requested_at"> | null>(null);
 const projectPhase = computed(() => (savedPeriod.value ? getProjectPhase(savedPeriod.value) : null));
+const publishedAt = computed(() => savedPeriod.value?.published_at ?? null);
 
 // 專案位置：null 是個人專案。新增時可選擇，入口網址 ?group= 帶入預設群組，建立後不能移動
 const { load: loadGroups, loadCreatable, titleOf } = useVerifiedGroups();
 const creatableGroups = ref<Group[]>([]);
 const ownerGroupId = ref<string | null>(null);
 const myRole = ref<GroupRole>("leader");
-const readOnly = computed(() => myRole.value === "viewer");
+// 群組專案草稿：只有建立者看得到，所以打得開草稿的人一定是建立者
+const isDraft = ref(false);
+const isViewer = computed(() => myRole.value === "viewer");
+// 審核中、已發布一定已結案
+const isClosed = computed(() =>
+  projectPhase.value === "closed" || projectPhase.value === "reviewing" || projectPhase.value === "published"
+);
+// 檢視者或已結案都只能查看
+const readOnly = computed(() => isViewer.value || isClosed.value);
 type EditorTab = "info" | "stakeholders" | "interviews" | "forms";
 
 const EDITOR_TABS: { key: EditorTab; label: string }[] = [
@@ -96,19 +118,68 @@ const isEditorTab = (value: unknown): value is EditorTab =>
 const activeTab = computed<EditorTab>({
   get: () => (!isNew.value && isEditorTab(route.query.tab) ? route.query.tab : "info"),
   set: (tab) => {
-    const { tab: _removed, ...rest } = route.query;
+    const { tab: _removed, form: _form, ...rest } = route.query;
     void router.replace({ query: tab === "info" ? rest : { ...rest, tab } });
   }
 });
+const focusedFormId = computed(() =>
+  activeTab.value === "forms" && typeof route.query.form === "string" ? route.query.form : ""
+);
 
-// 從列表進來時網址帶著 ?phase=，返回時回到原本的分頁；去 SROI 頁也帶著，繞回來才不會弄丟
-const phaseQuery = computed(() => (isProjectPhaseTab(route.query.phase) ? { phase: route.query.phase } : {}));
+watch([focusedFormId, loading], async ([formId, isLoading]) => {
+  if (!formId || isLoading) return;
+  await nextTick();
+  const card = document.getElementById(`project-form-${formId}`);
+  card?.focus({ preventScroll: true });
+  card?.scrollIntoView({ block: "nearest" });
+}, { immediate: true });
+
+const stakeholderFormLink = (stakeholder: StakeholderDraft) => ({
+  name: "project-edit",
+  params: { projectId: projectId.value },
+  query: {
+    ...route.query,
+    tab: "forms",
+    form: formsByStakeholder.value.get(stakeholder.stakeholder_id ?? "")?.form_id
+  }
+});
+
+// 從列表進來時網址帶著 ?phase=，從共用資料庫進來帶著 ?from=database，從審核專案分頁進來帶著 ?from=review，
+// 從管理員所有專案進來帶著 ?from=admin；去 SROI 頁也帶著，繞回來才不會弄丟
+const isMember = ref(true);
+const fromAdmin = computed(() => route.query.from === "admin");
+// 從管理員的群組頁進來帶著 ?from=admin-group
+const fromAdminGroup = computed(() => route.query.from === "admin-group");
+const fromReview = computed(() => route.query.from === "review");
+// 管理員不一定是成員，從管理員頁面進來時不要被當成共用資料庫
+const fromDatabase = computed(
+  () =>
+    !fromAdmin.value &&
+    !fromAdminGroup.value &&
+    (route.query.from === "database" || fromReview.value || !isMember.value)
+);
+const phaseQuery = computed(() => projectReturnQuery(route.query));
 const backTo = computed(() => {
+  if (fromAdmin.value || fromAdminGroup.value) {
+    const { from: _from, ...query } = phaseQuery.value;
+    if (fromAdmin.value) return { name: "admin-projects", query };
+    return ownerGroupId.value
+      ? { name: "admin-group-detail", params: { groupId: ownerGroupId.value }, query }
+      : { name: "admin-groups" };
+  }
+  if (fromReview.value) return { name: "dashboard", query: { tab: "review" } };
+  if (fromDatabase.value) return { name: "dashboard" };
   const query = phaseQuery.value;
   return ownerGroupId.value
     ? { name: "group-detail", params: { groupId: ownerGroupId.value }, query }
     : { name: "my-projects", query };
 });
+const backLabel = computed(() =>
+  fromAdmin.value
+    ? "← 返回所有專案"
+    : fromAdminGroup.value ? "← 返回群組"
+    : fromDatabase.value ? "← 返回共用資料庫" : ownerGroupId.value ? "← 返回群組" : "← 返回我的專案"
+);
 // 編輯時只有群組專案顯示所屬群組
 const ownerLabel = computed(() => `群組・${titleOf(ownerGroupId.value)}`);
 
@@ -116,7 +187,6 @@ const draft = reactive<Omit<ProjectPayload, "begin" | "end" | "stakeholders"> & 
   name: "",
   organization: "",
   description: "",
-  status: "draft",
   stakeholders: []
 });
 
@@ -168,8 +238,13 @@ const hydrate = (project: WorkspaceProject): void => {
   draft.description = project.description;
   beginMonth.value = toMonthValue(project.begin);
   endMonth.value = toMonthValue(project.end);
-  savedPeriod.value = { begin: project.begin, end: project.end };
-  draft.status = project.status;
+  savedPeriod.value = {
+    begin: project.begin,
+    end: project.end,
+    closed_at: project.closed_at,
+    review_requested_at: project.review_requested_at ?? null,
+    published_at: project.published_at
+  };
   // 成果、成本在回應裡是整個專案一份清單，依 stakeholder_id 分給各利害關係人
   draft.stakeholders = project.stakeholders.map((stakeholder) => ({
     key: stakeholder.stakeholder_id ?? newKey(),
@@ -203,7 +278,9 @@ const hydrate = (project: WorkspaceProject): void => {
   }));
   projectForms.value = project.forms ?? [];
   ownerGroupId.value = project.group_id;
+  isDraft.value = Boolean(project.group_id && project.is_draft);
   myRole.value = project.my_role ?? "leader";
+  isMember.value = project.is_member ?? true;
   savedSnapshot.value = snapshot();
 };
 
@@ -321,7 +398,6 @@ const normalizedPayload = (): ProjectPayload => ({
   name: draft.name.trim(),
   organization: draft.organization.trim(),
   description: draft.description.trim(),
-  status: draft.status,
   begin: monthStartIso(beginMonth.value),
   end: monthEndIso(endMonth.value),
   stakeholders: namedStakeholders.value.map((item) => ({
@@ -351,6 +427,46 @@ const snapshot = (): string => JSON.stringify(normalizedPayload());
 
 // 找不到專案或沒有權限時，只顯示錯誤，不畫出編輯器
 const loadFailed = ref(false);
+const projectSroi = ref<ProjectSROI | null>(null);
+const projectSroiLoading = ref(false);
+const projectSroiError = ref("");
+
+watch([activeTab, projectId, loading, savedSnapshot], async ([tab, id, isLoading], _, onCleanup) => {
+  if (tab !== "info" || !id || isLoading || loadFailed.value) return;
+  let cancelled = false;
+  onCleanup(() => { cancelled = true; });
+  projectSroiLoading.value = true;
+  projectSroiError.value = "";
+  projectSroi.value = null;
+  try {
+    const result = await getProjectSROI(id);
+    if (!cancelled) projectSroi.value = result;
+  } catch (caught) {
+    if (!cancelled) projectSroiError.value = toProjectErrorMessage(caught, "無法載入專案 SROI");
+  } finally {
+    if (!cancelled) projectSroiLoading.value = false;
+  }
+}, { immediate: true });
+
+const projectSroiRatio = computed(() => {
+  const ratio = projectSroi.value?.sroi_ratio;
+  return ratio == null ? "—" : `${Number(ratio).toFixed(2)} : 1`;
+});
+
+const projectSroiDetail = computed(() => {
+  if (projectSroiLoading.value) return "正在計算已儲存的專案資料。";
+  if (projectSroiError.value) return projectSroiError.value;
+  const result = projectSroi.value;
+  if (!result) return "";
+  if (!result.included_outcome_count) return "目前沒有達到量表門檻的成果。";
+  const missing = [
+    result.missing_proxy_count ? `${result.missing_proxy_count} 項成果待選擇財務代理變數` : "",
+    result.missing_exchange_rate_count ? `${result.missing_exchange_rate_count} 項成果待取得匯率` : ""
+  ].filter(Boolean);
+  if (missing.length) return `${missing.join("，")}。`;
+  if (Number(result.input_cost) <= 0) return "請先設定並儲存專案投入成本。";
+  return `成果總價值 ${formatMoney(result.total_social_value ?? "0")} ÷ 專案總投入 ${formatMoney(result.input_cost)}（依已儲存資料）`;
+});
 
 const isDirty = computed(() =>
   !loadFailed.value && !readOnly.value && !loading.value && snapshot() !== savedSnapshot.value
@@ -399,6 +515,93 @@ const persist = async (): Promise<WorkspaceProject | null> => {
 };
 
 const { leaveDialogOpen, answerLeave } = useUnsavedChanges(isDirty);
+
+// 結案、發布至資料庫：只有組長能做，按鈕放在標題列「儲存專案」的位置，依狀態替換
+const isLeader = computed(() => myRole.value === "leader");
+const closeDialogOpen = ref(false);
+const publishDialogOpen = ref(false);
+const closing = ref(false);
+const publishing = ref(false);
+// 草稿要先公開給群組才能結案
+const canClose = computed(() => isLeader.value && !isDraft.value && projectPhase.value === "pending_close");
+// 已結案才能送出發布；審核中、已發布不顯示，審核不同意會回到已結案，可以再送一次
+const canPublish = computed(() => isLeader.value && projectPhase.value === "closed");
+
+// 審核：資料庫編輯者、管理員打開審核中的專案時，在右上角顯示審核按鈕
+const authStore = useAuthStore();
+const canReview = computed(() => PROJECT_REVIEWER_ROLES.includes(authStore.user?.role ?? "") && projectPhase.value === "reviewing");
+const reviewDialogOpen = ref(false);
+const reviewing = ref(false);
+
+// 公開給群組：只有草稿的建立者（打得開草稿的人）看得到這個按鈕；公開後不能改回草稿
+const canMakePublic = computed(() => isDraft.value && !isNew.value);
+const makePublicDialogOpen = ref(false);
+const makingPublic = ref(false);
+
+const makePublic = async (): Promise<void> => {
+  makingPublic.value = true;
+  error.value = "";
+  savedMessage.value = "";
+  try {
+    hydrate(await projectStore.makePublic(projectId.value));
+    savedMessage.value = "專案已公開，群組成員都看得到了";
+  } catch (caught) {
+    error.value = toProjectErrorMessage(caught, "公開失敗");
+  } finally {
+    makingPublic.value = false;
+    makePublicDialogOpen.value = false;
+  }
+};
+
+const closeProject = async (): Promise<void> => {
+  closing.value = true;
+  error.value = "";
+  savedMessage.value = "";
+  try {
+    hydrate(await projectStore.close(projectId.value));
+    savedMessage.value = "專案已結案";
+  } catch (caught) {
+    error.value = toProjectErrorMessage(caught, "結案失敗");
+  } finally {
+    closing.value = false;
+    closeDialogOpen.value = false;
+  }
+};
+
+const publishProject = async (): Promise<void> => {
+  publishing.value = true;
+  error.value = "";
+  savedMessage.value = "";
+  try {
+    hydrate(await projectStore.publish(projectId.value));
+    savedMessage.value = "已送出審核，審核通過後會發布至資料庫";
+  } catch (caught) {
+    error.value = toProjectErrorMessage(caught, "發布失敗");
+  } finally {
+    publishing.value = false;
+    publishDialogOpen.value = false;
+  }
+};
+
+const submitReview = async (approved: boolean): Promise<void> => {
+  reviewing.value = true;
+  error.value = "";
+  savedMessage.value = "";
+  try {
+    await reviewProject(projectId.value, approved);
+    reviewDialogOpen.value = false;
+    // 審核完就回到審核專案分頁；不同意後資料庫編輯者也看不到這個專案了
+    await router.push({ name: "dashboard", query: { tab: "review" } });
+  } catch (caught) {
+    error.value = toProjectErrorMessage(caught, "審核失敗");
+    reviewDialogOpen.value = false;
+  } finally {
+    reviewing.value = false;
+  }
+};
+
+const formatDate = (iso: string | null | undefined): string =>
+  iso ? new Date(iso).toLocaleDateString("zh-TW") : "";
 
 // 不會自動儲存專案；有未儲存的修改時，離開提醒會先問使用者
 const canCreateForm = computed(() => !isNew.value && !saving.value);
@@ -456,12 +659,15 @@ onMounted(async () => {
       ownerGroupId.value = creatableGroups.value.some((group) => group.group_id === requested) ? requested : null;
     } else {
       const cachedProject = projectStore.projects.find((item) => item.project_id === projectId.value) ?? null;
-      const project = cachedProject ?? await getProject(projectId.value);
+      const hasLinkedForms = cachedProject?.stakeholders.every((stakeholder) =>
+        cachedProject.forms.some((form) => form.stakeholder_id === stakeholder.stakeholder_id)
+      );
+      const project = cachedProject && hasLinkedForms ? cachedProject : await getProject(projectId.value);
       projectStore.upsert(project);
       hydrate(project);
     }
-    if (!isNew.value && ownerGroupId.value) {
-      // 只用來顯示群組名稱，失敗不影響編輯
+    if (!isNew.value && ownerGroupId.value && isMember.value) {
+      // 只用來顯示群組名稱，失敗不影響編輯；不是成員抓不到別人的群組
       await loadGroups().catch(() => undefined);
     }
   } catch (caught) {
@@ -480,7 +686,7 @@ onMounted(async () => {
     <div class="editor-sticky">
       <header class="editor-header">
         <div>
-          <RouterLink class="back-link" :to="backTo">{{ ownerGroupId ? "← 返回群組" : "← 返回我的專案" }}</RouterLink>
+          <RouterLink class="back-link" :to="backTo">{{ backLabel }}</RouterLink>
           <p class="eyebrow">專案工作區</p>
           <div class="editor-title">
             <h1>{{ loadFailed ? "無法開啟專案" : isNew ? "新增專案" : readOnly ? "檢視專案" : "編輯專案" }}</h1>
@@ -504,8 +710,30 @@ onMounted(async () => {
         <div v-if="!loadFailed" class="editor-header__actions">
           <span v-if="isDirty && !isNew" class="dirty-hint">● 有未儲存的修改</span>
           <div class="editor-header__buttons">
+            <button
+              v-if="canMakePublic"
+              class="secondary-button"
+              type="button"
+              :disabled="saving || loading || makingPublic || isDirty"
+              :title="isDirty ? '請先儲存修改再公開' : undefined"
+              @click="makePublicDialogOpen = true"
+            >公開給群組</button>
+            <button
+              v-if="canClose"
+              class="secondary-button"
+              type="button"
+              :disabled="saving || loading || closing || isDirty"
+              :title="isDirty ? '請先儲存修改再結案' : undefined"
+              @click="closeDialogOpen = true"
+            >結案此專案</button>
             <button v-if="!readOnly" class="primary-button" type="button" :disabled="saving || loading || nameMissing" @click="persist">
               {{ saving ? (isNew ? "新增中…" : "儲存中…") : (isNew ? "新增專案" : "儲存專案") }}
+            </button>
+            <button v-if="canPublish" class="primary-button" type="button" :disabled="publishing" @click="publishDialogOpen = true">
+              發布至資料庫
+            </button>
+            <button v-if="canReview" class="primary-button" type="button" :disabled="reviewing" @click="reviewDialogOpen = true">
+              審核
             </button>
           </div>
         </div>
@@ -518,7 +746,17 @@ onMounted(async () => {
     <p v-if="loading" class="message">專案載入中…</p>
 
     <template v-else-if="!loadFailed">
-      <p v-if="readOnly" class="message">你在這個群組是檢視者，只能查看專案內容。</p>
+      <p v-if="isClosed" class="message message--closed">
+        此專案已於 {{ formatDate(savedPeriod?.closed_at) }} 結案，內容僅供檢視{{
+          publishedAt
+            ? `，並已於 ${formatDate(publishedAt)} 發布至資料庫`
+            : projectPhase === "reviewing" ? `，已於 ${formatDate(savedPeriod?.review_requested_at)} 送出發布，正在審核中` : ""
+        }}。
+      </p>
+      <p v-else-if="isDraft" class="message message--draft">
+        這是草稿，只有你看得到。公開給群組後，組員才看得到，組長與編輯者也能編輯；公開後無法改回草稿，草稿也需要先公開才能結案。
+      </p>
+      <p v-else-if="isViewer" class="message">你在這個群組是檢視者，只能查看專案內容。</p>
 
       <fieldset class="plain-fieldset" :disabled="readOnly">
       <section v-show="activeTab === 'info'" class="editor-card">
@@ -531,9 +769,6 @@ onMounted(async () => {
           <label class="field">所屬單位<input v-model="draft.organization" maxlength="255" /></label>
           <label class="field">開始年月<DateInput v-model="beginMonth" type="month" required /></label>
           <label class="field">結束年月<DateInput v-model="endMonth" type="month" :min="beginMonth" required /></label>
-          <label class="field">狀態
-            <select v-model="draft.status"><option value="draft">草稿</option><option value="published">已發布</option></select>
-          </label>
           <label v-if="isNew" class="field">專案位置
             <select v-model="ownerGroupId">
               <option :value="null">個人專案</option>
@@ -541,14 +776,22 @@ onMounted(async () => {
                 群組・{{ group.title }}
               </option>
             </select>
+            <small v-if="ownerGroupId" class="field-hint">群組專案建立後是草稿，只有你看得到，之後可以公開給群組。</small>
           </label>
-          <p v-else-if="ownerGroupId" class="field">專案位置<span class="owner-label">{{ ownerLabel }}</span></p>
+          <p v-else-if="ownerGroupId && isMember" class="field">專案位置<span class="owner-label">{{ ownerLabel }}</span></p>
           <label class="field field--wide">專案說明<textarea v-model="draft.description" rows="4"></textarea></label>
         </div>
 
         <div v-if="!isNew" class="cost-total">
           <span>總成本（所有利害關係人的成本加總，請在「利害關係人」分頁編輯）</span>
           <strong>{{ formatMoney(totalCost) }}</strong>
+        </div>
+        <div v-if="!isNew" class="project-sroi-summary" aria-live="polite">
+          <div>
+            <h3>專案整體 SROI</h3>
+            <p>{{ projectSroiDetail }}</p>
+          </div>
+          <strong>{{ projectSroiRatio }}</strong>
         </div>
       </section>
       </fieldset>
@@ -588,6 +831,12 @@ onMounted(async () => {
           </div>
           <div class="stakeholder-actions">
             <RouterLink
+              v-if="formsByStakeholder.has(stakeholder.stakeholder_id ?? '')"
+              class="secondary-button stakeholder-form-link"
+              :to="stakeholderFormLink(stakeholder)"
+            >表單</RouterLink>
+            <small v-else-if="!stakeholder.stakeholder_id">儲存專案後建立表單</small>
+            <RouterLink
               v-if="stakeholder.stakeholder_id"
               class="sroi-link"
               :to="{
@@ -604,7 +853,7 @@ onMounted(async () => {
       <StakeholderDialog
         :open="stakeholderDialogOpen"
         :stakeholder="editingStakeholder"
-        :forms="projectForms"
+        :forms="projectForms.filter((form) => !form.stakeholder_id || form.stakeholder_id === editingStakeholder?.stakeholder_id)"
         :read-only="readOnly"
         :new-key="newKey"
         @save="saveStakeholder"
@@ -634,6 +883,41 @@ onMounted(async () => {
         danger
         @confirm="answerLeave(true)"
         @cancel="answerLeave(false)"
+      />
+      <ConfirmDialog
+        :open="makePublicDialogOpen"
+        title="公開給群組"
+        message="公開後群組所有成員都看得到這個專案，組長與編輯者也能編輯，且無法改回草稿。確定要公開嗎？"
+        confirm-text="公開"
+        :loading="makingPublic"
+        @confirm="makePublic"
+        @cancel="makePublicDialogOpen = false"
+      />
+      <ConfirmDialog
+        :open="closeDialogOpen"
+        title="確定要結案嗎？"
+        message="結案後專案資料、利害關係人、訪綱、表單與 SROI 都無法再修改，且無法復原。"
+        confirm-text="結案"
+        :loading="closing"
+        danger
+        @confirm="closeProject"
+        @cancel="closeDialogOpen = false"
+      />
+      <ConfirmDialog
+        :open="publishDialogOpen"
+        title="發布至資料庫"
+        message="送出後會由資料庫編輯者審核，審核通過才會發布至共用資料庫，發布後無法撤回。確定要送出嗎？"
+        confirm-text="送出審核"
+        :loading="publishing"
+        @confirm="publishProject"
+        @cancel="publishDialogOpen = false"
+      />
+      <ProjectReviewDialog
+        :open="reviewDialogOpen"
+        :project-name="draft.name"
+        :loading="reviewing"
+        @submit="submitReview"
+        @cancel="reviewDialogOpen = false"
       />
 
       <section v-if="!isNew" v-show="activeTab === 'interviews'" class="editor-card">
@@ -680,9 +964,13 @@ onMounted(async () => {
           <div><span>04</span><h2>專案表單</h2></div>
           <button v-if="!readOnly" class="secondary-button" type="button" :disabled="!canCreateForm" @click="createProjectForm">＋ 新增表單</button>
         </div>
-        <div v-for="form in projectForms" :key="form.form_id" class="linked-form-card">
+        <div v-for="form in projectForms" :id="`project-form-${form.form_id}`" :key="form.form_id" tabindex="-1"
+          class="linked-form-card" :class="{ 'linked-form-card--focused': focusedFormId === form.form_id }">
           <div>
             <strong>{{ form.title || "未命名表單" }}</strong>
+            <small v-if="form.stakeholder_id && stakeholderNameOf(form.stakeholder_id)">
+              利害關係人 · {{ stakeholderNameOf(form.stakeholder_id) }}
+            </small>
             <span :class="{ 'form-status--published': form.status === 'published' }">
               {{ form.status === "published" ? "已發布" : form.status === "closed" ? "已關閉" : "編輯中" }}
             </span>
@@ -693,9 +981,9 @@ onMounted(async () => {
           </div>
         </div>
         <div v-if="!projectForms.length" class="form-linker">
-          <p>這個專案還沒有表單，新增時會使用各利害關係人的成果作為預設區塊。</p>
+          <p>這個專案還沒有表單。儲存利害關係人後會建立專屬表單，也可以新增專案共用表單。</p>
         </div>
-        <p v-if="projectForms.some((form) => form.status === 'draft')" class="form-hint">利害關係人的成果會同步到編輯中的表單；已發布的表單不會被修改。</p>
+        <p v-if="projectForms.some((form) => form.status === 'draft')" class="form-hint">可在表單編輯器同步後續新增的成果區塊。</p>
       </section>
     </template>
   </section>
@@ -729,6 +1017,9 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .message { padding: 12px 14px; border: 1px solid #ccc; }
 .message--error { border-color: #bd7676; color: #8c2020; }
 .message--success { border-color: #87aa8c; color: #286133; }
+.message--closed { border-color: #c9b5d6; background: #faf7fc; color: #5d3f73; }
+.message--draft { border-color: #d9c98a; background: #fdfaee; color: #6b5a14; }
+.field-hint { color: #777; font-size: 13px; font-weight: 400; }
 .plain-fieldset { display: grid; gap: 24px; min-width: 0; margin: 0; padding: 0; border: 0; }
 .owner-label { overflow: hidden; border: 1px solid #e3e3e3; padding: 11px 12px; background: #f7f7f7; color: #111; font-size: 14px; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
 .editor-card { display: grid; gap: 22px; padding: 26px; border: 1px solid #d8d8d8; background: #fff; }
@@ -774,6 +1065,9 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .outcome-tags--static span { padding: 5px 11px; border-radius: 999px; background: #f0e8f4; color: #6d4688; font-size: 14px; font-weight: 700; }
 .stakeholder-number { padding-top: 3px; color: #999; font-size: 14px; }
 .stakeholder-actions { display: grid; gap: 7px; }
+.stakeholder-actions small { align-self: center; color: #666; font-size: 13px; }
+.stakeholder-form-link { display: grid; place-items: center; text-decoration: none; }
+.stakeholder-form-link:hover { background: #f4f4f4; }
 .sroi-link { display: grid; min-height: 40px; box-sizing: border-box; place-items: center; border: 1px solid #111; padding: 8px 12px; background: #111; color: #fff; font-size: 14px; font-weight: 750; text-align: center; text-decoration: none; white-space: nowrap; }
 .sroi-link:hover, .sroi-link:focus-visible { background: #fff; color: #111; }
 /* 會刪掉資料的按鈕：紅框，滑過變紅底 */
@@ -783,6 +1077,10 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .cost-total { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 14px 16px; background: #111; color: #fff; }
 .cost-total span { font-size: 14px; font-weight: 700; }
 .cost-total strong { font-size: 18px; }
+.project-sroi-summary { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px 18px; padding: 16px; border: 1px solid #111; }
+.project-sroi-summary h3 { margin-bottom: 6px; font-size: 15px; }
+.project-sroi-summary p { color: #555; font-size: 14px; line-height: 1.6; }
+.project-sroi-summary strong { font-size: 22px; white-space: nowrap; }
 .outcome-tags { display: flex; flex-wrap: wrap; gap: 8px; }
 .upload-hint { margin: -8px 0 0; color: #888; font-size: 14px; }
 .upload-failure { display: grid; gap: 14px; width: min(420px, calc(100vw - 72px)); }
@@ -799,6 +1097,8 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .linked-form-card { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 18px; border: 1px solid #ded6e3; background: #faf7fc; }
 .linked-form-card > div:first-child { display: grid; gap: 7px; }
 .linked-form-card strong { font-size: 15px; }
+.linked-form-card small { color: #5f466d; font-size: 14px; }
+.linked-form-card--focused { outline: 2px solid #765292; outline-offset: 2px; }
 .linked-form-card span { width: fit-content; padding: 4px 8px; border-radius: 999px; background: #f0e8f4; color: #765292; font-size: 14px; font-weight: 700; }
 .linked-form-card .form-status--published { background: #e5f3e8; color: #2f7140; }
 .form-actions { display: flex; gap: 10px; }

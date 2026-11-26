@@ -47,6 +47,39 @@ export interface PageResponse {
   questions: QuestionResponse[];
 }
 
+export interface ConsentResponse {
+  consent_id: string;
+  version: number;
+  is_published: boolean;
+  title: string;
+  organization_name: string;
+  content: string;
+  secondary_use_description: string;
+  withdrawal_method: string;
+  contact_name: string;
+  contact_email: string;
+  contact_phone: string;
+  requires_guardian: boolean;
+  secondary_use_enabled: boolean;
+  published_at: string | null;
+}
+
+export type ConsentUpdatePayload = Omit<
+  ConsentResponse,
+  "consent_id" | "version" | "is_published" | "published_at"
+>;
+
+export interface ConsentSubmissionPayload {
+  consent_id: string;
+  participant_name: string;
+  participant_agreed: boolean;
+  secondary_use_agreed: boolean;
+  is_adult: boolean;
+  guardian_name?: string | null;
+  guardian_relationship?: string | null;
+  guardian_agreed?: boolean | null;
+}
+
 export interface FormResponse {
   form_id: string;
   project_id: string | null;
@@ -60,6 +93,7 @@ export interface FormResponse {
   create_time?: string | null;
   update_time?: string | null;
   pages: PageResponse[];
+  consent: ConsentResponse | null;
 }
 
 export interface PublicFormResponse {
@@ -68,6 +102,7 @@ export interface PublicFormResponse {
   content: string | null;
   shuffle_outcome_questions: boolean;
   pages: PageResponse[];
+  consent: ConsentResponse;
 }
 
 export interface AnswerPayload {
@@ -92,9 +127,22 @@ export interface FormSubmission {
   form_id: string;
   respondent_email: string | null;
   status: "draft" | "submitted";
+  is_duplicate_legacy: boolean;
   started_at: string;
   submitted_at: string | null;
   answers: SubmittedAnswer[];
+  consent?: {
+    consent_record_id: string;
+    consent_id: string;
+    participant_name: string;
+    participant_agreed: boolean;
+    secondary_use_agreed: boolean;
+    is_adult: boolean;
+    guardian_name: string | null;
+    guardian_relationship: string | null;
+    guardian_agreed: boolean | null;
+    consented_at: string;
+  } | null;
 }
 
 export interface CreateFormPayload {

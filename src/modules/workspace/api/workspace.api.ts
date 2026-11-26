@@ -11,6 +11,7 @@ import type {
   ProjectCostsResponse,
   ProjectCreatePayload,
   ProjectPayload,
+  ProjectSROI,
   StakeholderSROI,
   StakeholderSROIPayload,
   TempInterviewFile,
@@ -19,6 +20,22 @@ import type {
 
 export const getProjects = (): Promise<WorkspaceProject[]> =>
   httpClient.get<WorkspaceProject[]>("/project");
+
+// 共用資料庫：所有已發布至資料庫的專案，不限自己能存取的
+export const getPublishedProjects = (): Promise<WorkspaceProject[]> =>
+  httpClient.get<WorkspaceProject[]>("/project/published");
+
+// 審核專案：所有審核中的專案，只有資料庫編輯者能取得
+export const getReviewingProjects = (): Promise<WorkspaceProject[]> =>
+  httpClient.get<WorkspaceProject[]>("/project/reviewing");
+
+// 指定群組的專案；管理員看非成員的群組也可以（只能檢視）
+export const getGroupProjects = (groupId: string): Promise<WorkspaceProject[]> =>
+  httpClient.get<WorkspaceProject[]>(`/project?${new URLSearchParams({ group_id: groupId })}`);
+
+// 群組草稿公開給組員；只有建立者能做，公開後不能改回
+export const makeProjectPublic = (projectId: string): Promise<WorkspaceProject> =>
+  httpClient.post<WorkspaceProject>(`/project/${encodeURIComponent(projectId)}/make-public`);
 
 export const getProject = (projectId: string): Promise<WorkspaceProject> =>
   httpClient.get<WorkspaceProject>(`/project/${encodeURIComponent(projectId)}`);
@@ -32,6 +49,18 @@ export const updateProject = (projectId: string, payload: Partial<ProjectPayload
 export const deleteProject = (projectId: string): Promise<void> =>
   httpClient.delete(`/project/${encodeURIComponent(projectId)}`);
 
+// 結案、發布至資料庫都只有組長能做，且無法復原
+export const closeProject = (projectId: string): Promise<WorkspaceProject> =>
+  httpClient.post<WorkspaceProject>(`/project/${encodeURIComponent(projectId)}/close`);
+
+// 送出後進入審核中，資料庫編輯者同意後才會發布
+export const publishProject = (projectId: string): Promise<WorkspaceProject> =>
+  httpClient.post<WorkspaceProject>(`/project/${encodeURIComponent(projectId)}/publish`);
+
+// 資料庫編輯者審核：同意則發布，不同意則退回已結案
+export const reviewProject = (projectId: string, approved: boolean): Promise<WorkspaceProject> =>
+  httpClient.post<WorkspaceProject>(`/project/${encodeURIComponent(projectId)}/review`, { approved });
+
 export const getStakeholderSROI = (
   projectId: string,
   stakeholderId: string
@@ -39,6 +68,9 @@ export const getStakeholderSROI = (
   httpClient.get<StakeholderSROI>(
     `/project/${encodeURIComponent(projectId)}/stakeholders/${encodeURIComponent(stakeholderId)}/sroi`
   );
+
+export const getProjectSROI = (projectId: string): Promise<ProjectSROI> =>
+  httpClient.get<ProjectSROI>(`/project/${encodeURIComponent(projectId)}/sroi`);
 
 export const saveStakeholderSROI = (
   projectId: string,

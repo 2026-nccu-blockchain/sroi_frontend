@@ -15,16 +15,19 @@ import {
   syncProjectOutcomes,
   updatePage,
   updateForm,
+  updateFormConsent,
   updateQuestion
 } from "@/modules/forms/api/forms.api";
 import type {
   ApiQuestionType,
+  ConsentUpdatePayload,
   FormResponse,
   QuestionPayload,
   QuestionResponse
 } from "@/modules/forms/types/form.types";
 import { useFormStore } from "@/modules/forms/store/form.store";
 import { getProject } from "@/modules/workspace/api/workspace.api";
+import { isProjectClosed } from "@/modules/workspace/constants";
 import { useProjectStore } from "@/modules/workspace/store/project.store";
 import type { GroupRole } from "@/modules/workspace/types/workspace.types";
 import { HttpError } from "@/shared/api/http";
@@ -63,15 +66,29 @@ const router = useRouter();
 const { user, isAuthenticated } = useAuth();
 const formStore = useFormStore();
 const projectStore = useProjectStore();
-// 個人專案沒有 my_role，視為擁有者；群組檢視者只能看表單，不會自動儲存
+// 個人專案沒有 my_role，視為擁有者；群組檢視者或專案已結案只能看表單，不會自動儲存
 const myRole = ref<GroupRole>("leader");
-const readOnly = computed(() => myRole.value === "viewer");
+const projectClosed = ref(false);
+const readOnly = computed(() => myRole.value === "viewer" || projectClosed.value);
 const formId = ref("");
 const sourceProjectId = computed(() => typeof route.params.projectId === "string" ? route.params.projectId : "");
 const blocks = ref<Block[]>([]);
 const activeBlockId = ref("");
 const formTitle = ref("未命名表單");
 const formDescription = ref("");
+const defaultConsent = (): ConsentUpdatePayload => ({
+  title: "USR計畫參與同意書與資料授權書",
+  organization_name: "政治大學「多元共容・文山共好」USR計畫團隊",
+  content: "您好，我們需要您參與本問卷調查之資料，作為檔案紀錄，並授權給計畫辦公室與計畫主持人製作計畫成果報告書，以及作為教育目的之簡報與研究成果。參與完全出於自願，您可以選擇不參與。",
+  secondary_use_description: "若有非本計畫之老師、助理或學生欲將本課程、活動或工作坊所產生的資料作為教學或研究使用，計畫辦公室將審核其研究計畫，僅在能保護個人隱私並與計畫維持互惠關係時提供去識別化資料。",
+  withdrawal_method: "如欲撤回同意，請透過下方聯絡方式與計畫辦公室聯繫。",
+  contact_name: "政大「多元共容・文山共好」USR計畫辦公室",
+  contact_email: "nccuusr@gmail.com",
+  contact_phone: "02-29393091 分機 51479",
+  requires_guardian: true,
+  secondary_use_enabled: true
+});
+const consent = ref<ConsentUpdatePayload>(defaultConsent());
 const activeQuestionId = ref("");
 const saved = ref(false);
 const saving = ref(false);
@@ -96,6 +113,7 @@ let editRevision = 0;
 const activeTab = ref<"questions" | "responses" | "settings">("questions");
 const showThemePanel = ref(false);
 const showSettingsPanel = ref(false);
+const showConsentEditor = ref(true);
 const showQuestionTypeMenu = ref(false);
 
 const questionTypes: { value: QuestionType; label: string; icon: string }[] = [
@@ -171,6 +189,20 @@ const hydrate = (form: FormResponse): void => {
   shuffleOutcomeQuestions.value = form.shuffle_outcome_questions;
   formTitle.value = form.title ?? "未命名表單";
   formDescription.value = form.content ?? "";
+  consent.value = form.consent
+    ? {
+      title: form.consent.title,
+      organization_name: form.consent.organization_name,
+      content: form.consent.content,
+      secondary_use_description: form.consent.secondary_use_description,
+      withdrawal_method: form.consent.withdrawal_method,
+      contact_name: form.consent.contact_name,
+      contact_email: form.consent.contact_email,
+      contact_phone: form.consent.contact_phone,
+      requires_guardian: form.consent.requires_guardian,
+      secondary_use_enabled: form.consent.secondary_use_enabled
+    }
+    : defaultConsent();
   blocks.value = form.pages.map((page) => ({
     id: page.page_id,
     outcomeId: page.project_outcome_id,
@@ -201,9 +233,10 @@ const initializeForm = async (): Promise<void> => {
     const project = await getProject(sourceProjectId.value);
     projectStore.upsert(project);
     myRole.value = project.my_role ?? "leader";
+    projectClosed.value = isProjectClosed(project);
 
     const requestedFormId = String(route.params.formId ?? "");
-    // 檢視者不能新增表單
+    // 檢視者、已結案的專案不能新增表單
     if (!requestedFormId && readOnly.value) {
       await router.replace({ name: "project-edit", params: { projectId: sourceProjectId.value } });
       return;
@@ -263,7 +296,11 @@ const initializeForm = async (): Promise<void> => {
 
 const goBack = async (): Promise<void> => {
   if (sourceProjectId.value) {
-    await router.push({ name: "project-edit", params: { projectId: sourceProjectId.value }, query: { tab: "forms" } });
+    await router.push({
+      name: "project-edit",
+      params: { projectId: sourceProjectId.value },
+      query: { tab: "forms", form: formId.value || undefined }
+    });
     return;
   }
   await router.push({ name: "my-projects" });
@@ -282,6 +319,7 @@ const persistDraft = (): Promise<void> => {
   const revisionAtStart = editRevision;
   const titleSnapshot = formTitle.value;
   const descriptionSnapshot = formDescription.value;
+  const consentSnapshot = { ...consent.value };
   const blockSnapshot = blocks.value.map((block) => ({ ...block }));
   const questionSnapshot = questions.value.map((question) => ({
     ...question,
@@ -290,6 +328,7 @@ const persistDraft = (): Promise<void> => {
   activeSave = (async () => {
     try {
       await updateForm(formId.value, { title: titleSnapshot, content: descriptionSnapshot });
+      await updateFormConsent(formId.value, consentSnapshot);
       const persistedBlocks: Block[] = [];
       const persistedQuestions: Question[] = [];
       const persistedBlockByOriginalId = new Map<string, Block>();
@@ -850,6 +889,12 @@ const publishIssues = (): string[] => {
   if (!respondentBlock.value) {
     issues.push("請新增基本資料區段");
   }
+  if (!consent.value.title.trim()) issues.push("請完成知情同意書標題");
+  if (!consent.value.organization_name.trim()) issues.push("請填寫知情同意書的主辦單位");
+  if (!consent.value.content.trim()) issues.push("請完成知情同意書內容");
+  if (!consent.value.contact_name.trim() || !consent.value.contact_email.trim()) {
+    issues.push("請填寫知情同意書的聯絡人與 Email");
+  }
   for (const [blockIndex, block] of blocks.value.entries()) {
     const blockName = block.title.trim();
     const blockLabel = blockName || `區塊 ${blockIndex + 1}`;
@@ -1349,6 +1394,64 @@ onMounted(() => void initializeForm());
           </label>
         </section>
 
+        <section class="consent-editor">
+          <header class="consent-editor__header">
+            <div>
+              <span>填答前置步驟</span>
+              <h2>知情同意書</h2>
+              <p>固定顯示在基本資料與正式問卷之前，不會參與區塊排序或題目打散。</p>
+            </div>
+            <button type="button" @click="showConsentEditor = !showConsentEditor">
+              {{ showConsentEditor ? '收合' : '編輯內容' }}
+            </button>
+          </header>
+
+          <div v-if="showConsentEditor" class="consent-editor__body">
+            <label class="consent-field consent-field--wide">
+              <span>同意書標題 <b>*</b></span>
+              <input v-model="consent.title" maxlength="255" @input="touch" />
+            </label>
+            <label class="consent-field consent-field--wide">
+              <span>主辦單位 <b>*</b></span>
+              <input v-model="consent.organization_name" maxlength="255" @input="touch" />
+            </label>
+            <label class="consent-field consent-field--wide">
+              <span>參與及資料使用說明 <b>*</b></span>
+              <textarea v-model="consent.content" rows="5" @input="touch"></textarea>
+            </label>
+            <label class="consent-field consent-field--wide">
+              <span>其他教學或研究使用說明</span>
+              <textarea v-model="consent.secondary_use_description" rows="4" @input="touch"></textarea>
+            </label>
+            <label class="consent-field consent-field--wide">
+              <span>撤回同意方式</span>
+              <textarea v-model="consent.withdrawal_method" rows="2" @input="touch"></textarea>
+            </label>
+            <label class="consent-field">
+              <span>聯絡人 <b>*</b></span>
+              <input v-model="consent.contact_name" maxlength="255" @input="touch" />
+            </label>
+            <label class="consent-field">
+              <span>聯絡 Email <b>*</b></span>
+              <input v-model="consent.contact_email" type="email" maxlength="255" @input="touch" />
+            </label>
+            <label class="consent-field">
+              <span>聯絡電話</span>
+              <input v-model="consent.contact_phone" maxlength="100" @input="touch" />
+            </label>
+            <div class="consent-options consent-field--wide">
+              <label>
+                <input v-model="consent.requires_guardian" type="checkbox" @change="touch" />
+                <span><strong>包含未成年填答者</strong><small>未滿 18 歲時，必須另外取得法定代理人同意。</small></span>
+              </label>
+              <label>
+                <input v-model="consent.secondary_use_enabled" type="checkbox" @change="touch" />
+                <span><strong>詢問其他教學／研究使用授權</strong><small>此項會和參與問卷的必要同意分開，填答者可以不同意。</small></span>
+              </label>
+            </div>
+          </div>
+        </section>
+
         <section v-if="!respondentBlock" class="respondent-block-reminder">
           <div>
             <strong>尚未建立基本資料區段</strong>
@@ -1761,6 +1864,28 @@ svg { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: 
 .form-heading__title:focus { border-color: #765292 !important; }
 .form-heading__description { margin-top: 17px; color: #706a74 !important; font-size: 14px !important; line-height: 1.7; }
 
+.consent-editor { overflow: hidden; border: 1px solid #d8cbe0; border-radius: 14px; background: #fff; box-shadow: 0 2px 8px rgba(42, 27, 50, .04); }
+.consent-editor__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 22px; padding: 24px 26px; background: #faf7fc; }
+.consent-editor__header > div { display: grid; gap: 6px; }
+.consent-editor__header span { color: #765292; font-size: 14px; font-weight: 750; letter-spacing: .12em; }
+.consent-editor__header h2 { margin: 0; color: #3c3341; font-size: 18px; }
+.consent-editor__header p { margin: 0; color: #7a707e; font-size: 14px; line-height: 1.6; }
+.consent-editor__header button { flex: 0 0 auto; min-height: 36px; border: 1px solid #cdbdd7; border-radius: 8px; padding: 0 13px; background: #fff; color: #684884; font-size: 14px; font-weight: 650; }
+.consent-editor__body { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; padding: 26px; border-top: 1px solid #ebe4ef; }
+.consent-field { display: grid; min-width: 0; gap: 8px; }
+.consent-field--wide { grid-column: 1 / -1; }
+.consent-field > span { color: #554d59; font-size: 14px; font-weight: 650; }
+.consent-field b { color: #b1485c; }
+.consent-field input, .consent-field textarea { box-sizing: border-box; width: 100%; border: 1px solid #d9d1dd; border-radius: 8px; padding: 11px 12px; outline: 0; background: #fff; color: #413a45; font: inherit; font-size: 14px; line-height: 1.65; }
+.consent-field textarea { resize: vertical; }
+.consent-field input:focus, .consent-field textarea:focus { border-color: #765292; box-shadow: 0 0 0 3px rgba(118, 82, 146, .1); }
+.consent-options { display: grid; gap: 10px; }
+.consent-options > label { display: grid; grid-template-columns: 20px 1fr; align-items: start; gap: 11px; padding: 14px 16px; border: 1px solid #e1d9e5; border-radius: 9px; background: #fcfafc; }
+.consent-options input { margin-top: 3px; accent-color: #765292; }
+.consent-options span { display: grid; gap: 4px; }
+.consent-options strong { color: #4e4553; font-size: 14px; }
+.consent-options small { color: #817785; font-size: 14px; line-height: 1.55; }
+
 .question-card { padding: 31px 30px 0; transition: box-shadow 160ms ease, border-color 160ms ease; }
 .question-card--active { border-color: #d8cbe1; box-shadow: 0 5px 22px rgba(57, 35, 67, 0.08); }
 .question-card--dragging { opacity: .48; }
@@ -1875,6 +2000,10 @@ svg { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: 
   .publish-button { padding: 0 13px; }
   .workspace { padding-top: 18px; }
   .form-heading { padding: 28px 22px 22px; }
+  .consent-editor__header { align-items: stretch; flex-direction: column; }
+  .consent-editor__header button { align-self: flex-start; }
+  .consent-editor__body { grid-template-columns: 1fr; padding: 22px; }
+  .consent-field--wide { grid-column: auto; }
   .question-card { padding: 29px 20px 0; }
   .question-card__top { grid-template-columns: 1fr; gap: 14px; }
   .type-select { width: 100%; }
