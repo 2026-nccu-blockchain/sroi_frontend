@@ -15,7 +15,7 @@ const emit = defineEmits<{
 }>();
 const dialog = ref<HTMLDialogElement | null>(null);
 const doneButton = ref<HTMLButtonElement | null>(null);
-const form = ref<Omit<FinancialProxyInput, "unit">>({
+const form = ref<FinancialProxyInput>({
   name: props.proposal?.name ?? "",
   value: props.proposal?.value ?? "",
   currency: props.proposal?.currency ?? "TWD",
@@ -50,7 +50,7 @@ const submit = async (): Promise<void> => {
   error.value = "";
   try {
     const result = props.proposal
-      ? await updateFinancialProxy(props.proposal.proxy_id, { ...data, unit: props.proposal.unit })
+      ? await updateFinancialProxy(props.proposal.proxy_id, data)
       : await createFinancialProxy(data);
     submitted.value = result;
     emit("submitted", result);
